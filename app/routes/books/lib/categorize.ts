@@ -14,7 +14,7 @@ export interface BookAvailState {
 
 export type FormatFilter = "all" | "ebook" | "audiobook";
 
-function categorizeBook(state?: BookAvailState): BookCategory {
+export function categorizeBook(state?: BookAvailState): BookCategory {
   if (!state || state.status === "pending") return "pending";
   if (state.status === "loading" && !state.data) return "pending";
   if (!state.data || state.data.results.length === 0) return "not_found";

@@ -8,7 +8,8 @@
     "typecheck": "react-router typegen && tsc",
     "lint": "oxlint app/",
     "knip": "knip",
-    "test": "npm run lint && npm run typecheck && npm run knip && npm run build"
+    "test:unit": "vitest run",
+    "test": "npm run lint && npm run typecheck && npm run test:unit && npm run knip && npm run build"
   },
   "dependencies": {
     "@posthog/react": "^1.9.0",
@@ -25,10 +26,13 @@
     "@types/node": "^22.19.17",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@vitest/browser-playwright": "^4.1.4",
     "knip": "^6.4.1",
     "oxlint": "^1.60.0",
+    "playwright": "^1.59.1",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
-    "vite": "^8.0.3"
+    "vite": "^8.0.3",
+    "vitest": "^4.1.4"
   }
 }
