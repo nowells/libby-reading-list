@@ -19,6 +19,11 @@ export interface LibbyMediaItem {
   formats: Array<{ id: string; name: string }>;
   creators: Array<{ name: string; role: string }>;
   covers?: { cover150Wide?: { href: string } };
+  series?: string;
+  detailedSeries?: {
+    seriesName: string;
+    readingOrder: string;
+  };
   isAvailable?: boolean;
   ownedCopies?: number;
   availableCopies?: number;
@@ -120,13 +125,24 @@ export async function searchLibraryByName(
   return libraries;
 }
 
+const STOP_WORDS = new Set([
+  "a", "an", "the", "and", "or", "of", "in", "on", "at", "to", "for",
+  "is", "it", "by", "as", "be", "no", "not", "but", "from", "with",
+]);
+
+function normalize(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function contentWords(s: string): string[] {
+  return normalize(s).split(" ").filter((w) => !STOP_WORDS.has(w) && w.length > 0);
+}
+
 function similarityScore(a: string, b: string): number {
-  const normalize = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
   const na = normalize(a);
   const nb = normalize(b);
   if (na === nb) return 1;
@@ -137,6 +153,18 @@ function similarityScore(a: string, b: string): number {
   return (2 * intersection.length) / (wordsA.length + wordsB.length);
 }
 
+// Check that the significant words in the search title appear in the result.
+// Returns false for series books that share only common words like "sea".
+function contentWordsMatch(searchTitle: string, resultTitle: string): boolean {
+  const searchContent = contentWords(searchTitle);
+  const resultContent = contentWords(resultTitle);
+  if (searchContent.length === 0) return true;
+
+  const matchCount = searchContent.filter((w) => resultContent.includes(w)).length;
+  // At least half of the content words from the search must appear in the result
+  return matchCount >= Math.ceil(searchContent.length / 2);
+}
+
 export interface BookAvailabilityResult {
   mediaItem: LibbyMediaItem;
   availability: AvailabilityInfo;
@@ -145,10 +173,16 @@ export interface BookAvailabilityResult {
   libraryKey: string;
 }
 
+export interface SeriesInfo {
+  seriesName: string;
+  readingOrder: string;
+}
+
 export interface BookAvailability {
   bookTitle: string;
   bookAuthor: string;
   coverUrl?: string;
+  seriesInfo?: SeriesInfo;
   results: BookAvailabilityResult[];
 }
 
@@ -184,7 +218,7 @@ export async function findBookInLibrary(
           ? similarityScore(author, authorName)
           : 0.5;
 
-        if (titleScore >= 0.4 && authorScore >= 0.3) {
+        if (titleScore >= 0.4 && authorScore >= 0.3 && contentWordsMatch(title, item.title)) {
           seenIds.add(item.id);
           try {
             const avail = await getAvailability(libraryKey, item.id);
@@ -210,13 +244,20 @@ export async function findBookInLibrary(
 
   result.results.sort((a, b) => b.matchScore - a.matchScore);
 
-  // Pick the best cover image from the highest-scoring result
+  // Pick the best cover image and series info from the highest-scoring result
   for (const r of result.results) {
     const href = r.mediaItem.covers?.cover150Wide?.href;
-    if (href) {
+    if (href && !result.coverUrl) {
       result.coverUrl = href;
-      break;
     }
+    const ds = r.mediaItem.detailedSeries;
+    if (ds && !result.seriesInfo) {
+      result.seriesInfo = {
+        seriesName: ds.seriesName,
+        readingOrder: ds.readingOrder,
+      };
+    }
+    if (result.coverUrl && result.seriesInfo) break;
   }
 
   return result;

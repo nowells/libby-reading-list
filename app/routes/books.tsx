@@ -120,6 +120,9 @@ function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]) {
           if (!merged.coverUrl && result.coverUrl) {
             merged.coverUrl = result.coverUrl;
           }
+          if (!merged.seriesInfo && result.seriesInfo) {
+            merged.seriesInfo = result.seriesInfo;
+          }
         }
 
         // Deduplicate by library+mediaItem (keep unique per library)
@@ -244,6 +247,22 @@ function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]) {
 
 // --- UI Components ---
 
+const SOON_THRESHOLD_DAYS = 14;
+
+type BookCategory = "available" | "soon" | "waiting" | "not_found" | "pending";
+
+function categorizeBook(state?: BookAvailState): BookCategory {
+  if (!state || state.status === "pending" || state.status === "loading") return "pending";
+  if (!state.data || state.data.results.length === 0) return "not_found";
+  if (state.data.results.some((r) => r.availability.isAvailable)) return "available";
+  const minWait = Math.min(
+    ...state.data.results
+      .map((r) => r.availability.estimatedWaitDays ?? Infinity)
+  );
+  if (minWait <= SOON_THRESHOLD_DAYS) return "soon";
+  return "waiting";
+}
+
 function libbyTitleUrl(libraryKey: string, titleId: string) {
   return `https://libbyapp.com/library/${libraryKey}/everything/page-1/${titleId}`;
 }
@@ -259,6 +278,21 @@ function formatType(type: string): string {
   }
 }
 
+function FormatIcon({ type }: { type: string }) {
+  if (type === "ebook") {
+    return (
+      <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+    </svg>
+  );
+}
+
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
@@ -270,7 +304,7 @@ function timeAgo(ts: number): string {
   return `${days}d ago`;
 }
 
-function LibraryIcon({ libraryKey, libraries }: { libraryKey: string; libraries: LibraryConfig[] }) {
+function LibraryIcon({ libraryKey, libraries, className }: { libraryKey: string; libraries: LibraryConfig[]; className?: string }) {
   const lib = libraries.find((l) => l.key === libraryKey);
   if (lib?.logoUrl) {
     return (
@@ -278,11 +312,10 @@ function LibraryIcon({ libraryKey, libraries }: { libraryKey: string; libraries:
         src={lib.logoUrl}
         alt={lib.name}
         title={lib.name}
-        className="h-4 w-auto rounded bg-white p-0.5 flex-shrink-0"
+        className={className ?? "h-4 w-auto rounded bg-white p-0.5 flex-shrink-0"}
       />
     );
   }
-  // Fallback: first letter of library name
   const initial = lib?.name?.[0]?.toUpperCase() ?? "L";
   return (
     <span
@@ -294,110 +327,327 @@ function LibraryIcon({ libraryKey, libraries }: { libraryKey: string; libraries:
   );
 }
 
-function AvailabilityBadge({
-  state,
-  libraries,
-  onRefresh,
+function LibraryName({ libraryKey, libraries }: { libraryKey: string; libraries: LibraryConfig[] }) {
+  const lib = libraries.find((l) => l.key === libraryKey);
+  return <>{lib?.name ?? libraryKey}</>;
+}
+
+function EtaBadge({ days }: { days?: number }) {
+  if (days == null) return <span className="text-gray-400 dark:text-gray-500">&mdash;</span>;
+  let color = "text-red-500 dark:text-red-400";
+  if (days <= 7) color = "text-green-500 dark:text-green-400";
+  else if (days <= SOON_THRESHOLD_DAYS) color = "text-blue-500 dark:text-blue-400";
+  else if (days <= 60) color = "text-yellow-500 dark:text-yellow-400";
+  return <span className={`font-medium ${color}`}>~{days}d</span>;
+}
+
+type FormatFilter = "all" | "ebook" | "audiobook";
+
+function categorizeBookWithFormat(state: BookAvailState | undefined, formatFilter: FormatFilter): BookCategory {
+  if (!state || state.status === "pending" || state.status === "loading") return "pending";
+  const results = formatFilter === "all"
+    ? (state.data?.results ?? [])
+    : (state.data?.results ?? []).filter((r) => r.formatType === formatFilter);
+  if (results.length === 0) return "not_found";
+  if (results.some((r) => r.availability.isAvailable)) return "available";
+  const minWait = Math.min(...results.map((r) => r.availability.estimatedWaitDays ?? Infinity));
+  if (minWait <= SOON_THRESHOLD_DAYS) return "soon";
+  return "waiting";
+}
+
+function SummaryStats({
+  available,
+  soon,
+  waiting,
+  notFound,
+  activeCategory,
+  onToggleCategory,
 }: {
-  state: BookAvailState;
-  libraries: LibraryConfig[];
-  onRefresh: () => void;
+  available: number;
+  soon: number;
+  waiting: number;
+  notFound: number;
+  activeCategory: BookCategory | null;
+  onToggleCategory: (cat: BookCategory) => void;
 }) {
-  if (state.status === "pending" || state.status === "loading") {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">
-        <span className="inline-block w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-        Checking...
-      </span>
-    );
-  }
-
-  const avail = state.data;
-
-  if (!avail || avail.results.length === 0) {
-    return (
-      <div className="flex items-center gap-2">
-        <span className="text-sm px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full">
-          Not found
-        </span>
-        <RefreshButton fetchedAt={state.fetchedAt} onRefresh={onRefresh} />
-      </div>
-    );
-  }
-
-  const available = avail.results.filter((r) => r.availability.isAvailable);
-  const waitlist = avail.results.filter((r) => !r.availability.isAvailable);
+  const stats: { key: BookCategory; label: string; count: number; bg: string; activeBg: string; border: string; activeBorder: string; text: string }[] = [
+    { key: "available", label: "AVAILABLE", count: available, bg: "bg-green-500/10 dark:bg-green-500/20", activeBg: "bg-green-500/25 dark:bg-green-500/35", border: "border-green-500/30", activeBorder: "border-green-500", text: "text-green-500" },
+    { key: "soon", label: "SOON", count: soon, bg: "bg-blue-500/10 dark:bg-blue-500/20", activeBg: "bg-blue-500/25 dark:bg-blue-500/35", border: "border-blue-500/30", activeBorder: "border-blue-500", text: "text-blue-500" },
+    { key: "waiting", label: "WAITING", count: waiting, bg: "bg-yellow-500/10 dark:bg-yellow-500/20", activeBg: "bg-yellow-500/25 dark:bg-yellow-500/35", border: "border-yellow-500/30", activeBorder: "border-yellow-500", text: "text-yellow-500" },
+    { key: "not_found", label: "NOT FOUND", count: notFound, bg: "bg-red-500/10 dark:bg-red-500/20", activeBg: "bg-red-500/25 dark:bg-red-500/35", border: "border-red-500/30", activeBorder: "border-red-500", text: "text-red-500" },
+  ];
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {available.map((r) => {
-        const preferredKey = libraries.find((l) => l.key === r.libraryKey)?.preferredKey ?? r.libraryKey;
+    <div className="grid grid-cols-4 gap-2 sm:gap-3 mb-4">
+      {stats.map((s) => {
+        const isActive = activeCategory === s.key;
         return (
-          <a
-            key={`${r.libraryKey}-${r.mediaItem.id}`}
-            href={libbyTitleUrl(preferredKey, r.mediaItem.id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full hover:bg-green-200 dark:hover:bg-green-900/60 transition-colors"
+          <button
+            key={s.key}
+            onClick={() => onToggleCategory(s.key)}
+            className={`flex flex-col items-center py-3 rounded-xl border transition-all cursor-pointer ${
+              isActive ? `${s.activeBg} ${s.activeBorder} ring-1 ring-inset ring-current/10` : `${s.bg} ${s.border}`
+            } ${!isActive && activeCategory ? "opacity-50" : ""}`}
           >
-            <LibraryIcon libraryKey={r.libraryKey} libraries={libraries} />
-            {formatType(r.formatType)} available
-          </a>
+            <span className={`text-2xl sm:text-3xl font-bold ${s.text}`}>{s.count}</span>
+            <span className="text-[10px] sm:text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+              {s.label}
+            </span>
+          </button>
         );
       })}
-      {waitlist.map((r) => {
-        const preferredKey = libraries.find((l) => l.key === r.libraryKey)?.preferredKey ?? r.libraryKey;
-        return (
-          <a
-            key={`${r.libraryKey}-${r.mediaItem.id}`}
-            href={libbyTitleUrl(preferredKey, r.mediaItem.id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 rounded-full hover:bg-yellow-200 dark:hover:bg-yellow-900/60 transition-colors"
-          >
-            <LibraryIcon libraryKey={r.libraryKey} libraries={libraries} />
-            {formatType(r.formatType)} — {r.availability.numberOfHolds} hold
-            {r.availability.numberOfHolds !== 1 ? "s" : ""},{" "}
-            {r.availability.copiesAvailable}/{r.availability.copiesOwned} copies
-            {r.availability.estimatedWaitDays
-              ? ` (~${r.availability.estimatedWaitDays}d)`
-              : ""}
-          </a>
-        );
-      })}
-      <RefreshButton fetchedAt={state.fetchedAt} onRefresh={onRefresh} />
     </div>
   );
 }
 
-function RefreshButton({
-  fetchedAt,
+function FormatFilterBar({
+  active,
+  onToggle,
+}: {
+  active: FormatFilter;
+  onToggle: (f: FormatFilter) => void;
+}) {
+  const options: { key: FormatFilter; label: string; icon: React.ReactNode }[] = [
+    { key: "all", label: "All", icon: null },
+    {
+      key: "ebook",
+      label: "eBooks",
+      icon: <FormatIcon type="ebook" />,
+    },
+    {
+      key: "audiobook",
+      label: "Audiobooks",
+      icon: <FormatIcon type="audiobook" />,
+    },
+  ];
+
+  return (
+    <div className="flex items-center gap-2 mb-6">
+      {options.map((o) => (
+        <button
+          key={o.key}
+          onClick={() => onToggle(o.key)}
+          className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+            active === o.key
+              ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 border-transparent"
+              : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
+          }`}
+        >
+          {o.icon}
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function BookCard({
+  book,
+  state,
+  libraries,
+  formatFilter,
   onRefresh,
 }: {
-  fetchedAt?: number;
+  book: Book;
+  state: BookAvailState;
+  libraries: LibraryConfig[];
+  formatFilter: FormatFilter;
   onRefresh: () => void;
 }) {
+  const [expanded, setExpanded] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+  const category = categorizeBookWithFormat(state, formatFilter);
+  const isLoading = state.status === "pending" || state.status === "loading";
+  const isDone = state.status === "done" || state.status === "cached";
+  const rawResults = state.data?.results ?? [];
+  const filteredRaw = formatFilter === "all" ? rawResults : rawResults.filter((r) => r.formatType === formatFilter);
+  const availableCount = filteredRaw.filter((r) => r.availability.isAvailable).length;
+
+  // Sort by ETA: available first (0), then by estimatedWaitDays ascending
+  const results = useMemo(() => {
+    return [...filteredRaw].sort((a, b) => {
+      const etaA = a.availability.isAvailable ? -1 : (a.availability.estimatedWaitDays ?? Infinity);
+      const etaB = b.availability.isAvailable ? -1 : (b.availability.estimatedWaitDays ?? Infinity);
+      return etaA - etaB;
+    });
+  }, [filteredRaw]);
+
+  const MAX_VISIBLE = 4;
+  const hasMore = results.length > MAX_VISIBLE;
+  const visibleResults = showAll ? results : results.slice(0, MAX_VISIBLE);
+
+  const borderColor =
+    category === "available"
+      ? "border-green-500"
+      : category === "soon"
+        ? "border-blue-400"
+        : category === "waiting"
+          ? "border-yellow-400"
+          : category === "pending"
+            ? "border-blue-300 dark:border-blue-700"
+            : "border-gray-200 dark:border-gray-700";
+
   return (
-    <button
-      onClick={onRefresh}
-      title={fetchedAt ? `Last checked ${timeAgo(fetchedAt)}` : "Refresh"}
-      className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+    <div
+      className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 transition-colors duration-300 overflow-hidden ${borderColor}`}
     >
-      <svg
-        className="w-3 h-3"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
+      {/* Book header */}
+      <button
+        onClick={() => setExpanded((e) => !e)}
+        className="w-full flex items-center gap-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
       >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-        />
-      </svg>
-      {fetchedAt && <span>{timeAgo(fetchedAt)}</span>}
-    </button>
+        {(state.data?.coverUrl || book.imageUrl) && (
+          <img
+            src={state.data?.coverUrl ?? book.imageUrl}
+            alt={book.title}
+            className="w-12 h-[4.5rem] object-cover rounded-md flex-shrink-0"
+          />
+        )}
+        <div className="flex-1 min-w-0">
+          <span className="font-semibold text-gray-900 dark:text-white line-clamp-1">
+            {book.title}
+          </span>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {book.author || "Unknown Author"}
+          </p>
+          {state.data?.seriesInfo && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+              Book {state.data.seriesInfo.readingOrder} in{" "}
+              <span className="italic">{state.data.seriesInfo.seriesName}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {isLoading && (
+            <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">
+              <span className="inline-block w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+              Checking
+            </span>
+          )}
+          {isDone && category === "available" && (
+            <span className="text-sm px-3 py-1.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full font-medium">
+              {availableCount} ready
+            </span>
+          )}
+          {isDone && category === "soon" && (
+            <span className="text-sm px-3 py-1.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full font-medium">
+              Soon
+            </span>
+          )}
+          {isDone && category === "waiting" && (
+            <span className="text-sm px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 rounded-full font-medium">
+              Waitlist
+            </span>
+          )}
+          {isDone && category === "not_found" && (
+            <span className="text-sm px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full">
+              Not found
+            </span>
+          )}
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+
+      {/* Expanded detail table */}
+      {expanded && isDone && results.length > 0 && (
+        <div className="border-t border-gray-100 dark:border-gray-700">
+          {/* Table header */}
+          <div className="grid grid-cols-[24px_24px_1fr_1fr_1fr] sm:grid-cols-[1fr_100px_70px_70px_60px] gap-x-2 sm:gap-x-3 px-4 py-2 text-[10px] sm:text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+            <span className="hidden sm:block">Library</span>
+            <span className="hidden sm:block">Format</span>
+            <span className="text-right">Holds</span>
+            <span className="text-right">Copies</span>
+            <span className="text-right">ETA</span>
+          </div>
+          {/* Table rows */}
+          {visibleResults.map((r) => {
+            const preferredKey = libraries.find((l) => l.key === r.libraryKey)?.preferredKey ?? r.libraryKey;
+            const url = libbyTitleUrl(preferredKey, r.mediaItem.id);
+            return (
+              <a
+                key={`${r.libraryKey}-${r.mediaItem.id}`}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="grid grid-cols-[24px_24px_1fr_1fr_1fr] sm:grid-cols-[1fr_100px_70px_70px_60px] gap-x-2 sm:gap-x-3 px-4 py-2.5 items-center border-t border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group"
+              >
+                <span className="flex items-center gap-2 min-w-0 text-sm text-gray-700 dark:text-gray-300">
+                  <LibraryIcon libraryKey={r.libraryKey} libraries={libraries} />
+                  <span className="hidden sm:inline truncate"><LibraryName libraryKey={r.libraryKey} libraries={libraries} /></span>
+                </span>
+                <span className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+                  <FormatIcon type={r.formatType} />
+                  <span className="hidden sm:inline">{formatType(r.formatType)}</span>
+                </span>
+                <span className={`text-right text-sm tabular-nums ${r.availability.numberOfHolds > 100 ? "text-red-500 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}>
+                  {r.availability.isAvailable ? (
+                    <span className="text-green-600 dark:text-green-400 font-medium">0</span>
+                  ) : (
+                    r.availability.numberOfHolds
+                  )}
+                </span>
+                <span className="text-right text-sm text-gray-700 dark:text-gray-300 tabular-nums">
+                  {r.availability.copiesAvailable}/{r.availability.copiesOwned}
+                </span>
+                <span className="text-right text-sm">
+                  {r.availability.isAvailable ? (
+                    <span className="text-green-600 dark:text-green-400 font-medium">Now</span>
+                  ) : (
+                    <EtaBadge days={r.availability.estimatedWaitDays} />
+                  )}
+                </span>
+              </a>
+            );
+          })}
+          {/* Show more / less toggle */}
+          {hasMore && (
+            <button
+              onClick={() => setShowAll((s) => !s)}
+              className="w-full text-center py-2 border-t border-gray-50 dark:border-gray-700/50 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            >
+              {showAll ? "Show less" : `Show ${results.length - MAX_VISIBLE} more`}
+            </button>
+          )}
+          {/* Refresh row */}
+          <div className="flex items-center justify-end px-4 py-2 border-t border-gray-50 dark:border-gray-700/50">
+            <button
+              onClick={onRefresh}
+              title={state.fetchedAt ? `Last checked ${timeAgo(state.fetchedAt)}` : "Refresh"}
+              className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {state.fetchedAt && <span>{timeAgo(state.fetchedAt)}</span>}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Not found - show refresh */}
+      {expanded && isDone && results.length === 0 && (
+        <div className="flex items-center justify-end px-4 py-2 border-t border-gray-100 dark:border-gray-700">
+          <button
+            onClick={onRefresh}
+            title={state.fetchedAt ? `Last checked ${timeAgo(state.fetchedAt)}` : "Refresh"}
+            className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {state.fetchedAt && <span>{timeAgo(state.fetchedAt)}</span>}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -486,6 +736,10 @@ export default function Books() {
   const [searchParams, setSearchParams] = useSearchParams();
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
 
+  // Filters
+  const [categoryFilter, setCategoryFilter] = useState<BookCategory | null>(null);
+  const [formatFilter, setFormatFilter] = useState<FormatFilter>("all");
+
   const {
     availMap,
     checkedCount,
@@ -496,26 +750,50 @@ export default function Books() {
     oldestFetchedAt,
   } = useAvailabilityChecker(ready ? books : [], libraries);
 
-  const libraryNames = libraries.map((l) => l.name).join(", ");
+  const categoryCounts = useMemo(() => {
+    const counts = { available: 0, soon: 0, waiting: 0, not_found: 0 };
+    for (const book of books) {
+      const cat = categorizeBookWithFormat(availMap[book.id], formatFilter);
+      if (cat !== "pending" && cat in counts) {
+        counts[cat as keyof typeof counts]++;
+      }
+    }
+    return counts;
+  }, [books, availMap, formatFilter]);
 
-  const scoreFor = (s?: BookAvailState) => {
-    if (!s?.data) return 0;
-    if (s.data.results.some((r) => r.availability.isAvailable)) return 2;
-    if (s.data.results.length > 0) return 1;
-    return 0;
+  const categoryScore = (cat: BookCategory) => {
+    switch (cat) {
+      case "available": return 4;
+      case "soon": return 3;
+      case "waiting": return 2;
+      case "not_found": return 1;
+      default: return 0;
+    }
   };
 
-  const sortedBooks = useMemo(() => {
-    return [...books].sort((a, b) => {
-      const scoreA = scoreFor(availMap[a.id]);
-      const scoreB = scoreFor(availMap[b.id]);
+  const sortedAndFilteredBooks = useMemo(() => {
+    let filtered = [...books];
+
+    // Apply category filter
+    if (categoryFilter) {
+      filtered = filtered.filter(
+        (b) => categorizeBookWithFormat(availMap[b.id], formatFilter) === categoryFilter
+      );
+    }
+
+    // Sort by category score then title
+    filtered.sort((a, b) => {
+      const scoreA = categoryScore(categorizeBookWithFormat(availMap[a.id], formatFilter));
+      const scoreB = categoryScore(categorizeBookWithFormat(availMap[b.id], formatFilter));
       if (scoreB !== scoreA) return scoreB - scoreA;
       return a.title.localeCompare(b.title);
     });
-  }, [books, availMap]);
 
-  const totalPages = Math.ceil(sortedBooks.length / PAGE_SIZE);
-  const paginatedBooks = sortedBooks.slice(
+    return filtered;
+  }, [books, availMap, categoryFilter, formatFilter]);
+
+  const totalPages = Math.ceil(sortedAndFilteredBooks.length / PAGE_SIZE);
+  const paginatedBooks = sortedAndFilteredBooks.slice(
     (page - 1) * PAGE_SIZE,
     page * PAGE_SIZE
   );
@@ -523,6 +801,16 @@ export default function Books() {
   const goToPage = (p: number) => {
     setSearchParams({ page: String(p) });
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleToggleCategory = (cat: BookCategory) => {
+    setCategoryFilter((prev) => (prev === cat ? null : cat));
+    setSearchParams({ page: "1" });
+  };
+
+  const handleToggleFormat = (f: FormatFilter) => {
+    setFormatFilter(f);
+    setSearchParams({ page: "1" });
   };
 
   if (!ready) return null;
@@ -534,21 +822,35 @@ export default function Books() {
           <div className="flex items-center gap-3">
             <Logo className="w-9 h-9" />
             <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              ShelfCheck
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {books.length} books &middot; Availability at{" "}
-              <span className="font-medium">{libraryNames}</span>
-            </p>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                ShelfCheck
+              </h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {books.length} books &middot; {libraries.length} {libraries.length === 1 ? "library" : "libraries"}
+              </p>
             </div>
           </div>
-          <Link
-            to="/setup"
-            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            Settings
-          </Link>
+          <div className="flex items-center gap-3">
+            {oldestFetchedAt && checkedCount === totalBooks && loadingCount === 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 dark:text-gray-500">
+                  Updated {timeAgo(oldestFetchedAt)}
+                </span>
+                <button
+                  onClick={refreshAll}
+                  className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                >
+                  Refresh All
+                </button>
+              </div>
+            )}
+            <Link
+              to="/setup"
+              className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            >
+              Settings
+            </Link>
+          </div>
         </div>
 
         {books.length === 0 && (
@@ -565,7 +867,7 @@ export default function Books() {
           </div>
         )}
 
-        {books.length > 0 && (
+        {books.length > 0 && checkedCount < totalBooks && (
           <ProgressBar
             checked={checkedCount}
             total={totalBooks}
@@ -575,56 +877,46 @@ export default function Books() {
           />
         )}
 
+        {books.length > 0 && checkedCount > 0 && (
+          <>
+            <SummaryStats
+              available={categoryCounts.available}
+              soon={categoryCounts.soon}
+              waiting={categoryCounts.waiting}
+              notFound={categoryCounts.not_found}
+              activeCategory={categoryFilter}
+              onToggleCategory={handleToggleCategory}
+            />
+            <FormatFilterBar active={formatFilter} onToggle={handleToggleFormat} />
+          </>
+        )}
+
+        {sortedAndFilteredBooks.length === 0 && books.length > 0 && checkedCount > 0 && (
+          <div className="text-center py-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
+              No books match the current filters.
+            </p>
+            <button
+              onClick={() => { setCategoryFilter(null); setFormatFilter("all"); }}
+              className="mt-2 text-amber-600 hover:text-amber-700 underline text-sm"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
+
         <div className="space-y-3">
           {paginatedBooks.map((book) => {
-            const state = availMap[book.id] ?? {
-              status: "pending" as const,
-            };
-            const hasAvailable =
-              (state.status === "done" || state.status === "cached") &&
-              state.data?.results.some((r) => r.availability.isAvailable);
-            const hasWaitlist =
-              (state.status === "done" || state.status === "cached") &&
-              (state.data?.results.length ?? 0) > 0 &&
-              !hasAvailable;
-
+            const state = availMap[book.id] ?? { status: "pending" as const };
             return (
-              <div
+              <BookCard
                 key={book.id}
-                className={`flex gap-4 bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border-l-4 transition-colors duration-300 ${
-                  hasAvailable
-                    ? "border-green-500"
-                    : hasWaitlist
-                      ? "border-yellow-400"
-                      : state.status === "pending" ||
-                          state.status === "loading"
-                        ? "border-blue-300 dark:border-blue-700"
-                        : "border-gray-200 dark:border-gray-700"
-                }`}
-              >
-                {(state.data?.coverUrl || book.imageUrl) && (
-                  <img
-                    src={state.data?.coverUrl ?? book.imageUrl}
-                    alt={book.title}
-                    className="w-16 h-24 object-cover rounded-md flex-shrink-0"
-                  />
-                )}
-                <div className="flex-1 min-w-0">
-                  <span className="font-semibold text-gray-900 dark:text-white line-clamp-1">
-                    {book.title}
-                  </span>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {book.author || "Unknown Author"}
-                  </p>
-                  <div className="mt-2">
-                    <AvailabilityBadge
-                      state={state}
-                      libraries={libraries}
-                      onRefresh={() => refreshBook(book)}
-                    />
-                  </div>
-                </div>
-              </div>
+                book={book}
+                state={state}
+                libraries={libraries}
+                formatFilter={formatFilter}
+                onRefresh={() => refreshBook(book)}
+              />
             );
           })}
         </div>
