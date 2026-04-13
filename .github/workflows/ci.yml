@@ -1,20 +1,13 @@
-name: Deploy to GitHub Pages
+name: CI
 
 on:
   push:
     branches: [main]
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
+  pull_request:
+    branches: [main]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,23 +34,3 @@ jobs:
         run: npx playwright install-deps chromium
 
       - run: npm test
-
-      - name: Copy index.html to 404.html for SPA routing
-        run: cp build/client/index.html build/client/404.html
-
-      - name: Add CNAME file
-        run: echo "libby.strite.org" > build/client/CNAME
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: build/client
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4

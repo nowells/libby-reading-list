@@ -7,9 +7,11 @@
     "dev": "BASENAME=/ react-router dev",
     "typecheck": "react-router typegen && tsc",
     "lint": "oxlint app/",
+    "fmt": "oxfmt --write app/ *.ts",
+    "fmt:check": "oxfmt --check app/ *.ts",
     "knip": "knip",
     "test:unit": "vitest run",
-    "test": "npm run lint && npm run typecheck && npm run test:unit && npm run knip && npm run build"
+    "test": "npm run fmt:check && npm run lint && npm run typecheck && npm run test:unit && npm run knip && npm run build"
   },
   "dependencies": {
     "@posthog/react": "^1.9.0",
