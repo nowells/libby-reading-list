@@ -55,9 +55,7 @@ async function thunderFetch(path: string) {
   return res.json();
 }
 
-export async function getLibraryPreferredKey(
-  fulfillmentId: string
-): Promise<string> {
+export async function getLibraryPreferredKey(fulfillmentId: string): Promise<string> {
   const data = await thunderFetch(`/libraries/${fulfillmentId}`);
   return data.preferredKey ?? fulfillmentId;
 }
@@ -65,27 +63,23 @@ export async function getLibraryPreferredKey(
 async function searchLibrary(
   libraryKey: string,
   query: string,
-  format?: "ebook" | "audiobook"
+  format?: "ebook" | "audiobook",
 ): Promise<LibbyMediaItem[]> {
   const params = new URLSearchParams({ query });
   if (format === "ebook") {
-    params.set("format", "ebook-kindle,ebook-overdrive,ebook-epub-adobe,ebook-epub-open,ebook-media-do");
+    params.set(
+      "format",
+      "ebook-kindle,ebook-overdrive,ebook-epub-adobe,ebook-epub-open,ebook-media-do",
+    );
   } else if (format === "audiobook") {
     params.set("format", "audiobook-overdrive,audiobook-mp3");
   }
-  const data = await thunderFetch(
-    `/libraries/${libraryKey}/media?${params.toString()}`
-  );
+  const data = await thunderFetch(`/libraries/${libraryKey}/media?${params.toString()}`);
   return data.items ?? [];
 }
 
-async function getAvailability(
-  libraryKey: string,
-  titleId: string
-): Promise<AvailabilityInfo> {
-  const data = await thunderFetch(
-    `/libraries/${libraryKey}/media/${titleId}/availability`
-  );
+async function getAvailability(libraryKey: string, titleId: string): Promise<AvailabilityInfo> {
+  const data = await thunderFetch(`/libraries/${libraryKey}/media/${titleId}/availability`);
   return {
     id: titleId,
     copiesOwned: data.ownedCopies ?? 0,
@@ -99,10 +93,7 @@ async function getAvailability(
 // Large reference library used for deep search (scope-auto) when local search finds nothing
 const REFERENCE_LIBRARY = "lapl";
 
-async function getMediaItem(
-  libraryKey: string,
-  titleId: string
-): Promise<LibbyMediaItem | null> {
+async function getMediaItem(libraryKey: string, titleId: string): Promise<LibbyMediaItem | null> {
   try {
     return await thunderFetch(`/libraries/${libraryKey}/media/${titleId}`);
   } catch {
@@ -110,9 +101,7 @@ async function getMediaItem(
   }
 }
 
-export async function searchLibraryByName(
-  query: string
-): Promise<LibbyLibrary[]> {
+export async function searchLibraryByName(query: string): Promise<LibbyLibrary[]> {
   const url = `https://locate.libbyapp.com/autocomplete/${encodeURIComponent(query)}`;
   const res = await fetch(url);
   if (!res.ok) {
@@ -142,8 +131,27 @@ export async function searchLibraryByName(
 }
 
 const STOP_WORDS = new Set([
-  "a", "an", "the", "and", "or", "of", "in", "on", "at", "to", "for",
-  "is", "it", "by", "as", "be", "no", "not", "but", "from", "with",
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "of",
+  "in",
+  "on",
+  "at",
+  "to",
+  "for",
+  "is",
+  "it",
+  "by",
+  "as",
+  "be",
+  "no",
+  "not",
+  "but",
+  "from",
+  "with",
 ]);
 
 function normalize(s: string) {
@@ -155,7 +163,9 @@ function normalize(s: string) {
 }
 
 function contentWords(s: string): string[] {
-  return normalize(s).split(" ").filter((w) => !STOP_WORDS.has(w) && w.length > 0);
+  return normalize(s)
+    .split(" ")
+    .filter((w) => !STOP_WORDS.has(w) && w.length > 0);
 }
 
 function similarityScore(a: string, b: string): number {
@@ -205,7 +215,7 @@ export interface BookAvailability {
 export async function findBookInLibrary(
   libraryKey: string,
   title: string,
-  author: string
+  author: string,
 ): Promise<BookAvailability> {
   const result: BookAvailability = {
     bookTitle: title,
@@ -228,11 +238,8 @@ export async function findBookInLibrary(
         if (seenIds.has(item.id)) continue;
 
         const titleScore = similarityScore(title, item.title);
-        const authorName =
-          item.creators?.find((c) => c.role === "Author")?.name ?? "";
-        const authorScore = author
-          ? similarityScore(author, authorName)
-          : 0.5;
+        const authorName = item.creators?.find((c) => c.role === "Author")?.name ?? "";
+        const authorScore = author ? similarityScore(author, authorName) : 0.5;
 
         if (titleScore >= 0.4 && authorScore >= 0.3 && contentWordsMatch(title, item.title)) {
           seenIds.add(item.id);
@@ -277,11 +284,8 @@ export async function findBookInLibrary(
         if (seenIds.has(item.id)) continue;
 
         const titleScore = similarityScore(title, item.title);
-        const authorName =
-          item.creators?.find((c) => c.role === "Author")?.name ?? "";
-        const authorScore = author
-          ? similarityScore(author, authorName)
-          : 0.5;
+        const authorName = item.creators?.find((c) => c.role === "Author")?.name ?? "";
+        const authorScore = author ? similarityScore(author, authorName) : 0.5;
 
         if (titleScore >= 0.4 && authorScore >= 0.3 && contentWordsMatch(title, item.title)) {
           seenIds.add(item.id);

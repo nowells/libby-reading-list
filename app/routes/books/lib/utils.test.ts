@@ -22,7 +22,7 @@ describe("timeAgo", () => {
 describe("libbyTitleUrl", () => {
   it("generates correct Libby URL", () => {
     expect(libbyTitleUrl("mylib", "12345")).toBe(
-      "https://libbyapp.com/library/mylib/everything/page-1/12345"
+      "https://libbyapp.com/library/mylib/everything/page-1/12345",
     );
   });
 });

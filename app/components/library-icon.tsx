@@ -1,6 +1,14 @@
 import type { LibraryConfig } from "~/lib/storage";
 
-export function LibraryIcon({ libraryKey, libraries, className }: { libraryKey: string; libraries: LibraryConfig[]; className?: string }) {
+export function LibraryIcon({
+  libraryKey,
+  libraries,
+  className,
+}: {
+  libraryKey: string;
+  libraries: LibraryConfig[];
+  className?: string;
+}) {
   const lib = libraries.find((l) => l.key === libraryKey);
   if (lib?.logoUrl) {
     return (
@@ -8,7 +16,9 @@ export function LibraryIcon({ libraryKey, libraries, className }: { libraryKey: 
         src={lib.logoUrl}
         alt={lib.name}
         title={lib.name}
-        className={className ?? "h-5 min-w-8 w-auto rounded bg-white p-0.5 flex-shrink-0 object-contain"}
+        className={
+          className ?? "h-5 min-w-8 w-auto rounded bg-white p-0.5 flex-shrink-0 object-contain"
+        }
       />
     );
   }
@@ -23,7 +33,13 @@ export function LibraryIcon({ libraryKey, libraries, className }: { libraryKey: 
   );
 }
 
-export function LibraryName({ libraryKey, libraries }: { libraryKey: string; libraries: LibraryConfig[] }) {
+export function LibraryName({
+  libraryKey,
+  libraries,
+}: {
+  libraryKey: string;
+  libraries: LibraryConfig[];
+}) {
   const lib = libraries.find((l) => l.key === libraryKey);
   return <>{lib?.name ?? libraryKey}</>;
 }

@@ -43,9 +43,7 @@ export function ProgressBar({
               Refresh All
             </button>
           )}
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            {pct}%
-          </span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{pct}%</span>
         </div>
       </div>
       {!done && (

@@ -15,11 +15,7 @@ import {
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
-import {
-  searchLibraryByName,
-  getLibraryPreferredKey,
-  type LibbyLibrary,
-} from "~/lib/libby";
+import { searchLibraryByName, getLibraryPreferredKey, type LibbyLibrary } from "~/lib/libby";
 
 export default function Setup() {
   const posthog = usePostHog();
@@ -94,7 +90,7 @@ export default function Setup() {
             ? "Hardcover"
             : "CSV";
       setImportInfo(
-        `Imported ${result.books.length} want-to-read books from ${formatName} (${result.totalRows} total rows in file).`
+        `Imported ${result.books.length} want-to-read books from ${formatName} (${result.totalRows} total rows in file).`,
       );
       if (fileInputRef.current) fileInputRef.current.value = "";
     };
@@ -192,9 +188,7 @@ export default function Setup() {
       <div className="max-w-lg mx-auto space-y-6">
         <div className="flex items-center gap-3">
           <Logo className="w-10 h-10" />
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-            ShelfCheck Setup
-          </h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">ShelfCheck Setup</h1>
         </div>
 
         {error && (
@@ -229,10 +223,7 @@ export default function Setup() {
                 {books[0]?.source !== "unknown" && (
                   <span className="text-gray-500 dark:text-gray-400">
                     {" "}
-                    from{" "}
-                    {books[0].source === "goodreads"
-                      ? "Goodreads"
-                      : "Hardcover"}
+                    from {books[0].source === "goodreads" ? "Goodreads" : "Hardcover"}
                   </span>
                 )}
               </p>
@@ -248,7 +239,7 @@ export default function Setup() {
           <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
             {booksDone
               ? "Upload a new CSV to replace your current list."
-              : "Upload a CSV export of your reading list. We'll find the \"want to read\" books."}
+              : 'Upload a CSV export of your reading list. We\'ll find the "want to read" books.'}
           </p>
           <div className="space-y-3">
             {!booksDone && (
@@ -336,15 +327,17 @@ export default function Setup() {
                 >
                   <div className="flex items-center gap-2">
                     {lib.logoUrl ? (
-                      <img src={lib.logoUrl} alt="" className="h-5 w-auto rounded bg-white p-0.5 flex-shrink-0" />
+                      <img
+                        src={lib.logoUrl}
+                        alt=""
+                        className="h-5 w-auto rounded bg-white p-0.5 flex-shrink-0"
+                      />
                     ) : (
                       <span className="inline-flex items-center justify-center w-5 h-5 rounded-sm bg-green-200 dark:bg-green-800 text-[10px] font-bold text-green-700 dark:text-green-300 flex-shrink-0">
                         {lib.name[0]?.toUpperCase()}
                       </span>
                     )}
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {lib.name}
-                    </span>
+                    <span className="font-medium text-gray-900 dark:text-white">{lib.name}</span>
                   </div>
                   <button
                     onClick={() => handleRemoveLibrary(lib.key)}
@@ -391,32 +384,30 @@ export default function Setup() {
                   className="w-full text-left p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   {lib.logoUrl ? (
-                    <img src={lib.logoUrl} alt="" className="h-5 w-auto rounded bg-white p-0.5 flex-shrink-0" />
+                    <img
+                      src={lib.logoUrl}
+                      alt=""
+                      className="h-5 w-auto rounded bg-white p-0.5 flex-shrink-0"
+                    />
                   ) : (
                     <span className="inline-flex items-center justify-center w-5 h-5 rounded-sm bg-gray-200 dark:bg-gray-600 text-[10px] font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">
                       {lib.name[0]?.toUpperCase()}
                     </span>
                   )}
-                  <span className="font-medium text-gray-900 dark:text-white">
-                    {lib.name}
-                  </span>
+                  <span className="font-medium text-gray-900 dark:text-white">{lib.name}</span>
                   {lib.type && (
-                    <span className="text-sm text-gray-500 dark:text-gray-400">
-                      {lib.type}
-                    </span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">{lib.type}</span>
                   )}
                 </button>
               ))}
             </div>
           )}
 
-          {hasSearched &&
-            !searching &&
-            searchResults.length === 0 && (
-              <p className="text-gray-500 dark:text-gray-400 text-sm">
-                No additional libraries found. Try a different search term.
-              </p>
-            )}
+          {hasSearched && !searching && searchResults.length === 0 && (
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
+              No additional libraries found. Try a different search term.
+            </p>
+          )}
         </section>
 
         {/* Actions */}

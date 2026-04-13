@@ -74,19 +74,13 @@ function detectFormat(headers: string[]): Format {
     return "goodreads";
   }
   // Hardcover exports use "Title" and "Status" (or "Reading Status")
-  if (
-    lower.has("title") &&
-    (lower.has("status") || lower.has("reading status"))
-  ) {
+  if (lower.has("title") && (lower.has("status") || lower.has("reading status"))) {
     return "hardcover";
   }
   return "unknown";
 }
 
-function findColumn(
-  row: Record<string, string>,
-  ...candidates: string[]
-): string {
+function findColumn(row: Record<string, string>, ...candidates: string[]): string {
   for (const c of candidates) {
     // Try exact match first
     if (c in row) return row[c];
@@ -149,7 +143,9 @@ function parseHardcoverRows(rows: Record<string, string>[]): Book[] {
       imageUrl: imageUrl || undefined,
       source: "hardcover",
       sourceUrl: slug
-        ? (slug.startsWith("http") ? slug : `https://hardcover.app/books/${slug}`)
+        ? slug.startsWith("http")
+          ? slug
+          : `https://hardcover.app/books/${slug}`
         : undefined,
     });
   }

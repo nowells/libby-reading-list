@@ -13,11 +13,9 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
 
   const totalBooks = books.length;
   const checkedCount = Object.values(availMap).filter(
-    (s) => s.status === "done" || s.status === "cached"
+    (s) => s.status === "done" || s.status === "cached",
   ).length;
-  const loadingCount = Object.values(availMap).filter(
-    (s) => s.status === "loading"
-  ).length;
+  const loadingCount = Object.values(availMap).filter((s) => s.status === "loading").length;
 
   const fetchAndCache = useCallback(
     async (book: Book): Promise<BookAvailState> => {
@@ -31,9 +29,9 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
                   bookTitle: book.title,
                   bookAuthor: book.author,
                   results: [],
-                }) as BookAvailability
-            )
-          )
+                }) as BookAvailability,
+            ),
+          ),
         );
 
         const merged: BookAvailability = {
@@ -73,7 +71,7 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
         return { status: "done", data: fallback, fetchedAt: Date.now() };
       }
     },
-    [libraries]
+    [libraries],
   );
 
   const refreshBook = useCallback(
@@ -85,7 +83,7 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
       const result = await fetchAndCache(book);
       setAvailMap((prev) => ({ ...prev, [book.id]: result }));
     },
-    [fetchAndCache]
+    [fetchAndCache],
   );
 
   const refreshAll = useCallback(() => {
@@ -146,9 +144,8 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
       }
     }
 
-    const workers = Array.from(
-      { length: Math.min(CONCURRENCY, toFetch.length) },
-      () => processNext()
+    const workers = Array.from({ length: Math.min(CONCURRENCY, toFetch.length) }, () =>
+      processNext(),
     );
     void Promise.all(workers).then(() => {
       refreshingRef.current = false;
@@ -194,9 +191,8 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
           }
         }
 
-        const workers = Array.from(
-          { length: Math.min(CONCURRENCY, stale.length) },
-          () => processNext()
+        const workers = Array.from({ length: Math.min(CONCURRENCY, stale.length) }, () =>
+          processNext(),
         );
         await Promise.all(workers);
       } finally {

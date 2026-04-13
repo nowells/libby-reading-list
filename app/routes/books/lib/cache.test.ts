@@ -6,15 +6,32 @@ function makeAvailability(estimatedWaitDays?: number): BookAvailability {
   return {
     bookTitle: "Test Book",
     bookAuthor: "Test Author",
-    results: estimatedWaitDays != null
-      ? [{
-          mediaItem: { id: "1", title: "Test Book", sortTitle: "test book", type: { id: "ebook", name: "eBook" }, formats: [], creators: [] },
-          availability: { id: "1", copiesOwned: 1, copiesAvailable: 0, numberOfHolds: 5, isAvailable: false, estimatedWaitDays },
-          matchScore: 0.9,
-          formatType: "ebook",
-          libraryKey: "test-lib",
-        }]
-      : [],
+    results:
+      estimatedWaitDays != null
+        ? [
+            {
+              mediaItem: {
+                id: "1",
+                title: "Test Book",
+                sortTitle: "test book",
+                type: { id: "ebook", name: "eBook" },
+                formats: [],
+                creators: [],
+              },
+              availability: {
+                id: "1",
+                copiesOwned: 1,
+                copiesAvailable: 0,
+                numberOfHolds: 5,
+                isAvailable: false,
+                estimatedWaitDays,
+              },
+              matchScore: 0.9,
+              formatType: "ebook",
+              libraryKey: "test-lib",
+            },
+          ]
+        : [],
   };
 }
 

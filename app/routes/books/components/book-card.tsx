@@ -3,7 +3,11 @@ import type { Book, LibraryConfig } from "~/lib/storage";
 import { FormatIcon } from "~/components/format-icon";
 import { LibraryIcon, LibraryName } from "~/components/library-icon";
 import { EtaBadge } from "./eta-badge";
-import { categorizeBookWithFormat, type BookAvailState, type FormatFilter } from "../lib/categorize";
+import {
+  categorizeBookWithFormat,
+  type BookAvailState,
+  type FormatFilter,
+} from "../lib/categorize";
 import { timeAgo, libbyTitleUrl } from "../lib/utils";
 
 export function BookCard({
@@ -28,9 +32,11 @@ export function BookCard({
   const category = categorizeBookWithFormat(state, formatFilter);
   const isLoading = (state.status === "pending" || state.status === "loading") && !hasData;
   const isRefreshing = state.status === "loading" && hasData;
-  const isDone = state.status === "done" || state.status === "cached" || (state.status === "loading" && hasData);
+  const isDone =
+    state.status === "done" || state.status === "cached" || (state.status === "loading" && hasData);
   const rawResults = state.data?.results ?? [];
-  const filteredRaw = formatFilter === "all" ? rawResults : rawResults.filter((r) => r.formatType === formatFilter);
+  const filteredRaw =
+    formatFilter === "all" ? rawResults : rawResults.filter((r) => r.formatType === formatFilter);
   const availableCount = filteredRaw.filter((r) => r.availability.isAvailable).length;
 
   // Sort by ETA: available first (0), then by estimatedWaitDays ascending
@@ -71,7 +77,11 @@ export function BookCard({
       >
         {(state.data?.coverUrl || book.imageUrl || book.isbn13) && (
           <img
-            src={state.data?.coverUrl ?? book.imageUrl ?? `https://covers.openlibrary.org/b/isbn/${book.isbn13}-M.jpg`}
+            src={
+              state.data?.coverUrl ??
+              book.imageUrl ??
+              `https://covers.openlibrary.org/b/isbn/${book.isbn13}-M.jpg`
+            }
             alt={book.title}
             className="w-12 h-[4.5rem] object-cover rounded-md flex-shrink-0"
           />
@@ -92,7 +102,10 @@ export function BookCard({
           <div className="flex items-center gap-2 mt-1">
             {(book.source === "goodreads" || book.source === "unknown") && (
               <a
-                href={book.sourceUrl ?? `https://www.goodreads.com/search?q=${encodeURIComponent(`${book.title} ${book.author}`)}`}
+                href={
+                  book.sourceUrl ??
+                  `https://www.goodreads.com/search?q=${encodeURIComponent(`${book.title} ${book.author}`)}`
+                }
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
@@ -107,7 +120,10 @@ export function BookCard({
             )}
             {(book.source === "hardcover" || book.source === "unknown") && (
               <a
-                href={book.sourceUrl ?? `https://hardcover.app/search?q=${encodeURIComponent(book.title)}`}
+                href={
+                  book.sourceUrl ??
+                  `https://hardcover.app/search?q=${encodeURIComponent(book.title)}`
+                }
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
@@ -165,13 +181,19 @@ export function BookCard({
       {expanded && isDone && results.length > 0 && (
         <div className="border-t border-gray-100 dark:border-gray-700">
           {/* Table header */}
-          <div className={`grid gap-x-2 sm:gap-x-3 px-4 py-2 text-[10px] sm:text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider ${
-            multiLibrary
-              ? "grid-cols-[28px_40px_1fr_1fr_1fr] sm:grid-cols-[24px_1fr_1fr_70px_70px_60px]"
-              : "grid-cols-[28px_1fr_1fr_1fr] sm:grid-cols-[24px_1fr_70px_70px_60px]"
-          }`}>
+          <div
+            className={`grid gap-x-2 sm:gap-x-3 px-4 py-2 text-[10px] sm:text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider ${
+              multiLibrary
+                ? "grid-cols-[28px_40px_1fr_1fr_1fr] sm:grid-cols-[24px_1fr_1fr_70px_70px_60px]"
+                : "grid-cols-[28px_1fr_1fr_1fr] sm:grid-cols-[24px_1fr_70px_70px_60px]"
+            }`}
+          >
             <span></span>
-            {multiLibrary && <span><span className="hidden sm:inline">Library</span></span>}
+            {multiLibrary && (
+              <span>
+                <span className="hidden sm:inline">Library</span>
+              </span>
+            )}
             <span className="hidden sm:block">Publisher</span>
             <span className="text-right">Holds</span>
             <span className="text-right">Copies</span>
@@ -179,7 +201,8 @@ export function BookCard({
           </div>
           {/* Table rows */}
           {visibleResults.map((r) => {
-            const preferredKey = libraries.find((l) => l.key === r.libraryKey)?.preferredKey ?? r.libraryKey;
+            const preferredKey =
+              libraries.find((l) => l.key === r.libraryKey)?.preferredKey ?? r.libraryKey;
             const url = libbyTitleUrl(preferredKey, r.mediaItem.id);
             return (
               <a
@@ -200,20 +223,29 @@ export function BookCard({
                 {multiLibrary && (
                   <span className="flex items-center gap-2 min-w-0 text-sm text-gray-700 dark:text-gray-300">
                     <LibraryIcon libraryKey={r.libraryKey} libraries={libraries} />
-                    <span className="hidden sm:inline truncate"><LibraryName libraryKey={r.libraryKey} libraries={libraries} /></span>
+                    <span className="hidden sm:inline truncate">
+                      <LibraryName libraryKey={r.libraryKey} libraries={libraries} />
+                    </span>
                   </span>
                 )}
                 <span className="hidden sm:block text-sm text-gray-600 dark:text-gray-400 truncate">
                   {r.mediaItem.publisher?.name ? (
                     <>
                       {r.mediaItem.publisher.name}
-                      {r.mediaItem.publishDate && <span className="text-gray-400 dark:text-gray-500"> ({r.mediaItem.publishDate.slice(0, 4)})</span>}
+                      {r.mediaItem.publishDate && (
+                        <span className="text-gray-400 dark:text-gray-500">
+                          {" "}
+                          ({r.mediaItem.publishDate.slice(0, 4)})
+                        </span>
+                      )}
                     </>
                   ) : (
                     <span className="text-gray-400 dark:text-gray-500">&mdash;</span>
                   )}
                 </span>
-                <span className={`text-right text-sm tabular-nums ${r.availability.numberOfHolds > 100 ? "text-red-500 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}>
+                <span
+                  className={`text-right text-sm tabular-nums ${r.availability.numberOfHolds > 100 ? "text-red-500 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}
+                >
                   {r.availability.isAvailable ? (
                     <span className="text-green-600 dark:text-green-400 font-medium">0</span>
                   ) : (
@@ -249,8 +281,18 @@ export function BookCard({
               title={state.fetchedAt ? `Last checked ${timeAgo(state.fetchedAt)}` : "Refresh"}
               className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
             >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <svg
+                className="w-3 h-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
               </svg>
               {state.fetchedAt && <span>{timeAgo(state.fetchedAt)}</span>}
             </button>
@@ -266,8 +308,18 @@ export function BookCard({
             title={state.fetchedAt ? `Last checked ${timeAgo(state.fetchedAt)}` : "Refresh"}
             className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            <svg
+              className="w-3 h-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
             </svg>
             {state.fetchedAt && <span>{timeAgo(state.fetchedAt)}</span>}
           </button>
