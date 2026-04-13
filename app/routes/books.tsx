@@ -231,6 +231,58 @@ function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]) {
     });
   }, [books, fetchAndCache, refreshToken]);
 
+  // Background auto-refresh: check every 30 min for stale cached entries
+  useEffect(() => {
+    const INTERVAL_MS = 30 * 60 * 1000;
+    const bgRefreshingRef = { current: false };
+
+    const timer = setInterval(async () => {
+      if (bgRefreshingRef.current || refreshingRef.current) return;
+      bgRefreshingRef.current = true;
+
+      try {
+        const cache = readCache();
+        const stale: Book[] = [];
+        for (const book of books) {
+          const entry = cache[book.id];
+          if (!entry) continue; // not yet fetched, skip
+          if (Date.now() - entry.fetchedAt > cacheMaxAge(entry)) {
+            stale.push(book);
+          }
+        }
+
+        if (stale.length === 0) return;
+
+        // Refresh stale entries with concurrency limit, preserving existing data
+        const CONCURRENCY = 2;
+        let idx = 0;
+
+        async function processNext(): Promise<void> {
+          while (idx < stale.length) {
+            const current = idx++;
+            const book = stale[current];
+            setAvailMap((prev) => ({
+              ...prev,
+              [book.id]: { ...prev[book.id], status: "loading" },
+            }));
+            const result = await fetchAndCache(book);
+            setAvailMap((prev) => ({ ...prev, [book.id]: result }));
+          }
+        }
+
+        const workers = Array.from(
+          { length: Math.min(CONCURRENCY, stale.length) },
+          () => processNext()
+        );
+        await Promise.all(workers);
+      } finally {
+        bgRefreshingRef.current = false;
+      }
+    }, INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [books, fetchAndCache]);
+
   const oldestFetchedAt = (() => {
     let oldest: number | null = null;
     for (const s of Object.values(availMap)) {
