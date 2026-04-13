@@ -4,7 +4,7 @@ import { Logo } from "~/components/logo";
 
 export function meta() {
   return [
-    { title: "ShelfCheck — Find Your Want-to-Read Books at Your Local Library" },
+    { title: "ShelfCheck — Your Reading List, Your Library, Available Now" },
     {
       name: "description",
       content:

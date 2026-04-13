@@ -35,7 +35,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta property="og:url" content="https://www.shelfcheck.org" />
         <meta
           property="og:title"
-          content="ShelfCheck — Find Your Want-to-Read Books at Your Local Library"
+          content="ShelfCheck — Your Reading List, Your Library, Available Now"
         />
         <meta
           property="og:description"
@@ -46,7 +46,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="twitter:card" content="summary_large_image" />
         <meta
           name="twitter:title"
-          content="ShelfCheck — Find Your Want-to-Read Books at Your Local Library"
+          content="ShelfCheck — Your Reading List, Your Library, Available Now"
         />
         <meta
           name="twitter:description"
