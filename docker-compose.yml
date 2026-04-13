@@ -1,0 +1,12 @@
+services:
+  hardcoverlibby:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - SESSION_SECRET=${SESSION_SECRET:-change-me-to-a-random-string}
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    restart: unless-stopped
