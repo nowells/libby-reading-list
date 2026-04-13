@@ -1,16 +1,18 @@
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { getBooks, getLibrary, type Book } from "~/lib/storage";
+import { getBooks, getLibraries, type Book, type LibraryConfig } from "~/lib/storage";
 import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
+import { Logo } from "~/components/logo";
 
 export function meta() {
-  return [{ title: "Your Books | HardcoverLibby" }];
+  return [{ title: "Your Books | ShelfCheck" }];
 }
 
 // --- Cache utilities ---
 
-const CACHE_KEY = "hardcoverlibby:availability";
-const CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
+const CACHE_KEY = "shelfcheck:availability";
+const MIN_CACHE_MS = 2 * 60 * 60 * 1000; // 2 hours
+const DEFAULT_CACHE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface CachedEntry {
   data: BookAvailability;
@@ -34,11 +36,30 @@ function writeCache(cache: Record<string, CachedEntry>) {
   }
 }
 
+function cacheMaxAge(entry: CachedEntry): number {
+  // Find the shortest estimated wait across all results
+  let minWaitDays: number | null = null;
+  for (const r of entry.data.results) {
+    const days = r.availability.estimatedWaitDays;
+    if (days != null && (minWaitDays === null || days < minWaitDays)) {
+      minWaitDays = days;
+    }
+  }
+
+  if (minWaitDays == null || entry.data.results.length === 0) {
+    return DEFAULT_CACHE_MS;
+  }
+
+  // Half-life of the shortest wait, minimum 2 hours
+  const halfLifeMs = (minWaitDays / 2) * 24 * 60 * 60 * 1000;
+  return Math.max(halfLifeMs, MIN_CACHE_MS);
+}
+
 function getCached(bookId: string): CachedEntry | null {
   const cache = readCache();
   const entry = cache[bookId];
   if (!entry) return null;
-  if (Date.now() - entry.fetchedAt > CACHE_MAX_AGE_MS) return null;
+  if (Date.now() - entry.fetchedAt > cacheMaxAge(entry)) return null;
   return entry;
 }
 
@@ -58,7 +79,7 @@ interface BookAvailState {
   fetchedAt?: number;
 }
 
-function useAvailabilityChecker(books: Book[], libraryKey: string) {
+function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]) {
   const [availMap, setAvailMap] = useState<Record<string, BookAvailState>>({});
   const [refreshToken, setRefreshToken] = useState(0);
   const refreshingRef = useRef(false);
@@ -74,13 +95,44 @@ function useAvailabilityChecker(books: Book[], libraryKey: string) {
   const fetchAndCache = useCallback(
     async (book: Book): Promise<BookAvailState> => {
       try {
-        const data = await findBookInLibrary(
-          libraryKey,
-          book.title,
-          book.author
+        // Search across all libraries and merge results
+        const allResults = await Promise.all(
+          libraries.map((lib) =>
+            findBookInLibrary(lib.key, book.title, book.author).catch(
+              () =>
+                ({
+                  bookTitle: book.title,
+                  bookAuthor: book.author,
+                  results: [],
+                }) as BookAvailability
+            )
+          )
         );
-        setCached(book.id, data);
-        return { status: "done", data, fetchedAt: Date.now() };
+
+        const merged: BookAvailability = {
+          bookTitle: book.title,
+          bookAuthor: book.author,
+          results: [],
+        };
+
+        for (const result of allResults) {
+          merged.results.push(...result.results);
+          if (!merged.coverUrl && result.coverUrl) {
+            merged.coverUrl = result.coverUrl;
+          }
+        }
+
+        // Deduplicate by mediaItem.id (same title may appear in multiple libraries)
+        const seen = new Set<string>();
+        merged.results = merged.results.filter((r) => {
+          if (seen.has(r.mediaItem.id)) return false;
+          seen.add(r.mediaItem.id);
+          return true;
+        });
+
+        merged.results.sort((a, b) => b.matchScore - a.matchScore);
+        setCached(book.id, merged);
+        return { status: "done", data: merged, fetchedAt: Date.now() };
       } catch {
         const fallback: BookAvailability = {
           bookTitle: book.title,
@@ -90,7 +142,7 @@ function useAvailabilityChecker(books: Book[], libraryKey: string) {
         return { status: "done", data: fallback, fetchedAt: Date.now() };
       }
     },
-    [libraryKey]
+    [libraries]
   );
 
   const refreshBook = useCallback(
@@ -219,11 +271,11 @@ function timeAgo(ts: number): string {
 
 function AvailabilityBadge({
   state,
-  libraryKey,
+  defaultLibraryKey,
   onRefresh,
 }: {
   state: BookAvailState;
-  libraryKey: string;
+  defaultLibraryKey: string;
   onRefresh: () => void;
 }) {
   if (state.status === "pending" || state.status === "loading") {
@@ -256,7 +308,7 @@ function AvailabilityBadge({
       {available.map((r) => (
         <a
           key={r.mediaItem.id}
-          href={libbyTitleUrl(libraryKey, r.mediaItem.id)}
+          href={libbyTitleUrl(defaultLibraryKey, r.mediaItem.id)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full hover:bg-green-200 dark:hover:bg-green-900/60 transition-colors"
@@ -267,7 +319,7 @@ function AvailabilityBadge({
       {waitlist.map((r) => (
         <a
           key={r.mediaItem.id}
-          href={libbyTitleUrl(libraryKey, r.mediaItem.id)}
+          href={libbyTitleUrl(defaultLibraryKey, r.mediaItem.id)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 rounded-full hover:bg-yellow-200 dark:hover:bg-yellow-900/60 transition-colors"
@@ -385,22 +437,18 @@ const PAGE_SIZE = 20;
 export default function Books() {
   const navigate = useNavigate();
   const [books, setLocalBooks] = useState<Book[]>([]);
-  const [libraryName, setLibraryName] = useState("");
-  const [libraryKey, setLibraryKey] = useState("");
-  const [libraryPreferredKey, setLibraryPreferredKey] = useState("");
+  const [libraries, setLocalLibraries] = useState<LibraryConfig[]>([]);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const storedBooks = getBooks();
-    const library = getLibrary();
-    if (storedBooks.length === 0 || !library) {
+    const storedLibraries = getLibraries();
+    if (storedBooks.length === 0 || storedLibraries.length === 0) {
       navigate("/setup", { replace: true });
       return;
     }
     setLocalBooks(storedBooks);
-    setLibraryName(library.name);
-    setLibraryKey(library.key);
-    setLibraryPreferredKey(library.preferredKey);
+    setLocalLibraries(storedLibraries);
     setReady(true);
   }, [navigate]);
 
@@ -415,7 +463,10 @@ export default function Books() {
     refreshBook,
     refreshAll,
     oldestFetchedAt,
-  } = useAvailabilityChecker(ready ? books : [], libraryKey);
+  } = useAvailabilityChecker(ready ? books : [], libraries);
+
+  const libraryNames = libraries.map((l) => l.name).join(", ");
+  const defaultPreferredKey = libraries[0]?.preferredKey ?? "";
 
   const scoreFor = (s?: BookAvailState) => {
     if (!s?.data) return 0;
@@ -450,14 +501,17 @@ export default function Books() {
     <main className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900 py-8 px-4">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <div>
+          <div className="flex items-center gap-3">
+            <Logo className="w-9 h-9" />
+            <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              Want to Read
+              ShelfCheck
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {books.length} books &middot; Availability at{" "}
-              <span className="font-medium">{libraryName}</span>
+              <span className="font-medium">{libraryNames}</span>
             </p>
+            </div>
           </div>
           <Link
             to="/setup"
@@ -535,7 +589,7 @@ export default function Books() {
                   <div className="mt-2">
                     <AvailabilityBadge
                       state={state}
-                      libraryKey={libraryPreferredKey}
+                      defaultLibraryKey={defaultPreferredKey}
                       onRefresh={() => refreshBook(book)}
                     />
                   </div>

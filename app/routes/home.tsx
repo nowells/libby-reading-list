@@ -1,10 +1,11 @@
 import { Link, useNavigate } from "react-router";
 import { useEffect } from "react";
-import { getBooks, getLibrary } from "~/lib/storage";
+import { getBooks, getLibraries } from "~/lib/storage";
+import { Logo } from "~/components/logo";
 
 export function meta() {
   return [
-    { title: "HardcoverLibby" },
+    { title: "ShelfCheck" },
     {
       name: "description",
       content:
@@ -18,8 +19,8 @@ export default function Home() {
 
   useEffect(() => {
     const books = getBooks();
-    const library = getLibrary();
-    if (books.length > 0 && library) {
+    const libraries = getLibraries();
+    if (books.length > 0 && libraries.length > 0) {
       navigate("/books", { replace: true });
     }
   }, [navigate]);
@@ -27,9 +28,12 @@ export default function Home() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900">
       <div className="max-w-xl w-full mx-4 text-center">
-        <h1 className="text-5xl font-bold text-gray-900 dark:text-white mb-4">
-          HardcoverLibby
-        </h1>
+        <div className="flex items-center justify-center gap-3 mb-4">
+          <Logo className="w-14 h-14" />
+          <h1 className="text-5xl font-bold text-gray-900 dark:text-white">
+            ShelfCheck
+          </h1>
+        </div>
         <p className="text-lg text-gray-600 dark:text-gray-400 mb-8">
           Find your "Want to Read" books that are available at your local
           library through Libby.

@@ -1,8 +1,8 @@
-# HardcoverLibby
+# ShelfCheck
 
 Find your "Want to Read" books that are available at your local library through Libby.
 
-Upload a CSV export from **Goodreads** or **Hardcover**, select your library, and instantly see which books you can borrow right now.
+Upload a CSV export from **Goodreads** or **Hardcover**, select your libraries, and instantly see which books you can borrow right now.
 
 **Live at [libby.strite.org](https://libby.strite.org)**
 
@@ -10,7 +10,7 @@ Upload a CSV export from **Goodreads** or **Hardcover**, select your library, an
 
 1. Export your reading list as a CSV from Goodreads or Hardcover
 2. Upload the CSV — the app automatically detects the format and filters to your "want to read" shelf
-3. Search for and select your local Libby library
+3. Search for and add your local Libby libraries (supports multiple)
 4. See real-time availability for each book, with direct links to borrow in Libby
 
 All data stays in your browser (localStorage). No server, no accounts, no API keys required.

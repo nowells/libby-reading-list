@@ -1,4 +1,4 @@
-const PREFIX = "hardcoverlibby:";
+const PREFIX = "shelfcheck:";
 
 export interface LibraryConfig {
   key: string;
@@ -36,16 +36,44 @@ function remove(key: string) {
   localStorage.removeItem(PREFIX + key);
 }
 
-export function getLibrary(): LibraryConfig | null {
-  return get<LibraryConfig>("library");
+// Migrate single library to array format
+function migrateLibrary() {
+  const raw = localStorage.getItem(PREFIX + "library");
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) && parsed.key) {
+      set("libraries", [parsed]);
+      remove("library");
+    }
+  } catch {
+    // ignore
+  }
 }
 
-export function setLibrary(config: LibraryConfig) {
-  set("library", config);
+export function getLibraries(): LibraryConfig[] {
+  migrateLibrary();
+  return get<LibraryConfig[]>("libraries") ?? [];
 }
 
-export function clearLibrary() {
-  remove("library");
+export function setLibraries(configs: LibraryConfig[]) {
+  set("libraries", configs);
+}
+
+export function addLibrary(config: LibraryConfig) {
+  const libs = getLibraries();
+  if (libs.some((l) => l.key === config.key)) return;
+  libs.push(config);
+  setLibraries(libs);
+}
+
+export function removeLibrary(key: string) {
+  setLibraries(getLibraries().filter((l) => l.key !== key));
+}
+
+export function clearLibraries() {
+  remove("libraries");
+  remove("library"); // clean up old format
 }
 
 export function getBooks(): Book[] {
@@ -61,7 +89,7 @@ export function clearBooks() {
 }
 
 export function clearAll() {
-  clearLibrary();
+  clearLibraries();
   clearBooks();
   remove("availability");
 }
