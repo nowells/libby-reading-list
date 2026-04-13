@@ -499,9 +499,9 @@ function BookCard({
         onClick={() => setExpanded((e) => !e)}
         className="w-full flex items-center gap-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
       >
-        {(state.data?.coverUrl || book.imageUrl) && (
+        {(state.data?.coverUrl || book.imageUrl || book.isbn13) && (
           <img
-            src={state.data?.coverUrl ?? book.imageUrl}
+            src={state.data?.coverUrl ?? book.imageUrl ?? `https://covers.openlibrary.org/b/isbn/${book.isbn13}-M.jpg`}
             alt={book.title}
             className="w-12 h-[4.5rem] object-cover rounded-md flex-shrink-0"
           />
