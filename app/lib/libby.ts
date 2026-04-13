@@ -62,7 +62,7 @@ export async function getLibraryPreferredKey(
   return data.preferredKey ?? fulfillmentId;
 }
 
-export async function searchLibrary(
+async function searchLibrary(
   libraryKey: string,
   query: string,
   format?: "ebook" | "audiobook"
@@ -79,7 +79,7 @@ export async function searchLibrary(
   return data.items ?? [];
 }
 
-export async function getAvailability(
+async function getAvailability(
   libraryKey: string,
   titleId: string
 ): Promise<AvailabilityInfo> {

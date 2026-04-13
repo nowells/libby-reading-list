@@ -1,5 +1,4 @@
-import { Link, useNavigate } from "react-router";
-import { useEffect } from "react";
+import { Link, redirect } from "react-router";
 import { getBooks, getLibraries } from "~/lib/storage";
 import { Logo } from "~/components/logo";
 
@@ -14,17 +13,16 @@ export function meta() {
   ];
 }
 
+export function clientLoader() {
+  const books = getBooks();
+  const libraries = getLibraries();
+  if (books.length > 0 && libraries.length > 0) {
+    throw redirect("/books");
+  }
+  return null;
+}
+
 export default function Home() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const books = getBooks();
-    const libraries = getLibraries();
-    if (books.length > 0 && libraries.length > 0) {
-      navigate("/books", { replace: true });
-    }
-  }, [navigate]);
-
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900">
       <div className="max-w-xl w-full mx-4 text-center">

@@ -14,6 +14,7 @@ export interface Book {
   isbn13?: string;
   imageUrl?: string;
   source: "goodreads" | "hardcover" | "unknown";
+  sourceUrl?: string;
 }
 
 function get<T>(key: string): T | null {
@@ -57,7 +58,7 @@ export function getLibraries(): LibraryConfig[] {
   return get<LibraryConfig[]>("libraries") ?? [];
 }
 
-export function setLibraries(configs: LibraryConfig[]) {
+function setLibraries(configs: LibraryConfig[]) {
   set("libraries", configs);
 }
 

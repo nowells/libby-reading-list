@@ -5,7 +5,10 @@
   "scripts": {
     "build": "react-router build",
     "dev": "BASENAME=/ react-router dev",
-    "typecheck": "react-router typegen && tsc"
+    "typecheck": "react-router typegen && tsc",
+    "lint": "oxlint app/",
+    "knip": "knip",
+    "test": "npm run lint && npm run typecheck && npm run knip && npm run build"
   },
   "dependencies": {
     "@posthog/react": "^1.9.0",
@@ -19,9 +22,11 @@
   "devDependencies": {
     "@react-router/dev": "7.14.0",
     "@tailwindcss/vite": "^4.2.2",
-    "@types/node": "^22",
+    "@types/node": "^22.19.17",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "knip": "^6.4.1",
+    "oxlint": "^1.60.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
     "vite": "^8.0.3"

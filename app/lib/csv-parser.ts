@@ -69,14 +69,14 @@ function parseCSV(text: string): ParsedCSV {
 type Format = "goodreads" | "hardcover" | "unknown";
 
 function detectFormat(headers: string[]): Format {
-  const lower = headers.map((h) => h.toLowerCase());
-  if (lower.includes("exclusive shelf") && lower.includes("title")) {
+  const lower = new Set(headers.map((h) => h.toLowerCase()));
+  if (lower.has("exclusive shelf") && lower.has("title")) {
     return "goodreads";
   }
   // Hardcover exports use "Title" and "Status" (or "Reading Status")
   if (
-    lower.includes("title") &&
-    (lower.includes("status") || lower.includes("reading status"))
+    lower.has("title") &&
+    (lower.has("status") || lower.has("reading status"))
   ) {
     return "hardcover";
   }
@@ -110,6 +110,7 @@ function parseGoodreadsRows(rows: Record<string, string>[]): Book[] {
 
     const author = findColumn(row, "Author", "Author l-f");
     const isbn13 = findColumn(row, "ISBN13").replace(/[="]/g, "");
+    const bookId = findColumn(row, "Book Id");
 
     books.push({
       id: `gr-${id++}`,
@@ -117,6 +118,7 @@ function parseGoodreadsRows(rows: Record<string, string>[]): Book[] {
       author,
       isbn13: isbn13 || undefined,
       source: "goodreads",
+      sourceUrl: bookId ? `https://www.goodreads.com/book/show/${bookId}` : undefined,
     });
   }
 
@@ -137,6 +139,7 @@ function parseHardcoverRows(rows: Record<string, string>[]): Book[] {
     const author = findColumn(row, "Author", "Authors");
     const isbn13 = findColumn(row, "ISBN 13", "ISBN13", "isbn_13").replace(/[="]/g, "");
     const imageUrl = findColumn(row, "Image", "Image URL", "Cover");
+    const slug = findColumn(row, "Slug", "Book Slug", "URL");
 
     books.push({
       id: `hc-${id++}`,
@@ -145,13 +148,16 @@ function parseHardcoverRows(rows: Record<string, string>[]): Book[] {
       isbn13: isbn13 || undefined,
       imageUrl: imageUrl || undefined,
       source: "hardcover",
+      sourceUrl: slug
+        ? (slug.startsWith("http") ? slug : `https://hardcover.app/books/${slug}`)
+        : undefined,
     });
   }
 
   return books;
 }
 
-export interface ImportResult {
+interface ImportResult {
   books: Book[];
   format: Format;
   totalRows: number;
