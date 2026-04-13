@@ -82,6 +82,8 @@ interface BookAvailState {
 
 function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]) {
   const [availMap, setAvailMap] = useState<Record<string, BookAvailState>>({});
+  const availMapRef = useRef(availMap);
+  availMapRef.current = availMap;
   const [refreshToken, setRefreshToken] = useState(0);
   const refreshingRef = useRef(false);
 
@@ -177,7 +179,11 @@ function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]) {
 
     for (const book of books) {
       if (forceRefresh) {
-        initial[book.id] = { status: "pending" };
+        // Keep existing data visible while refreshing
+        const existing = availMapRef.current[book.id];
+        initial[book.id] = existing?.data
+          ? { ...existing, status: "loading" }
+          : { status: "pending" };
         toFetch.push(book);
         continue;
       }
@@ -253,7 +259,8 @@ const SOON_THRESHOLD_DAYS = 14;
 type BookCategory = "available" | "soon" | "waiting" | "not_found" | "pending";
 
 function categorizeBook(state?: BookAvailState): BookCategory {
-  if (!state || state.status === "pending" || state.status === "loading") return "pending";
+  if (!state || state.status === "pending") return "pending";
+  if (state.status === "loading" && !state.data) return "pending";
   if (!state.data || state.data.results.length === 0) return "not_found";
   if (state.data.results.some((r) => r.availability.isAvailable)) return "available";
   const minWait = Math.min(
@@ -334,7 +341,8 @@ function EtaBadge({ days }: { days?: number }) {
 type FormatFilter = "all" | "ebook" | "audiobook";
 
 function categorizeBookWithFormat(state: BookAvailState | undefined, formatFilter: FormatFilter): BookCategory {
-  if (!state || state.status === "pending" || state.status === "loading") return "pending";
+  if (!state || state.status === "pending") return "pending";
+  if (state.status === "loading" && !state.data) return "pending";
   const results = formatFilter === "all"
     ? (state.data?.results ?? [])
     : (state.data?.results ?? []).filter((r) => r.formatType === formatFilter);
@@ -449,9 +457,11 @@ function BookCard({
   const [expanded, setExpanded] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const multiLibrary = libraries.length > 1;
+  const hasData = !!state.data;
   const category = categorizeBookWithFormat(state, formatFilter);
-  const isLoading = state.status === "pending" || state.status === "loading";
-  const isDone = state.status === "done" || state.status === "cached";
+  const isLoading = (state.status === "pending" || state.status === "loading") && !hasData;
+  const isRefreshing = state.status === "loading" && hasData;
+  const isDone = state.status === "done" || state.status === "cached" || (state.status === "loading" && hasData);
   const rawResults = state.data?.results ?? [];
   const filteredRaw = formatFilter === "all" ? rawResults : rawResults.filter((r) => r.formatType === formatFilter);
   const availableCount = filteredRaw.filter((r) => r.availability.isAvailable).length;
@@ -884,21 +894,34 @@ export default function Books() {
               Settings
             </Link>
           </div>
-          {oldestFetchedAt && checkedCount === totalBooks && loadingCount === 0 && (
+          {oldestFetchedAt && checkedCount > 0 && (
             <div className="flex items-center gap-2 mt-2 ml-12">
-              <span className="text-xs text-gray-400 dark:text-gray-500">
-                Updated {timeAgo(oldestFetchedAt)}
-              </span>
-              <span className="text-gray-300 dark:text-gray-600">·</span>
-              <button
-                onClick={handleRefreshAll}
-                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
-              >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Refresh All
-              </button>
+              {loadingCount > 0 ? (
+                <>
+                  <svg className="w-3 h-3 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span className="text-xs text-blue-500 dark:text-blue-400">
+                    Refreshing... {checkedCount} / {totalBooks}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    Updated {timeAgo(oldestFetchedAt)}
+                  </span>
+                  <span className="text-gray-300 dark:text-gray-600">·</span>
+                  <button
+                    onClick={handleRefreshAll}
+                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh All
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
