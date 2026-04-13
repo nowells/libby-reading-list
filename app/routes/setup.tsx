@@ -301,7 +301,7 @@ export default function Setup() {
                 >
                   <div className="flex items-center gap-2">
                     {lib.logoUrl ? (
-                      <img src={lib.logoUrl} alt="" className="h-5 w-auto rounded-sm flex-shrink-0" />
+                      <img src={lib.logoUrl} alt="" className="h-5 w-auto rounded bg-white p-0.5 flex-shrink-0" />
                     ) : (
                       <span className="inline-flex items-center justify-center w-5 h-5 rounded-sm bg-green-200 dark:bg-green-800 text-[10px] font-bold text-green-700 dark:text-green-300 flex-shrink-0">
                         {lib.name[0]?.toUpperCase()}
@@ -356,7 +356,7 @@ export default function Setup() {
                   className="w-full text-left p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   {lib.logoUrl ? (
-                    <img src={lib.logoUrl} alt="" className="h-5 w-auto rounded-sm flex-shrink-0" />
+                    <img src={lib.logoUrl} alt="" className="h-5 w-auto rounded bg-white p-0.5 flex-shrink-0" />
                   ) : (
                     <span className="inline-flex items-center justify-center w-5 h-5 rounded-sm bg-gray-200 dark:bg-gray-600 text-[10px] font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">
                       {lib.name[0]?.toUpperCase()}

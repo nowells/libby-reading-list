@@ -278,7 +278,7 @@ function LibraryIcon({ libraryKey, libraries }: { libraryKey: string; libraries:
         src={lib.logoUrl}
         alt={lib.name}
         title={lib.name}
-        className="h-4 w-auto rounded-sm flex-shrink-0"
+        className="h-4 w-auto rounded bg-white p-0.5 flex-shrink-0"
       />
     );
   }
