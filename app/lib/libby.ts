@@ -140,6 +140,7 @@ function similarityScore(a: string, b: string): number {
 export interface BookAvailability {
   bookTitle: string;
   bookAuthor: string;
+  coverUrl?: string;
   results: Array<{
     mediaItem: LibbyMediaItem;
     availability: AvailabilityInfo;
@@ -204,5 +205,15 @@ export async function findBookInLibrary(
   }
 
   result.results.sort((a, b) => b.matchScore - a.matchScore);
+
+  // Pick the best cover image from the highest-scoring result
+  for (const r of result.results) {
+    const href = r.mediaItem.covers?.cover150Wide?.href;
+    if (href) {
+      result.coverUrl = href;
+      break;
+    }
+  }
+
   return result;
 }

@@ -518,9 +518,9 @@ export default function Books() {
                         : "border-gray-200 dark:border-gray-700"
                 }`}
               >
-                {book.imageUrl && (
+                {(state.data?.coverUrl || book.imageUrl) && (
                   <img
-                    src={book.imageUrl}
+                    src={state.data?.coverUrl ?? book.imageUrl}
                     alt={book.title}
                     className="w-16 h-24 object-cover rounded-md flex-shrink-0"
                   />
