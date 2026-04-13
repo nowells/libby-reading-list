@@ -560,9 +560,9 @@ function BookCard({
       {expanded && isDone && results.length > 0 && (
         <div className="border-t border-gray-100 dark:border-gray-700">
           {/* Table header */}
-          <div className="grid grid-cols-[24px_24px_1fr_1fr_1fr] sm:grid-cols-[1fr_100px_70px_70px_60px] gap-x-2 sm:gap-x-3 px-4 py-2 text-[10px] sm:text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-            <span className="hidden sm:block">Library</span>
-            <span className="hidden sm:block">Format</span>
+          <div className="grid grid-cols-[24px_24px_1fr_1fr_1fr] sm:grid-cols-[1fr_140px_70px_70px_60px] gap-x-2 sm:gap-x-3 px-4 py-2 text-[10px] sm:text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+            <span><span className="hidden sm:inline">Library</span></span>
+            <span><span className="hidden sm:inline">Format</span></span>
             <span className="text-right">Holds</span>
             <span className="text-right">Copies</span>
             <span className="text-right">ETA</span>
@@ -577,7 +577,7 @@ function BookCard({
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="grid grid-cols-[24px_24px_1fr_1fr_1fr] sm:grid-cols-[1fr_100px_70px_70px_60px] gap-x-2 sm:gap-x-3 px-4 py-2.5 items-center border-t border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group"
+                className="grid grid-cols-[24px_24px_1fr_1fr_1fr] sm:grid-cols-[1fr_140px_70px_70px_60px] gap-x-2 sm:gap-x-3 px-4 py-2.5 items-center border-t border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group"
               >
                 <span className="flex items-center gap-2 min-w-0 text-sm text-gray-700 dark:text-gray-300">
                   <LibraryIcon libraryKey={r.libraryKey} libraries={libraries} />
@@ -585,7 +585,15 @@ function BookCard({
                 </span>
                 <span className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
                   <FormatIcon type={r.formatType} />
-                  <span className="hidden sm:inline">{formatType(r.formatType)}</span>
+                  <span className="hidden sm:inline">
+                    <span>{formatType(r.formatType)}</span>
+                    {r.mediaItem.publisher?.name && (
+                      <span className="block text-[10px] text-gray-400 dark:text-gray-500 truncate">
+                        {r.mediaItem.publisher.name}
+                        {r.mediaItem.publishDate && ` (${r.mediaItem.publishDate.slice(0, 4)})`}
+                      </span>
+                    )}
+                  </span>
                 </span>
                 <span className={`text-right text-sm tabular-nums ${r.availability.numberOfHolds > 100 ? "text-red-500 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}>
                   {r.availability.isAvailable ? (

@@ -24,6 +24,8 @@ export interface LibbyMediaItem {
     seriesName: string;
     readingOrder: string;
   };
+  publisher?: { id: string; name: string };
+  publishDate?: string;
   isAvailable?: boolean;
   ownedCopies?: number;
   availableCopies?: number;
