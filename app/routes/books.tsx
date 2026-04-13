@@ -1,5 +1,5 @@
 import { usePostHog } from "@posthog/react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, redirect, useSearchParams } from "react-router";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getBooks, getLibraries, type Book, type LibraryConfig } from "~/lib/storage";
 import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
@@ -7,6 +7,15 @@ import { Logo } from "~/components/logo";
 
 export function meta() {
   return [{ title: "Your Books | ShelfCheck" }];
+}
+
+export function clientLoader() {
+  const books = getBooks();
+  const libraries = getLibraries();
+  if (books.length === 0 || libraries.length === 0) {
+    throw redirect("/setup");
+  }
+  return { books, libraries };
 }
 
 // --- Cache utilities ---
@@ -793,27 +802,16 @@ const PAGE_SIZE = 20;
 
 export default function Books() {
   const posthog = usePostHog();
-  const navigate = useNavigate();
-  const [books, setLocalBooks] = useState<Book[]>([]);
-  const [libraries, setLocalLibraries] = useState<LibraryConfig[]>([]);
-  const [ready, setReady] = useState(false);
+  const [books] = useState<Book[]>(() => getBooks());
+  const [libraries] = useState<LibraryConfig[]>(() => getLibraries());
 
   useEffect(() => {
-    const storedBooks = getBooks();
-    const storedLibraries = getLibraries();
-    if (storedBooks.length === 0 || storedLibraries.length === 0) {
-      navigate("/setup", { replace: true });
-      return;
-    }
-    setLocalBooks(storedBooks);
-    setLocalLibraries(storedLibraries);
-    setReady(true);
     posthog?.capture("books_page_viewed", {
-      book_count: storedBooks.length,
-      library_count: storedLibraries.length,
-      book_source: storedBooks[0]?.source,
+      book_count: books.length,
+      library_count: libraries.length,
+      book_source: books[0]?.source,
     });
-  }, [navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [searchParams, setSearchParams] = useSearchParams();
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
@@ -830,7 +828,7 @@ export default function Books() {
     refreshBook,
     refreshAll,
     oldestFetchedAt,
-  } = useAvailabilityChecker(ready ? books : [], libraries);
+  } = useAvailabilityChecker(books, libraries);
 
   const categoryCounts = useMemo(() => {
     const counts = { available: 0, soon: 0, waiting: 0, not_found: 0 };
@@ -916,8 +914,6 @@ export default function Books() {
       is_available: isAvailable,
     });
   };
-
-  if (!ready) return null;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900 py-8 px-4">
