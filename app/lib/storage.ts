@@ -4,6 +4,7 @@ export interface LibraryConfig {
   key: string;
   preferredKey: string;
   name: string;
+  logoUrl?: string;
 }
 
 export interface Book {

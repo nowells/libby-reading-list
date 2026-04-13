@@ -125,6 +125,7 @@ export default function Setup() {
         key: lib.fulfillmentId,
         preferredKey,
         name: lib.name,
+        logoUrl: lib.logoUrl,
       };
       addLibrary(config);
       setLibrariesState(getLibraries());
@@ -298,9 +299,18 @@ export default function Setup() {
                   key={lib.key}
                   className="flex items-center justify-between p-3 border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 rounded-lg"
                 >
-                  <span className="font-medium text-gray-900 dark:text-white">
-                    {lib.name}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {lib.logoUrl ? (
+                      <img src={lib.logoUrl} alt="" className="h-5 w-auto rounded-sm flex-shrink-0" />
+                    ) : (
+                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-sm bg-green-200 dark:bg-green-800 text-[10px] font-bold text-green-700 dark:text-green-300 flex-shrink-0">
+                        {lib.name[0]?.toUpperCase()}
+                      </span>
+                    )}
+                    <span className="font-medium text-gray-900 dark:text-white">
+                      {lib.name}
+                    </span>
+                  </div>
                   <button
                     onClick={() => handleRemoveLibrary(lib.key)}
                     className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 underline"
@@ -343,13 +353,20 @@ export default function Setup() {
                   key={lib.id}
                   onClick={() => handleSelectLibrary(lib)}
                   disabled={selectingLibrary}
-                  className="w-full text-left p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50"
+                  className="w-full text-left p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
+                  {lib.logoUrl ? (
+                    <img src={lib.logoUrl} alt="" className="h-5 w-auto rounded-sm flex-shrink-0" />
+                  ) : (
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-sm bg-gray-200 dark:bg-gray-600 text-[10px] font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">
+                      {lib.name[0]?.toUpperCase()}
+                    </span>
+                  )}
                   <span className="font-medium text-gray-900 dark:text-white">
                     {lib.name}
                   </span>
                   {lib.type && (
-                    <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
                       {lib.type}
                     </span>
                   )}

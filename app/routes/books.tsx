@@ -122,11 +122,12 @@ function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]) {
           }
         }
 
-        // Deduplicate by mediaItem.id (same title may appear in multiple libraries)
+        // Deduplicate by library+mediaItem (keep unique per library)
         const seen = new Set<string>();
         merged.results = merged.results.filter((r) => {
-          if (seen.has(r.mediaItem.id)) return false;
-          seen.add(r.mediaItem.id);
+          const key = `${r.libraryKey}:${r.mediaItem.id}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
           return true;
         });
 
@@ -269,19 +270,43 @@ function timeAgo(ts: number): string {
   return `${days}d ago`;
 }
 
+function LibraryIcon({ libraryKey, libraries }: { libraryKey: string; libraries: LibraryConfig[] }) {
+  const lib = libraries.find((l) => l.key === libraryKey);
+  if (lib?.logoUrl) {
+    return (
+      <img
+        src={lib.logoUrl}
+        alt={lib.name}
+        title={lib.name}
+        className="h-4 w-auto rounded-sm flex-shrink-0"
+      />
+    );
+  }
+  // Fallback: first letter of library name
+  const initial = lib?.name?.[0]?.toUpperCase() ?? "L";
+  return (
+    <span
+      title={lib?.name ?? libraryKey}
+      className="inline-flex items-center justify-center w-5 h-5 rounded-sm bg-gray-200 dark:bg-gray-600 text-[10px] font-bold text-gray-600 dark:text-gray-300 flex-shrink-0"
+    >
+      {initial}
+    </span>
+  );
+}
+
 function AvailabilityBadge({
   state,
-  defaultLibraryKey,
+  libraries,
   onRefresh,
 }: {
   state: BookAvailState;
-  defaultLibraryKey: string;
+  libraries: LibraryConfig[];
   onRefresh: () => void;
 }) {
   if (state.status === "pending" || state.status === "loading") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">
-        <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+      <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">
+        <span className="inline-block w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
         Checking...
       </span>
     );
@@ -292,7 +317,7 @@ function AvailabilityBadge({
   if (!avail || avail.results.length === 0) {
     return (
       <div className="flex items-center gap-2">
-        <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full">
+        <span className="text-sm px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full">
           Not found
         </span>
         <RefreshButton fetchedAt={state.fetchedAt} onRefresh={onRefresh} />
@@ -304,36 +329,42 @@ function AvailabilityBadge({
   const waitlist = avail.results.filter((r) => !r.availability.isAvailable);
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
-      {available.map((r) => (
-        <a
-          key={r.mediaItem.id}
-          href={libbyTitleUrl(defaultLibraryKey, r.mediaItem.id)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full hover:bg-green-200 dark:hover:bg-green-900/60 transition-colors"
-        >
-          {formatType(r.formatType)} available &rarr;
-        </a>
-      ))}
-      {waitlist.map((r) => (
-        <a
-          key={r.mediaItem.id}
-          href={libbyTitleUrl(defaultLibraryKey, r.mediaItem.id)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 rounded-full hover:bg-yellow-200 dark:hover:bg-yellow-900/60 transition-colors"
-        >
-          {formatType(r.formatType)} — {r.availability.numberOfHolds} hold
-          {r.availability.numberOfHolds !== 1 ? "s" : ""},{" "}
-          {r.availability.copiesAvailable} of {r.availability.copiesOwned}{" "}
-          copies
-          {r.availability.estimatedWaitDays
-            ? ` (~${r.availability.estimatedWaitDays}d wait)`
-            : ""}{" "}
-          &rarr;
-        </a>
-      ))}
+    <div className="flex flex-wrap items-center gap-1.5">
+      {available.map((r) => {
+        const preferredKey = libraries.find((l) => l.key === r.libraryKey)?.preferredKey ?? r.libraryKey;
+        return (
+          <a
+            key={`${r.libraryKey}-${r.mediaItem.id}`}
+            href={libbyTitleUrl(preferredKey, r.mediaItem.id)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full hover:bg-green-200 dark:hover:bg-green-900/60 transition-colors"
+          >
+            <LibraryIcon libraryKey={r.libraryKey} libraries={libraries} />
+            {formatType(r.formatType)} available
+          </a>
+        );
+      })}
+      {waitlist.map((r) => {
+        const preferredKey = libraries.find((l) => l.key === r.libraryKey)?.preferredKey ?? r.libraryKey;
+        return (
+          <a
+            key={`${r.libraryKey}-${r.mediaItem.id}`}
+            href={libbyTitleUrl(preferredKey, r.mediaItem.id)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 rounded-full hover:bg-yellow-200 dark:hover:bg-yellow-900/60 transition-colors"
+          >
+            <LibraryIcon libraryKey={r.libraryKey} libraries={libraries} />
+            {formatType(r.formatType)} — {r.availability.numberOfHolds} hold
+            {r.availability.numberOfHolds !== 1 ? "s" : ""},{" "}
+            {r.availability.copiesAvailable}/{r.availability.copiesOwned} copies
+            {r.availability.estimatedWaitDays
+              ? ` (~${r.availability.estimatedWaitDays}d)`
+              : ""}
+          </a>
+        );
+      })}
       <RefreshButton fetchedAt={state.fetchedAt} onRefresh={onRefresh} />
     </div>
   );
@@ -466,7 +497,6 @@ export default function Books() {
   } = useAvailabilityChecker(ready ? books : [], libraries);
 
   const libraryNames = libraries.map((l) => l.name).join(", ");
-  const defaultPreferredKey = libraries[0]?.preferredKey ?? "";
 
   const scoreFor = (s?: BookAvailState) => {
     if (!s?.data) return 0;
@@ -589,7 +619,7 @@ export default function Books() {
                   <div className="mt-2">
                     <AvailabilityBadge
                       state={state}
-                      defaultLibraryKey={defaultPreferredKey}
+                      libraries={libraries}
                       onRefresh={() => refreshBook(book)}
                     />
                   </div>

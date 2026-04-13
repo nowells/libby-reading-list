@@ -137,16 +137,19 @@ function similarityScore(a: string, b: string): number {
   return (2 * intersection.length) / (wordsA.length + wordsB.length);
 }
 
+export interface BookAvailabilityResult {
+  mediaItem: LibbyMediaItem;
+  availability: AvailabilityInfo;
+  matchScore: number;
+  formatType: string;
+  libraryKey: string;
+}
+
 export interface BookAvailability {
   bookTitle: string;
   bookAuthor: string;
   coverUrl?: string;
-  results: Array<{
-    mediaItem: LibbyMediaItem;
-    availability: AvailabilityInfo;
-    matchScore: number;
-    formatType: string;
-  }>;
+  results: BookAvailabilityResult[];
 }
 
 export async function findBookInLibrary(
@@ -191,6 +194,7 @@ export async function findBookInLibrary(
               availability: avail,
               matchScore: (titleScore + authorScore) / 2,
               formatType,
+              libraryKey,
             });
           } catch {
             // Skip items where availability check fails
