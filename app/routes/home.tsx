@@ -1,6 +1,6 @@
-import { redirect, Link } from "react-router";
-import type { Route } from "./+types/home";
-import { getSession } from "~/lib/session.server";
+import { Link, useNavigate } from "react-router";
+import { useEffect } from "react";
+import { getBooks, getLibrary } from "~/lib/storage";
 
 export function meta() {
   return [
@@ -8,24 +8,22 @@ export function meta() {
     {
       name: "description",
       content:
-        "Find your Hardcover wishlist books available at your local library via Libby.",
+        "Find your want-to-read books available at your local library via Libby.",
     },
   ];
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
-  const session = await getSession(request);
-  const hardcoverKey = session.get("hardcoverApiKey");
-  const libraryKey = session.get("libraryKey");
-
-  if (hardcoverKey && libraryKey) {
-    throw redirect("/books");
-  }
-
-  return { hasHardcoverKey: !!hardcoverKey, hasLibraryKey: !!libraryKey };
-}
-
 export default function Home() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const books = getBooks();
+    const library = getLibrary();
+    if (books.length > 0 && library) {
+      navigate("/books", { replace: true });
+    }
+  }, [navigate]);
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900">
       <div className="max-w-xl w-full mx-4 text-center">
@@ -33,8 +31,8 @@ export default function Home() {
           HardcoverLibby
         </h1>
         <p className="text-lg text-gray-600 dark:text-gray-400 mb-8">
-          Find your Hardcover "Want to Read" books that are available at your
-          local library through Libby.
+          Find your "Want to Read" books that are available at your local
+          library through Libby.
         </p>
 
         <div className="space-y-4 text-left bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg mb-8">
@@ -43,11 +41,14 @@ export default function Home() {
           </h2>
           <ol className="list-decimal list-inside space-y-3 text-gray-700 dark:text-gray-300">
             <li>
-              Connect your{" "}
+              Upload a CSV export from{" "}
+              <span className="font-medium text-amber-700 dark:text-amber-400">
+                Goodreads
+              </span>{" "}
+              or{" "}
               <span className="font-medium text-amber-700 dark:text-amber-400">
                 Hardcover
-              </span>{" "}
-              account with an API key
+              </span>
             </li>
             <li>
               Select your{" "}

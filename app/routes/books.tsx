@@ -1,41 +1,10 @@
-import { redirect, Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import type { Route } from "./+types/books";
-import { getSession } from "~/lib/session.server";
-import { fetchAllWantToRead, type UserBook } from "~/lib/hardcover.server";
-import type { BookAvailability } from "~/lib/libby.server";
+import { getBooks, getLibrary, type Book } from "~/lib/storage";
+import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
 
 export function meta() {
   return [{ title: "Your Books | HardcoverLibby" }];
-}
-
-export async function loader({ request }: Route.LoaderArgs) {
-  const session = await getSession(request);
-  const hardcoverKey = session.get("hardcoverApiKey") as string;
-  const libraryKey = session.get("libraryKey") as string;
-  const libraryPreferredKey = (session.get("libraryPreferredKey") as string) ?? libraryKey;
-  const libraryName = (session.get("libraryName") as string) ?? libraryKey;
-
-  if (!hardcoverKey || !libraryKey) {
-    throw redirect("/setup");
-  }
-
-  let userBooks: UserBook[] = [];
-  let fetchError: string | null = null;
-
-  try {
-    userBooks = await fetchAllWantToRead(hardcoverKey);
-  } catch (e) {
-    fetchError = e instanceof Error ? e.message : "Failed to fetch books";
-  }
-
-  return {
-    userBooks,
-    libraryName,
-    libraryKey,
-    libraryPreferredKey,
-    fetchError,
-  };
 }
 
 // --- Cache utilities ---
@@ -65,17 +34,17 @@ function writeCache(cache: Record<string, CachedEntry>) {
   }
 }
 
-function getCached(bookId: number): CachedEntry | null {
+function getCached(bookId: string): CachedEntry | null {
   const cache = readCache();
-  const entry = cache[String(bookId)];
+  const entry = cache[bookId];
   if (!entry) return null;
   if (Date.now() - entry.fetchedAt > CACHE_MAX_AGE_MS) return null;
   return entry;
 }
 
-function setCached(bookId: number, data: BookAvailability) {
+function setCached(bookId: string, data: BookAvailability) {
   const cache = readCache();
-  cache[String(bookId)] = { data, fetchedAt: Date.now() };
+  cache[bookId] = { data, fetchedAt: Date.now() };
   writeCache(cache);
 }
 
@@ -89,16 +58,12 @@ interface BookAvailState {
   fetchedAt?: number;
 }
 
-function useAvailabilityChecker(userBooks: UserBook[], libraryKey: string) {
-  const [availMap, setAvailMap] = useState<Record<number, BookAvailState>>({});
+function useAvailabilityChecker(books: Book[], libraryKey: string) {
+  const [availMap, setAvailMap] = useState<Record<string, BookAvailState>>({});
   const [refreshToken, setRefreshToken] = useState(0);
   const refreshingRef = useRef(false);
 
-  const uniqueBookIds = useMemo(
-    () => new Set(userBooks.map((ub) => ub.book.id)),
-    [userBooks]
-  );
-  const totalBooks = uniqueBookIds.size;
+  const totalBooks = books.length;
   const checkedCount = Object.values(availMap).filter(
     (s) => s.status === "done" || s.status === "cached"
   ).length;
@@ -107,35 +72,35 @@ function useAvailabilityChecker(userBooks: UserBook[], libraryKey: string) {
   ).length;
 
   const fetchAndCache = useCallback(
-    async (ub: UserBook): Promise<BookAvailState> => {
-      const author = ub.book.contributions?.[0]?.author?.name ?? "";
-      const params = new URLSearchParams({ title: ub.book.title, author });
-
+    async (book: Book): Promise<BookAvailState> => {
       try {
-        const res = await fetch(`/api/availability?${params}`);
-        const data: BookAvailability = await res.json();
-        setCached(ub.book.id, data);
+        const data = await findBookInLibrary(
+          libraryKey,
+          book.title,
+          book.author
+        );
+        setCached(book.id, data);
         return { status: "done", data, fetchedAt: Date.now() };
       } catch {
         const fallback: BookAvailability = {
-          bookTitle: ub.book.title,
-          bookAuthor: author,
+          bookTitle: book.title,
+          bookAuthor: book.author,
           results: [],
         };
         return { status: "done", data: fallback, fetchedAt: Date.now() };
       }
     },
-    []
+    [libraryKey]
   );
 
   const refreshBook = useCallback(
-    async (ub: UserBook) => {
+    async (book: Book) => {
       setAvailMap((prev) => ({
         ...prev,
-        [ub.book.id]: { ...prev[ub.book.id], status: "loading" },
+        [book.id]: { ...prev[book.id], status: "loading" },
       }));
-      const result = await fetchAndCache(ub);
-      setAvailMap((prev) => ({ ...prev, [ub.book.id]: result }));
+      const result = await fetchAndCache(book);
+      setAvailMap((prev) => ({ ...prev, [book.id]: result }));
     },
     [fetchAndCache]
   );
@@ -150,25 +115,25 @@ function useAvailabilityChecker(userBooks: UserBook[], libraryKey: string) {
 
     const forceRefresh = refreshToken > 0;
 
-    const initial: Record<number, BookAvailState> = {};
-    const toFetch: UserBook[] = [];
+    const initial: Record<string, BookAvailState> = {};
+    const toFetch: Book[] = [];
 
-    for (const ub of userBooks) {
+    for (const book of books) {
       if (forceRefresh) {
-        initial[ub.book.id] = { status: "pending" };
-        toFetch.push(ub);
+        initial[book.id] = { status: "pending" };
+        toFetch.push(book);
         continue;
       }
-      const cached = getCached(ub.book.id);
+      const cached = getCached(book.id);
       if (cached) {
-        initial[ub.book.id] = {
+        initial[book.id] = {
           status: "cached",
           data: cached.data,
           fetchedAt: cached.fetchedAt,
         };
       } else {
-        initial[ub.book.id] = { status: "pending" };
-        toFetch.push(ub);
+        initial[book.id] = { status: "pending" };
+        toFetch.push(book);
       }
     }
     setAvailMap(initial);
@@ -184,13 +149,13 @@ function useAvailabilityChecker(userBooks: UserBook[], libraryKey: string) {
     async function processNext(): Promise<void> {
       while (idx < toFetch.length) {
         const current = idx++;
-        const ub = toFetch[current];
+        const book = toFetch[current];
         setAvailMap((prev) => ({
           ...prev,
-          [ub.book.id]: { ...prev[ub.book.id], status: "loading" },
+          [book.id]: { ...prev[book.id], status: "loading" },
         }));
-        const result = await fetchAndCache(ub);
-        setAvailMap((prev) => ({ ...prev, [ub.book.id]: result }));
+        const result = await fetchAndCache(book);
+        setAvailMap((prev) => ({ ...prev, [book.id]: result }));
       }
     }
 
@@ -201,7 +166,7 @@ function useAvailabilityChecker(userBooks: UserBook[], libraryKey: string) {
     void Promise.all(workers).then(() => {
       refreshingRef.current = false;
     });
-  }, [userBooks, fetchAndCache, refreshToken]);
+  }, [books, fetchAndCache, refreshToken]);
 
   const oldestFetchedAt = (() => {
     let oldest: number | null = null;
@@ -307,10 +272,14 @@ function AvailabilityBadge({
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 rounded-full hover:bg-yellow-200 dark:hover:bg-yellow-900/60 transition-colors"
         >
-          {formatType(r.formatType)} — {r.availability.numberOfHolds} hold{r.availability.numberOfHolds !== 1 ? "s" : ""}, {r.availability.copiesAvailable} of {r.availability.copiesOwned} copies
+          {formatType(r.formatType)} — {r.availability.numberOfHolds} hold
+          {r.availability.numberOfHolds !== 1 ? "s" : ""},{" "}
+          {r.availability.copiesAvailable} of {r.availability.copiesOwned}{" "}
+          copies
           {r.availability.estimatedWaitDays
             ? ` (~${r.availability.estimatedWaitDays}d wait)`
-            : ""} &rarr;
+            : ""}{" "}
+          &rarr;
         </a>
       ))}
       <RefreshButton fetchedAt={state.fetchedAt} onRefresh={onRefresh} />
@@ -331,12 +300,20 @@ function RefreshButton({
       title={fetchedAt ? `Last checked ${timeAgo(fetchedAt)}` : "Refresh"}
       className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
     >
-      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      <svg
+        className="w-3 h-3"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+        />
       </svg>
-      {fetchedAt && (
-        <span>{timeAgo(fetchedAt)}</span>
-      )}
+      {fetchedAt && <span>{timeAgo(fetchedAt)}</span>}
     </button>
   );
 }
@@ -405,14 +382,27 @@ function ProgressBar({
 
 const PAGE_SIZE = 20;
 
-export default function Books({ loaderData }: Route.ComponentProps) {
-  const {
-    userBooks,
-    libraryName,
-    libraryKey,
-    libraryPreferredKey,
-    fetchError,
-  } = loaderData;
+export default function Books() {
+  const navigate = useNavigate();
+  const [books, setLocalBooks] = useState<Book[]>([]);
+  const [libraryName, setLibraryName] = useState("");
+  const [libraryKey, setLibraryKey] = useState("");
+  const [libraryPreferredKey, setLibraryPreferredKey] = useState("");
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const storedBooks = getBooks();
+    const library = getLibrary();
+    if (storedBooks.length === 0 || !library) {
+      navigate("/setup", { replace: true });
+      return;
+    }
+    setLocalBooks(storedBooks);
+    setLibraryName(library.name);
+    setLibraryKey(library.key);
+    setLibraryPreferredKey(library.preferredKey);
+    setReady(true);
+  }, [navigate]);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
@@ -425,9 +415,8 @@ export default function Books({ loaderData }: Route.ComponentProps) {
     refreshBook,
     refreshAll,
     oldestFetchedAt,
-  } = useAvailabilityChecker(userBooks, libraryKey);
+  } = useAvailabilityChecker(ready ? books : [], libraryKey);
 
-  // Sort ALL books globally by status then title
   const scoreFor = (s?: BookAvailState) => {
     if (!s?.data) return 0;
     if (s.data.results.some((r) => r.availability.isAvailable)) return 2;
@@ -436,22 +425,26 @@ export default function Books({ loaderData }: Route.ComponentProps) {
   };
 
   const sortedBooks = useMemo(() => {
-    return [...userBooks].sort((a, b) => {
-      const scoreA = scoreFor(availMap[a.book.id]);
-      const scoreB = scoreFor(availMap[b.book.id]);
+    return [...books].sort((a, b) => {
+      const scoreA = scoreFor(availMap[a.id]);
+      const scoreB = scoreFor(availMap[b.id]);
       if (scoreB !== scoreA) return scoreB - scoreA;
-      return a.book.title.localeCompare(b.book.title);
+      return a.title.localeCompare(b.title);
     });
-  }, [userBooks, availMap]);
+  }, [books, availMap]);
 
-  // Client-side pagination over the sorted list
   const totalPages = Math.ceil(sortedBooks.length / PAGE_SIZE);
-  const paginatedBooks = sortedBooks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const paginatedBooks = sortedBooks.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE
+  );
 
   const goToPage = (p: number) => {
     setSearchParams({ page: String(p) });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  if (!ready) return null;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900 py-8 px-4">
@@ -462,7 +455,7 @@ export default function Books({ loaderData }: Route.ComponentProps) {
               Want to Read
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {userBooks.length} books &middot; Availability at{" "}
+              {books.length} books &middot; Availability at{" "}
               <span className="font-medium">{libraryName}</span>
             </p>
           </div>
@@ -474,29 +467,21 @@ export default function Books({ loaderData }: Route.ComponentProps) {
           </Link>
         </div>
 
-        {fetchError && (
-          <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-400 mb-6">
-            {fetchError}
-          </div>
-        )}
-
-        {userBooks.length === 0 && !fetchError && (
+        {books.length === 0 && (
           <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
             <p className="text-gray-500 dark:text-gray-400">
-              No books on your "Want to Read" shelf yet.
+              No books loaded. Upload a reading list to get started.
             </p>
-            <a
-              href="https://hardcover.app"
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              to="/setup"
               className="text-amber-600 hover:text-amber-700 underline mt-2 inline-block"
             >
-              Browse Hardcover to add some
-            </a>
+              Go to Setup
+            </Link>
           </div>
         )}
 
-        {userBooks.length > 0 && (
+        {books.length > 0 && (
           <ProgressBar
             checked={checkedCount}
             total={totalBooks}
@@ -507,10 +492,10 @@ export default function Books({ loaderData }: Route.ComponentProps) {
         )}
 
         <div className="space-y-3">
-          {paginatedBooks.map((ub) => {
-            const author =
-              ub.book.contributions?.[0]?.author?.name ?? "Unknown Author";
-            const state = availMap[ub.book.id] ?? { status: "pending" as const };
+          {paginatedBooks.map((book) => {
+            const state = availMap[book.id] ?? {
+              status: "pending" as const,
+            };
             const hasAvailable =
               (state.status === "done" || state.status === "cached") &&
               state.data?.results.some((r) => r.availability.isAvailable);
@@ -521,41 +506,37 @@ export default function Books({ loaderData }: Route.ComponentProps) {
 
             return (
               <div
-                key={ub.id}
+                key={book.id}
                 className={`flex gap-4 bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border-l-4 transition-colors duration-300 ${
                   hasAvailable
                     ? "border-green-500"
                     : hasWaitlist
                       ? "border-yellow-400"
-                      : state.status === "pending" || state.status === "loading"
+                      : state.status === "pending" ||
+                          state.status === "loading"
                         ? "border-blue-300 dark:border-blue-700"
                         : "border-gray-200 dark:border-gray-700"
                 }`}
               >
-                {ub.book.image?.url && (
+                {book.imageUrl && (
                   <img
-                    src={ub.book.image.url}
-                    alt={ub.book.title}
+                    src={book.imageUrl}
+                    alt={book.title}
                     className="w-16 h-24 object-cover rounded-md flex-shrink-0"
                   />
                 )}
                 <div className="flex-1 min-w-0">
-                  <a
-                    href={`https://hardcover.app/books/${ub.book.slug}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-semibold text-gray-900 dark:text-white hover:text-amber-600 dark:hover:text-amber-400 line-clamp-1"
-                  >
-                    {ub.book.title}
-                  </a>
+                  <span className="font-semibold text-gray-900 dark:text-white line-clamp-1">
+                    {book.title}
+                  </span>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {author}
+                    {book.author || "Unknown Author"}
                   </p>
                   <div className="mt-2">
                     <AvailabilityBadge
                       state={state}
                       libraryKey={libraryPreferredKey}
-                      onRefresh={() => refreshBook(ub)}
+                      onRefresh={() => refreshBook(book)}
                     />
                   </div>
                 </div>

@@ -37,15 +37,12 @@ export interface AvailabilityInfo {
 
 async function thunderFetch(path: string) {
   const url = `${THUNDER_API_URL}${path}`;
-  console.log("[libby] thunderFetch:", url);
   const res = await fetch(url, {
     headers: {
       "x-client-id": "dewey",
     },
   });
   if (!res.ok) {
-    const body = await res.text();
-    console.log("[libby] thunderFetch error:", res.status, res.statusText, body);
     throw new Error(`Libby API error: ${res.status} ${res.statusText}`);
   }
   return res.json();
@@ -96,21 +93,12 @@ export async function searchLibraryByName(
   query: string
 ): Promise<LibbyLibrary[]> {
   const url = `https://locate.libbyapp.com/autocomplete/${encodeURIComponent(query)}`;
-  console.log("[libby] searchLibraryByName:", url);
-  const res = await fetch(url, {
-    headers: {
-      Origin: "https://libbyapp.com",
-    },
-  });
+  const res = await fetch(url);
   if (!res.ok) {
-    const body = await res.text();
-    console.log("[libby] searchLibraryByName error:", res.status, res.statusText, body);
     throw new Error(`Libby locate API error: ${res.status}`);
   }
   const data = await res.json();
-  console.log("[libby] searchLibraryByName: got", data.branches?.length ?? 0, "branches");
 
-  // Extract unique library systems from branches
   const seen = new Set<number>();
   const libraries: LibbyLibrary[] = [];
 
@@ -132,10 +120,6 @@ export async function searchLibraryByName(
   return libraries;
 }
 
-/**
- * Fuzzy match a book title against a Libby search result.
- * Returns a score between 0 and 1.
- */
 function similarityScore(a: string, b: string): number {
   const normalize = (s: string) =>
     s
@@ -175,7 +159,6 @@ export async function findBookInLibrary(
     results: [],
   };
 
-  // Try search with author + title first, fall back to title only
   const queries = [
     `${author} ${title}`,
     title.includes(":") ? `${author} ${title.split(":")[0].trim()}` : null,

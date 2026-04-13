@@ -4,5 +4,4 @@ export default [
   index("routes/home.tsx"),
   route("setup", "routes/setup.tsx"),
   route("books", "routes/books.tsx"),
-  route("api/availability", "routes/api.availability.tsx"),
 ] satisfies RouteConfig;
