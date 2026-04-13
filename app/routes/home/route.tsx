@@ -4,10 +4,11 @@ import { Logo } from "~/components/logo";
 
 export function meta() {
   return [
-    { title: "ShelfCheck" },
+    { title: "ShelfCheck — Find Your Want-to-Read Books at Your Local Library" },
     {
       name: "description",
-      content: "Find your want-to-read books available at your local library via Libby.",
+      content:
+        "Upload your Goodreads or Hardcover reading list and instantly see which books are available to borrow for free at your local library through Libby.",
     },
   ];
 }

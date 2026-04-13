@@ -33,18 +33,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://www.shelfcheck.org" />
-        <meta property="og:title" content="ShelfCheck" />
+        <meta
+          property="og:title"
+          content="ShelfCheck — Find Your Want-to-Read Books at Your Local Library"
+        />
         <meta
           property="og:description"
-          content="Find your want-to-read books available at your local library via Libby."
+          content="Upload your Goodreads or Hardcover reading list and instantly see which books are available to borrow for free at your local library through Libby."
         />
         <meta property="og:image" content="https://www.shelfcheck.org/og-image.png" />
         <meta property="og:site_name" content="ShelfCheck" />
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="ShelfCheck" />
+        <meta
+          name="twitter:title"
+          content="ShelfCheck — Find Your Want-to-Read Books at Your Local Library"
+        />
         <meta
           name="twitter:description"
-          content="Find your want-to-read books available at your local library via Libby."
+          content="Upload your Goodreads or Hardcover reading list and instantly see which books are available to borrow for free at your local library through Libby."
         />
         <meta name="twitter:image" content="https://www.shelfcheck.org/og-image.png" />
         <Meta />
