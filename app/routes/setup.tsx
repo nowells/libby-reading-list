@@ -1,3 +1,4 @@
+import { usePostHog } from "@posthog/react";
 import { Link } from "react-router";
 import { useState, useEffect, useRef } from "react";
 import { importBooks } from "~/lib/csv-parser";
@@ -21,6 +22,7 @@ import {
 } from "~/lib/libby";
 
 export default function Setup() {
+  const posthog = usePostHog();
   const [books, setBooksState] = useState<Book[]>([]);
   const [libraries, setLibrariesState] = useState<LibraryConfig[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -58,18 +60,32 @@ export default function Setup() {
 
       if (result.error) {
         setError(result.error);
+        posthog?.capture("csv_upload_failed", {
+          error: result.error,
+          format: result.format,
+          total_rows: result.totalRows,
+        });
         return;
       }
 
       if (result.books.length === 0) {
-        setError(
-          `No "want to read" books found in the CSV. Found ${result.totalRows} total rows.`
-        );
+        const noWantToReadError = `No "want to read" books found in the CSV. Found ${result.totalRows} total rows.`;
+        setError(noWantToReadError);
+        posthog?.capture("csv_upload_failed", {
+          error: noWantToReadError,
+          format: result.format,
+          total_rows: result.totalRows,
+        });
         return;
       }
 
       setBooks(result.books);
       setBooksState(result.books);
+      posthog?.capture("csv_uploaded", {
+        format: result.format,
+        book_count: result.books.length,
+        total_rows: result.totalRows,
+      });
 
       const formatName =
         result.format === "goodreads"
@@ -103,7 +119,12 @@ export default function Setup() {
       const results = await searchLibraryByName(libraryQuery);
       // Filter out already-added libraries
       const existingKeys = new Set(libraries.map((l) => l.key));
-      setSearchResults(results.filter((r) => !existingKeys.has(r.fulfillmentId)));
+      const filtered = results.filter((r) => !existingKeys.has(r.fulfillmentId));
+      setSearchResults(filtered);
+      posthog?.capture("library_searched", {
+        query: libraryQuery,
+        result_count: filtered.length,
+      });
     } catch {
       setError("Failed to search libraries. Please try again.");
     } finally {
@@ -130,6 +151,11 @@ export default function Setup() {
       addLibrary(config);
       setLibrariesState(getLibraries());
       setSearchResults((prev) => prev.filter((r) => r.fulfillmentId !== lib.fulfillmentId));
+      posthog?.capture("library_added", {
+        library_name: lib.name,
+        library_key: lib.fulfillmentId,
+        library_type: lib.type,
+      });
     } catch {
       setError("Failed to add library. Please try again.");
     } finally {
@@ -138,11 +164,20 @@ export default function Setup() {
   }
 
   function handleRemoveLibrary(key: string) {
+    const lib = libraries.find((l) => l.key === key);
     removeLibrary(key);
     setLibrariesState(getLibraries());
+    posthog?.capture("library_removed", {
+      library_name: lib?.name,
+      library_key: key,
+    });
   }
 
   function handleClearAll() {
+    posthog?.capture("setup_reset", {
+      book_count: books.length,
+      library_count: libraries.length,
+    });
     clearAll();
     setBooksState([]);
     setLibrariesState([]);

@@ -8,11 +8,13 @@
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
+    "@posthog/react": "^1.9.0",
     "@react-router/node": "7.14.0",
+    "isbot": "^5",
+    "posthog-js": "^1.367.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router": "7.14.0",
-    "isbot": "^5"
+    "react-router": "7.14.0"
   },
   "devDependencies": {
     "@react-router/dev": "7.14.0",

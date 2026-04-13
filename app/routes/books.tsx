@@ -1,3 +1,4 @@
+import { usePostHog } from "@posthog/react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getBooks, getLibraries, type Book, type LibraryConfig } from "~/lib/storage";
@@ -447,12 +448,14 @@ function BookCard({
   libraries,
   formatFilter,
   onRefresh,
+  onLibbyClick,
 }: {
   book: Book;
   state: BookAvailState;
   libraries: LibraryConfig[];
   formatFilter: FormatFilter;
   onRefresh: () => void;
+  onLibbyClick: (bookTitle: string, formatType: string, isAvailable: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [showAll, setShowAll] = useState(false);
@@ -577,6 +580,7 @@ function BookCard({
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => onLibbyClick(book.title, r.formatType, r.availability.isAvailable)}
                 className="grid grid-cols-[24px_24px_1fr_1fr_1fr] sm:grid-cols-[1fr_140px_70px_70px_60px] gap-x-2 sm:gap-x-3 px-4 py-2.5 items-center border-t border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group"
               >
                 <span className="flex items-center gap-2 min-w-0 text-sm text-gray-700 dark:text-gray-300">
@@ -724,6 +728,7 @@ function ProgressBar({
 const PAGE_SIZE = 20;
 
 export default function Books() {
+  const posthog = usePostHog();
   const navigate = useNavigate();
   const [books, setLocalBooks] = useState<Book[]>([]);
   const [libraries, setLocalLibraries] = useState<LibraryConfig[]>([]);
@@ -739,7 +744,12 @@ export default function Books() {
     setLocalBooks(storedBooks);
     setLocalLibraries(storedLibraries);
     setReady(true);
-  }, [navigate]);
+    posthog?.capture("books_page_viewed", {
+      book_count: storedBooks.length,
+      library_count: storedLibraries.length,
+      book_source: storedBooks[0]?.source,
+    });
+  }, [navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [searchParams, setSearchParams] = useSearchParams();
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
@@ -812,13 +822,35 @@ export default function Books() {
   };
 
   const handleToggleCategory = (cat: BookCategory) => {
-    setCategoryFilter((prev) => (prev === cat ? null : cat));
+    const newFilter = categoryFilter === cat ? null : cat;
+    setCategoryFilter(newFilter);
     setSearchParams({ page: "1" });
+    posthog?.capture("category_filter_toggled", {
+      category: cat,
+      active: newFilter === cat,
+    });
   };
 
   const handleToggleFormat = (f: FormatFilter) => {
     setFormatFilter(f);
     setSearchParams({ page: "1" });
+    posthog?.capture("format_filter_toggled", { format: f });
+  };
+
+  const handleRefreshAll = () => {
+    posthog?.capture("all_books_refreshed", {
+      book_count: books.length,
+      library_count: libraries.length,
+    });
+    refreshAll();
+  };
+
+  const handleLibbyClick = (bookTitle: string, formatType: string, isAvailable: boolean) => {
+    posthog?.capture("libby_link_clicked", {
+      book_title: bookTitle,
+      format_type: formatType,
+      is_available: isAvailable,
+    });
   };
 
   if (!ready) return null;
@@ -853,7 +885,7 @@ export default function Books() {
               </span>
               <span className="text-gray-300 dark:text-gray-600">·</span>
               <button
-                onClick={refreshAll}
+                onClick={handleRefreshAll}
                 className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
               >
                 Refresh All
@@ -882,7 +914,7 @@ export default function Books() {
             total={totalBooks}
             loading={loadingCount}
             oldestFetchedAt={oldestFetchedAt}
-            onRefreshAll={refreshAll}
+            onRefreshAll={handleRefreshAll}
           />
         )}
 
@@ -925,6 +957,7 @@ export default function Books() {
                 libraries={libraries}
                 formatFilter={formatFilter}
                 onRefresh={() => refreshBook(book)}
+                onLibbyClick={handleLibbyClick}
               />
             );
           })}
