@@ -46,19 +46,19 @@ export default function Home() {
           <ol className="list-decimal list-inside space-y-3 text-gray-700 dark:text-gray-300">
             <li>
               Upload a CSV export from{" "}
-              <span className="font-medium text-amber-700 dark:text-amber-400">
+              <a href="https://www.goodreads.com" target="_blank" rel="noopener noreferrer" className="font-medium text-amber-700 dark:text-amber-400 underline hover:text-amber-800 dark:hover:text-amber-300">
                 Goodreads
-              </span>{" "}
+              </a>{" "}
               or{" "}
-              <span className="font-medium text-amber-700 dark:text-amber-400">
+              <a href="https://hardcover.app" target="_blank" rel="noopener noreferrer" className="font-medium text-amber-700 dark:text-amber-400 underline hover:text-amber-800 dark:hover:text-amber-300">
                 Hardcover
-              </span>
+              </a>
             </li>
             <li>
               Select your{" "}
-              <span className="font-medium text-blue-700 dark:text-blue-400">
+              <a href="https://libbyapp.com" target="_blank" rel="noopener noreferrer" className="font-medium text-blue-700 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300">
                 Libby
-              </span>{" "}
+              </a>{" "}
               library
             </li>
             <li>
