@@ -96,6 +96,20 @@ export async function getAvailability(
   };
 }
 
+// Large reference library used for deep search (scope-auto) when local search finds nothing
+const REFERENCE_LIBRARY = "lapl";
+
+async function getMediaItem(
+  libraryKey: string,
+  titleId: string
+): Promise<LibbyMediaItem | null> {
+  try {
+    return await thunderFetch(`/libraries/${libraryKey}/media/${titleId}`);
+  } catch {
+    return null;
+  }
+}
+
 export async function searchLibraryByName(
   query: string
 ): Promise<LibbyLibrary[]> {
@@ -222,19 +236,28 @@ export async function findBookInLibrary(
 
         if (titleScore >= 0.4 && authorScore >= 0.3 && contentWordsMatch(title, item.title)) {
           seenIds.add(item.id);
+          let avail: AvailabilityInfo;
           try {
-            const avail = await getAvailability(libraryKey, item.id);
-            const formatType = item.type?.id ?? "unknown";
-            result.results.push({
-              mediaItem: item,
-              availability: avail,
-              matchScore: (titleScore + authorScore) / 2,
-              formatType,
-              libraryKey,
-            });
+            avail = await getAvailability(libraryKey, item.id);
           } catch {
-            // Skip items where availability check fails
+            // Fallback for pre-release / notify-me titles where availability API fails
+            avail = {
+              id: item.id,
+              copiesOwned: item.ownedCopies ?? 0,
+              copiesAvailable: item.availableCopies ?? 0,
+              numberOfHolds: item.holdsCount ?? 0,
+              isAvailable: item.isAvailable ?? false,
+              estimatedWaitDays: item.estimatedWaitDays,
+            };
           }
+          const formatType = item.type?.id ?? "unknown";
+          result.results.push({
+            mediaItem: item,
+            availability: avail,
+            matchScore: (titleScore + authorScore) / 2,
+            formatType,
+            libraryKey,
+          });
         }
       }
     } catch {
@@ -242,6 +265,56 @@ export async function findBookInLibrary(
     }
 
     if (result.results.length > 0) break;
+  }
+
+  // Deep search fallback: when library search finds nothing, search a large
+  // reference library to find OverDrive title IDs, then fetch from user's library.
+  // This mirrors Libby's "scope-auto" behavior for notify-me / not-yet-owned titles.
+  if (result.results.length === 0 && libraryKey !== REFERENCE_LIBRARY) {
+    try {
+      const refItems = await searchLibrary(REFERENCE_LIBRARY, `${author} ${title}`);
+      for (const item of refItems.slice(0, 5)) {
+        if (seenIds.has(item.id)) continue;
+
+        const titleScore = similarityScore(title, item.title);
+        const authorName =
+          item.creators?.find((c) => c.role === "Author")?.name ?? "";
+        const authorScore = author
+          ? similarityScore(author, authorName)
+          : 0.5;
+
+        if (titleScore >= 0.4 && authorScore >= 0.3 && contentWordsMatch(title, item.title)) {
+          seenIds.add(item.id);
+          // Fetch the title from the user's library to get library-specific data
+          const localItem = await getMediaItem(libraryKey, item.id);
+          if (!localItem) continue;
+
+          let avail: AvailabilityInfo;
+          try {
+            avail = await getAvailability(libraryKey, localItem.id);
+          } catch {
+            avail = {
+              id: localItem.id,
+              copiesOwned: localItem.ownedCopies ?? 0,
+              copiesAvailable: localItem.availableCopies ?? 0,
+              numberOfHolds: localItem.holdsCount ?? 0,
+              isAvailable: localItem.isAvailable ?? false,
+              estimatedWaitDays: localItem.estimatedWaitDays,
+            };
+          }
+          const formatType = localItem.type?.id ?? "unknown";
+          result.results.push({
+            mediaItem: localItem,
+            availability: avail,
+            matchScore: (titleScore + authorScore) / 2,
+            formatType,
+            libraryKey,
+          });
+        }
+      }
+    } catch {
+      // Deep search failed, continue without results
+    }
   }
 
   result.results.sort((a, b) => b.matchScore - a.matchScore);
