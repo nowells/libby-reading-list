@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { timeAgo, libbyTitleUrl, PAGE_SIZE, formatDuration } from "./utils";
+import { timeAgo, libbyTitleUrl, PAGE_SIZE, formatDuration, fuzzyMatch } from "./utils";
 
 describe("timeAgo", () => {
   it("returns 'just now' for recent timestamps", () => {
@@ -45,5 +45,36 @@ describe("formatDuration", () => {
 
   it("formats minutes only for short durations", () => {
     expect(formatDuration("0:45:00")).toBe("45m");
+  });
+});
+
+describe("fuzzyMatch", () => {
+  it("matches exact substring", () => {
+    expect(fuzzyMatch("storm", "The Stormlight Archive", "Brandon Sanderson")).toBe(true);
+  });
+
+  it("matches multiple terms", () => {
+    expect(fuzzyMatch("brandon storm", "The Stormlight Archive", "Brandon Sanderson")).toBe(true);
+  });
+
+  it("matches with subsequence (skipped chars)", () => {
+    expect(fuzzyMatch("brndn", "The Stormlight Archive", "Brandon Sanderson")).toBe(true);
+  });
+
+  it("matches case-insensitively", () => {
+    expect(fuzzyMatch("BRANDON", "The Stormlight Archive", "Brandon Sanderson")).toBe(true);
+  });
+
+  it("returns true for empty query", () => {
+    expect(fuzzyMatch("", "Any Title", "Any Author")).toBe(true);
+    expect(fuzzyMatch("   ", "Any Title", "Any Author")).toBe(true);
+  });
+
+  it("rejects non-matching terms", () => {
+    expect(fuzzyMatch("tolkien", "The Stormlight Archive", "Brandon Sanderson")).toBe(false);
+  });
+
+  it("matches prefix of a word", () => {
+    expect(fuzzyMatch("sand", "The Stormlight Archive", "Brandon Sanderson")).toBe(true);
   });
 });

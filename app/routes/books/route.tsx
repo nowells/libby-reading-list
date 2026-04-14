@@ -10,7 +10,7 @@ import {
   type BookCategory,
   type FormatFilter,
 } from "./lib/categorize";
-import { timeAgo, PAGE_SIZE } from "./lib/utils";
+import { timeAgo, PAGE_SIZE, fuzzyMatch } from "./lib/utils";
 import { SummaryStats } from "./components/summary-stats";
 import { FormatFilterBar } from "./components/format-filter-bar";
 import { BookCard } from "./components/book-card";
@@ -48,6 +48,7 @@ export default function Books() {
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<BookCategory | null>(null);
   const [formatFilter, setFormatFilter] = useState<FormatFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const {
     availMap,
@@ -73,6 +74,11 @@ export default function Books() {
   const sortedAndFilteredBooks = useMemo(() => {
     let filtered = [...books];
 
+    // Apply search filter
+    if (searchQuery.trim()) {
+      filtered = filtered.filter((b) => fuzzyMatch(searchQuery, b.title, b.author));
+    }
+
     // Apply category filter
     if (categoryFilter) {
       filtered = filtered.filter(
@@ -89,7 +95,7 @@ export default function Books() {
     });
 
     return filtered;
-  }, [books, availMap, categoryFilter, formatFilter]);
+  }, [books, availMap, categoryFilter, formatFilter, searchQuery]);
 
   const totalPages = Math.ceil(sortedAndFilteredBooks.length / PAGE_SIZE);
   const paginatedBooks = sortedAndFilteredBooks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -97,6 +103,11 @@ export default function Books() {
   const goToPage = (p: number) => {
     setSearchParams({ page: String(p) });
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
+    setSearchParams({ page: "1" });
   };
 
   const handleToggleCategory = (cat: BookCategory) => {
@@ -258,18 +269,59 @@ export default function Books() {
               onToggleCategory={handleToggleCategory}
             />
             <FormatFilterBar active={formatFilter} onToggle={handleToggleFormat} />
+            <div className="relative mb-4">
+              <svg
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+                />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Filter your books by title or author..."
+                className="w-full pl-10 pr-9 py-2.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:focus:ring-amber-500 focus:border-transparent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => handleSearchChange("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </>
         )}
 
         {sortedAndFilteredBooks.length === 0 && books.length > 0 && checkedCount > 0 && (
           <div className="text-center py-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
             <p className="text-gray-500 dark:text-gray-400 text-sm">
-              No books match the current filters.
+              {searchQuery.trim()
+                ? `No books matching "${searchQuery.trim()}".`
+                : "No books match the current filters."}
             </p>
             <button
               onClick={() => {
                 setCategoryFilter(null);
                 setFormatFilter("all");
+                setSearchQuery("");
               }}
               className="mt-2 text-amber-600 hover:text-amber-700 underline text-sm"
             >
@@ -297,13 +349,46 @@ export default function Books() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-8">
+          <div className="flex items-center justify-center gap-1.5 mt-8">
+            <button
+              onClick={() => goToPage(1)}
+              disabled={page <= 1}
+              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="First page"
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5"
+                />
+              </svg>
+            </button>
             <button
               onClick={() => goToPage(page - 1)}
               disabled={page <= 1}
-              className="px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Previous page"
             >
-              Previous
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 19.5L8.25 12l7.5-7.5"
+                />
+              </svg>
             </button>
             <span className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
               Page {page} of {totalPages}
@@ -311,9 +396,38 @@ export default function Books() {
             <button
               onClick={() => goToPage(page + 1)}
               disabled={page >= totalPages}
-              className="px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Next page"
             >
-              Next
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+            <button
+              onClick={() => goToPage(totalPages)}
+              disabled={page >= totalPages}
+              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Last page"
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5.25 4.5l7.5 7.5-7.5 7.5m6-15l7.5 7.5-7.5 7.5"
+                />
+              </svg>
             </button>
           </div>
         )}

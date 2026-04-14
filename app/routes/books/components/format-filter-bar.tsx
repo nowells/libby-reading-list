@@ -23,7 +23,7 @@ export function FormatFilterBar({
   ];
 
   return (
-    <div className="flex items-center gap-2 mb-6">
+    <div className="flex items-center gap-2 mb-4">
       {options.map((o) => (
         <button
           key={o.key}

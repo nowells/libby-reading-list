@@ -15,6 +15,40 @@ export function libbyTitleUrl(libraryKey: string, titleId: string) {
   return `https://libbyapp.com/library/${libraryKey}/everything/page-1/${titleId}`;
 }
 
+/** Check if needle characters appear in order within haystack (allows gaps) */
+function subsequenceMatch(needle: string, haystack: string): boolean {
+  let hi = 0;
+  for (let ni = 0; ni < needle.length; ni++) {
+    const idx = haystack.indexOf(needle[ni], hi);
+    if (idx === -1) return false;
+    hi = idx + 1;
+  }
+  return true;
+}
+
+/** Score a fuzzy match of a single term against a single word (0 = no match, higher = better) */
+function fuzzyWordScore(term: string, word: string): number {
+  if (word.startsWith(term)) return 3;
+  if (word.includes(term)) return 2;
+  if (term.length >= 3 && subsequenceMatch(term, word)) return 1;
+  return 0;
+}
+
+/**
+ * Fuzzy match a search query against a book's title and author.
+ * Each query term must match at least one word (substring, prefix, or subsequence).
+ */
+export function fuzzyMatch(query: string, title: string, author: string): boolean {
+  const trimmed = query.trim();
+  if (!trimmed) return true;
+  const terms = trimmed.toLowerCase().split(/\s+/);
+  const haystack = `${title} ${author}`.toLowerCase();
+  const words = haystack.split(/\s+/);
+  return terms.every(
+    (term) => haystack.includes(term) || words.some((w) => fuzzyWordScore(term, w) > 0),
+  );
+}
+
 /** Format an audiobook duration string (e.g. "12:34:56") into a human-readable form */
 export function formatDuration(duration: string): string {
   const parts = duration.split(":").map(Number);
