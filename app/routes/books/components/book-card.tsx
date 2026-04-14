@@ -120,22 +120,22 @@ export function BookCard({
             </span>
           )}
           {isDone && category === "available" && (
-            <span className="text-sm px-3 py-1.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full font-medium">
+            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full font-medium">
               {availableCount} ready
             </span>
           )}
           {isDone && category === "soon" && (
-            <span className="text-sm px-3 py-1.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full font-medium">
+            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full font-medium">
               Soon
             </span>
           )}
           {isDone && category === "waiting" && (
-            <span className="text-sm px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 rounded-full font-medium">
+            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 rounded-full font-medium">
               Waitlist
             </span>
           )}
           {isDone && category === "not_found" && (
-            <span className="text-sm px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full">
+            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full">
               Not found
             </span>
           )}
