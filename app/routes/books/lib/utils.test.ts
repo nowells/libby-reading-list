@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { timeAgo, libbyTitleUrl, PAGE_SIZE } from "./utils";
+import { timeAgo, libbyTitleUrl, PAGE_SIZE, formatDuration } from "./utils";
 
 describe("timeAgo", () => {
   it("returns 'just now' for recent timestamps", () => {
@@ -31,5 +31,19 @@ describe("PAGE_SIZE", () => {
   it("is a reasonable number", () => {
     expect(PAGE_SIZE).toBeGreaterThan(0);
     expect(PAGE_SIZE).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("formatDuration", () => {
+  it("formats hours and minutes", () => {
+    expect(formatDuration("12:34:56")).toBe("12h 34m");
+  });
+
+  it("formats hours only when no minutes", () => {
+    expect(formatDuration("5:00:00")).toBe("5h");
+  });
+
+  it("formats minutes only for short durations", () => {
+    expect(formatDuration("0:45:00")).toBe("45m");
   });
 });

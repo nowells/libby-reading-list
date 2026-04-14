@@ -16,7 +16,7 @@ export interface LibbyMediaItem {
   sortTitle: string;
   subtitle?: string;
   type: { id: string; name: string };
-  formats: Array<{ id: string; name: string }>;
+  formats: Array<{ id: string; name: string; duration?: string }>;
   creators: Array<{ name: string; role: string }>;
   covers?: { cover150Wide?: { href: string } };
   series?: string;

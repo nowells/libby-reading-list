@@ -8,7 +8,7 @@ import {
   type BookAvailState,
   type FormatFilter,
 } from "../lib/categorize";
-import { timeAgo, libbyTitleUrl } from "../lib/utils";
+import { timeAgo, libbyTitleUrl, formatAudiobookDuration } from "../lib/utils";
 
 export function BookCard({
   book,
@@ -38,6 +38,10 @@ export function BookCard({
   const filteredRaw =
     formatFilter === "all" ? rawResults : rawResults.filter((r) => r.formatType === formatFilter);
   const availableCount = filteredRaw.filter((r) => r.availability.isAvailable).length;
+  const audiobookDuration = useMemo(
+    () => formatAudiobookDuration(state.data?.results ?? []),
+    [state.data?.results],
+  );
 
   // Sort by ETA: available first (0), then by estimatedWaitDays ascending
   const results = useMemo(() => {
@@ -99,44 +103,14 @@ export function BookCard({
               <span className="italic">{state.data.seriesInfo.seriesName}</span>
             </p>
           )}
-          <div className="flex items-center gap-2 mt-1">
-            {(book.source === "goodreads" || book.source === "unknown") && (
-              <a
-                href={
-                  book.sourceUrl ??
-                  `https://www.goodreads.com/search?q=${encodeURIComponent(`${book.title} ${book.author}`)}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-                title="View on Goodreads"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M11.43 23.995c-3.608-.208-6.274-2.077-6.448-5.078.695.007 1.375-.013 2.07-.006.224 1.342 1.065 2.43 2.683 3.026 1.583.496 3.737.46 5.082-.174 1.527-.792 2.227-2.466 2.354-4.314.003-.108-.022-.16-.022-.16-.063.155-.134.309-.217.46-.818 1.498-2.139 2.688-4.126 2.878-2.57.298-4.693-.753-6.09-2.604C5.21 16.097 4.66 13.793 5.01 11.1c.455-2.508 1.71-4.47 3.87-5.734 1.582-.875 3.303-.956 4.953-.423 1.18.383 2.03 1.17 2.696 2.157l.062-.004V3.3h1.985v14.47c-.023 2.543-.758 4.732-2.58 6.09-1.468.919-3.268 1.242-4.566 1.135zm6.12-11.894c-.066-1.014-.208-2.124-.636-3.022-.937-1.932-2.91-2.77-4.92-2.314-1.465.327-2.504 1.26-3.128 2.573-.768 1.644-.946 3.37-.59 5.14.258 1.316.788 2.45 1.837 3.326 1.087.881 2.333 1.154 3.694.886 1.57-.347 2.7-1.38 3.328-2.85.386-.95.544-1.95.6-2.96-.044-.26-.118-.52-.185-.78z" />
-                </svg>
-                Goodreads
-              </a>
-            )}
-            {(book.source === "hardcover" || book.source === "unknown") && (
-              <a
-                href={
-                  book.sourceUrl ??
-                  `https://hardcover.app/search?q=${encodeURIComponent(book.title)}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-                title="View on Hardcover"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H6zm1 2h10v7l-3-2-3 2V4H7z" />
-                </svg>
-                Hardcover
-              </a>
-            )}
-          </div>
+          {audiobookDuration && (
+            <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 dark:text-gray-500">
+              <span className="inline-flex items-center gap-1 [&_svg]:w-3.5 [&_svg]:h-3.5">
+                <FormatIcon type="audiobook" />
+                {audiobookDuration}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {isLoading && (
@@ -274,8 +248,44 @@ export function BookCard({
               {showAll ? "Show less" : `Show ${results.length - MAX_VISIBLE} more`}
             </button>
           )}
-          {/* Refresh row */}
-          <div className="flex items-center justify-end px-4 py-2 border-t border-gray-50 dark:border-gray-700/50">
+          {/* Footer row */}
+          <div className="flex items-center justify-between px-4 py-2 border-t border-gray-50 dark:border-gray-700/50">
+            <div className="flex items-center gap-3">
+              {(book.source === "goodreads" || book.source === "unknown") && (
+                <a
+                  href={
+                    book.sourceUrl ??
+                    `https://www.goodreads.com/search?q=${encodeURIComponent(`${book.title} ${book.author}`)}`
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                  title="View on Goodreads"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M11.43 23.995c-3.608-.208-6.274-2.077-6.448-5.078.695.007 1.375-.013 2.07-.006.224 1.342 1.065 2.43 2.683 3.026 1.583.496 3.737.46 5.082-.174 1.726-.816 2.35-2.201 2.622-3.868.064-.397.076-4.89.076-4.89h-.062c-.565.852-1.256 1.534-2.078 2.05-.823.515-1.777.772-2.86.772-1.4 0-2.56-.33-3.48-.99-.92-.66-1.6-1.59-2.04-2.79-.44-1.2-.66-2.6-.66-4.19 0-1.63.24-3.08.72-4.34.48-1.26 1.2-2.25 2.16-2.97.96-.72 2.14-1.08 3.54-1.08 1.08 0 2.04.27 2.88.81.84.54 1.5 1.21 1.98 2.01h.06l.24-2.4h1.8c-.06.6-.12 1.2-.18 2.1-.06.9-.06 1.84-.06 2.82v8.14c0 1.5-.06 2.78-.18 3.84s-.42 2.02-.9 2.88c-.48.86-1.22 1.52-2.22 1.98-1 .46-2.32.69-3.96.69zm.12-7.8c1.2 0 2.19-.36 2.97-1.08.78-.72 1.35-1.68 1.71-2.88.36-1.2.54-2.5.54-3.9 0-2.28-.42-4.08-1.26-5.4-.84-1.32-2.1-1.98-3.78-1.98-1.68 0-2.94.72-3.78 2.16-.84 1.44-1.26 3.3-1.26 5.58 0 2.16.42 3.84 1.26 5.04.84 1.2 2.1 1.8 3.78 1.8z" />
+                  </svg>
+                  Goodreads
+                </a>
+              )}
+              {(book.source === "hardcover" || book.source === "unknown") && (
+                <a
+                  href={
+                    book.sourceUrl ??
+                    `https://hardcover.app/search?q=${encodeURIComponent(book.title)}`
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                  title="View on Hardcover"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H6zm1 2h10v7l-3-2-3 2V4H7z" />
+                  </svg>
+                  Hardcover
+                </a>
+              )}
+            </div>
             <button
               onClick={onRefresh}
               title={state.fetchedAt ? `Last checked ${timeAgo(state.fetchedAt)}` : "Refresh"}
@@ -302,7 +312,43 @@ export function BookCard({
 
       {/* Not found - show refresh */}
       {expanded && isDone && results.length === 0 && (
-        <div className="flex items-center justify-end px-4 py-2 border-t border-gray-100 dark:border-gray-700">
+        <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100 dark:border-gray-700">
+          <div className="flex items-center gap-3">
+            {(book.source === "goodreads" || book.source === "unknown") && (
+              <a
+                href={
+                  book.sourceUrl ??
+                  `https://www.goodreads.com/search?q=${encodeURIComponent(`${book.title} ${book.author}`)}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                title="View on Goodreads"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M11.43 23.995c-3.608-.208-6.274-2.077-6.448-5.078.695.007 1.375-.013 2.07-.006.224 1.342 1.065 2.43 2.683 3.026 1.583.496 3.737.46 5.082-.174 1.726-.816 2.35-2.201 2.622-3.868.064-.397.076-4.89.076-4.89h-.062c-.565.852-1.256 1.534-2.078 2.05-.823.515-1.777.772-2.86.772-1.4 0-2.56-.33-3.48-.99-.92-.66-1.6-1.59-2.04-2.79-.44-1.2-.66-2.6-.66-4.19 0-1.63.24-3.08.72-4.34.48-1.26 1.2-2.25 2.16-2.97.96-.72 2.14-1.08 3.54-1.08 1.08 0 2.04.27 2.88.81.84.54 1.5 1.21 1.98 2.01h.06l.24-2.4h1.8c-.06.6-.12 1.2-.18 2.1-.06.9-.06 1.84-.06 2.82v8.14c0 1.5-.06 2.78-.18 3.84s-.42 2.02-.9 2.88c-.48.86-1.22 1.52-2.22 1.98-1 .46-2.32.69-3.96.69zm.12-7.8c1.2 0 2.19-.36 2.97-1.08.78-.72 1.35-1.68 1.71-2.88.36-1.2.54-2.5.54-3.9 0-2.28-.42-4.08-1.26-5.4-.84-1.32-2.1-1.98-3.78-1.98-1.68 0-2.94.72-3.78 2.16-.84 1.44-1.26 3.3-1.26 5.58 0 2.16.42 3.84 1.26 5.04.84 1.2 2.1 1.8 3.78 1.8z" />
+                </svg>
+                Goodreads
+              </a>
+            )}
+            {(book.source === "hardcover" || book.source === "unknown") && (
+              <a
+                href={
+                  book.sourceUrl ??
+                  `https://hardcover.app/search?q=${encodeURIComponent(book.title)}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                title="View on Hardcover"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H6zm1 2h10v7l-3-2-3 2V4H7z" />
+                </svg>
+                Hardcover
+              </a>
+            )}
+          </div>
           <button
             onClick={onRefresh}
             title={state.fetchedAt ? `Last checked ${timeAgo(state.fetchedAt)}` : "Refresh"}
