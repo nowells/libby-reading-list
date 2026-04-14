@@ -24,6 +24,7 @@ export interface LibbyMediaItem {
     seriesName: string;
     readingOrder: string;
   };
+  firstCreatorSortName?: string;
   publisher?: { id: string; name: string };
   publishDate?: string;
   isAvailable?: boolean;
@@ -60,7 +61,7 @@ export async function getLibraryPreferredKey(fulfillmentId: string): Promise<str
   return data.preferredKey ?? fulfillmentId;
 }
 
-async function searchLibrary(
+export async function searchLibrary(
   libraryKey: string,
   query: string,
   format?: "ebook" | "audiobook",
@@ -91,7 +92,7 @@ async function getAvailability(libraryKey: string, titleId: string): Promise<Ava
 }
 
 // Large reference library used for deep search (scope-auto) when local search finds nothing
-const REFERENCE_LIBRARY = "lapl";
+export const REFERENCE_LIBRARY = "lapl";
 
 async function getMediaItem(libraryKey: string, titleId: string): Promise<LibbyMediaItem | null> {
   try {

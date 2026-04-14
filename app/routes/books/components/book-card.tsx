@@ -17,6 +17,7 @@ export function BookCard({
   formatFilter,
   onRefresh,
   onLibbyClick,
+  onRemove,
 }: {
   book: Book;
   state: BookAvailState;
@@ -24,6 +25,7 @@ export function BookCard({
   formatFilter: FormatFilter;
   onRefresh: () => void;
   onLibbyClick: (bookTitle: string, formatType: string, isAvailable: boolean) => void;
+  onRemove?: () => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [showAll, setShowAll] = useState(false);
@@ -251,7 +253,7 @@ export function BookCard({
           {/* Footer row */}
           <div className="flex items-center justify-between px-4 py-2 border-t border-gray-50 dark:border-gray-700/50">
             <div className="flex items-center gap-3">
-              {(book.source === "goodreads" || book.source === "unknown") && (
+              {(book.source === "goodreads" || book.source === "unknown") && !book.manual && (
                 <a
                   href={
                     book.sourceUrl ??
@@ -268,7 +270,7 @@ export function BookCard({
                   Goodreads
                 </a>
               )}
-              {(book.source === "hardcover" || book.source === "unknown") && (
+              {(book.source === "hardcover" || book.source === "unknown") && !book.manual && (
                 <a
                   href={
                     book.sourceUrl ??
@@ -284,6 +286,23 @@ export function BookCard({
                   </svg>
                   Hardcover
                 </a>
+              )}
+              {book.manual && onRemove && (
+                <button
+                  onClick={onRemove}
+                  className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                >
+                  <svg
+                    className="w-3 h-3"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Remove
+                </button>
               )}
             </div>
             <button
@@ -314,7 +333,7 @@ export function BookCard({
       {expanded && isDone && results.length === 0 && (
         <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100 dark:border-gray-700">
           <div className="flex items-center gap-3">
-            {(book.source === "goodreads" || book.source === "unknown") && (
+            {(book.source === "goodreads" || book.source === "unknown") && !book.manual && (
               <a
                 href={
                   book.sourceUrl ??
@@ -331,7 +350,7 @@ export function BookCard({
                 Goodreads
               </a>
             )}
-            {(book.source === "hardcover" || book.source === "unknown") && (
+            {(book.source === "hardcover" || book.source === "unknown") && !book.manual && (
               <a
                 href={
                   book.sourceUrl ??
@@ -347,6 +366,23 @@ export function BookCard({
                 </svg>
                 Hardcover
               </a>
+            )}
+            {book.manual && onRemove && (
+              <button
+                onClick={onRemove}
+                className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+              >
+                <svg
+                  className="w-3 h-3"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Remove
+              </button>
             )}
           </div>
           <button

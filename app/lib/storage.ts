@@ -15,6 +15,7 @@ export interface Book {
   imageUrl?: string;
   source: "goodreads" | "hardcover" | "unknown";
   sourceUrl?: string;
+  manual?: boolean;
 }
 
 function get<T>(key: string): T | null {
@@ -82,8 +83,32 @@ export function getBooks(): Book[] {
   return get<Book[]>("books") ?? [];
 }
 
-export function setBooks(books: Book[]) {
+function setBooks(books: Book[]) {
   set("books", books);
+}
+
+/** Replace imported books while preserving manually-added ones */
+export function setImportedBooks(imported: Book[], clearManual = false) {
+  if (clearManual) {
+    set("books", imported);
+    return;
+  }
+  const manual = getBooks().filter((b) => b.manual);
+  set("books", [...imported, ...manual]);
+}
+
+export function addBook(book: Omit<Book, "id" | "manual">) {
+  const books = getBooks();
+  const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  books.push({ ...book, id, manual: true });
+  set("books", books);
+}
+
+export function removeBook(id: string) {
+  set(
+    "books",
+    getBooks().filter((b) => b.id !== id),
+  );
 }
 
 export function clearBooks() {

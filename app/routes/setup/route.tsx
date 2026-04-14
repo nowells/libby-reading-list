@@ -5,7 +5,8 @@ import { importBooks } from "~/lib/csv-parser";
 import { Logo } from "~/components/logo";
 import {
   getBooks,
-  setBooks,
+  setImportedBooks,
+  addBook,
   clearBooks,
   getLibraries,
   addLibrary,
@@ -15,7 +16,13 @@ import {
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
-import { searchLibraryByName, getLibraryPreferredKey, type LibbyLibrary } from "~/lib/libby";
+import {
+  searchLibraryByName,
+  getLibraryPreferredKey,
+  type LibbyLibrary,
+  type LibbyMediaItem,
+} from "~/lib/libby";
+import { BookSearchPicker } from "~/components/book-search-picker";
 
 export default function Setup() {
   const posthog = usePostHog();
@@ -23,6 +30,9 @@ export default function Setup() {
   const [libraries, setLibrariesState] = useState<LibraryConfig[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [importInfo, setImportInfo] = useState<string | null>(null);
+
+  const [clearManualOnImport, setClearManualOnImport] = useState(false);
+  const manualBookCount = books.filter((b) => b.manual).length;
 
   // Library search state
   const [libraryQuery, setLibraryQuery] = useState("");
@@ -75,12 +85,13 @@ export default function Setup() {
         return;
       }
 
-      setBooks(result.books);
-      setBooksState(result.books);
+      setImportedBooks(result.books, clearManualOnImport);
+      setBooksState(getBooks());
       posthog?.capture("csv_uploaded", {
         format: result.format,
         book_count: result.books.length,
         total_rows: result.totalRows,
+        manual_cleared: clearManualOnImport,
       });
 
       const formatName =
@@ -89,13 +100,26 @@ export default function Setup() {
           : result.format === "hardcover"
             ? "Hardcover"
             : "CSV";
+      const keptManual = clearManualOnImport ? 0 : manualBookCount;
       setImportInfo(
-        `Imported ${result.books.length} want-to-read books from ${formatName} (${result.totalRows} total rows in file).`,
+        `Imported ${result.books.length} want-to-read books from ${formatName} (${result.totalRows} total rows in file).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
       );
       if (fileInputRef.current) fileInputRef.current.value = "";
     };
     reader.onerror = () => setError("Failed to read file.");
     reader.readAsText(file);
+  }
+
+  function handleQuickAddSelect(item: LibbyMediaItem) {
+    const author = item.creators?.find((c) => c.role === "Author")?.name ?? "";
+    addBook({
+      title: item.title,
+      author,
+      imageUrl: item.covers?.cover150Wide?.href,
+      source: "unknown",
+    });
+    setBooksState(getBooks());
+    posthog?.capture("book_added_from_search", { title: item.title, from: "setup" });
   }
 
   function handleClearBooks() {
@@ -220,12 +244,22 @@ export default function Setup() {
             <div className="flex items-center justify-between mb-4">
               <p className="text-green-600 dark:text-green-400">
                 {books.length} books loaded
-                {books[0]?.source !== "unknown" && (
+                {manualBookCount > 0 && (
                   <span className="text-gray-500 dark:text-gray-400">
                     {" "}
-                    from {books[0].source === "goodreads" ? "Goodreads" : "Hardcover"}
+                    ({manualBookCount} manual)
                   </span>
                 )}
+                {books.find((b) => !b.manual)?.source &&
+                  books.find((b) => !b.manual)!.source !== "unknown" && (
+                    <span className="text-gray-500 dark:text-gray-400">
+                      {" "}
+                      from{" "}
+                      {books.find((b) => !b.manual)!.source === "goodreads"
+                        ? "Goodreads"
+                        : "Hardcover"}
+                    </span>
+                  )}
               </p>
               <button
                 onClick={handleClearBooks}
@@ -301,6 +335,29 @@ export default function Setup() {
                 dark:hover:file:bg-amber-900/50
                 cursor-pointer"
             />
+            {manualBookCount > 0 && (
+              <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={clearManualOnImport}
+                  onChange={(e) => setClearManualOnImport(e.target.checked)}
+                  className="rounded border-gray-300 dark:border-gray-600"
+                />
+                Also remove {manualBookCount} manually added book
+                {manualBookCount === 1 ? "" : "s"} on import
+              </label>
+            )}
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                Or search Libby to add a book:
+              </p>
+              <BookSearchPicker
+                libraryKey={libraries[0]?.preferredKey}
+                onSelect={handleQuickAddSelect}
+                placeholder="Search Libby for a book..."
+                existingBooks={books}
+              />
+            </div>
           </div>
         </section>
 
@@ -351,19 +408,55 @@ export default function Setup() {
           )}
 
           <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-            {libraries.length > 0
-              ? "Add another library to search across multiple systems."
-              : "Search for your local library to check availability through Libby."}
+            {libraries.length > 0 ? (
+              "Add another library to search across multiple systems."
+            ) : (
+              <>
+                Search by library name or zip code. This should match the library you use on{" "}
+                <a
+                  href="https://libbyapp.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amber-600 hover:text-amber-700 underline"
+                >
+                  libbyapp.com
+                </a>
+                .
+              </>
+            )}
           </p>
           <form onSubmit={handleLibrarySearch} className="mb-4">
             <div className="flex gap-2">
-              <input
-                type="text"
-                value={libraryQuery}
-                onChange={(e) => setLibraryQuery(e.target.value)}
-                placeholder="Search for a library..."
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
-              />
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={libraryQuery}
+                  onChange={(e) => setLibraryQuery(e.target.value)}
+                  placeholder="Library name or zip code..."
+                  className="w-full px-3 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
+                />
+                {libraryQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLibraryQuery("");
+                      setSearchResults([]);
+                      setHasSearched(false);
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
               <button
                 type="submit"
                 disabled={searching || libraryQuery.length < 2}
