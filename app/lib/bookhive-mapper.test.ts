@@ -100,6 +100,31 @@ describe("bookhiveRecordsToBooks", () => {
     expect(books[0].isbn13).toBe("9781447273288");
   });
 
+  it("sets sourceUrl from hiveId when present", () => {
+    const books = bookhiveRecordsToBooks([
+      entry({
+        title: "Children of Time",
+        authors: "Adrian Tchaikovsky",
+        status: "buzz.bookhive.defs#wantToRead",
+        hiveId: "bk_MFWLt6dnDDycSWZLrSh9",
+      }),
+    ]);
+
+    expect(books[0].sourceUrl).toBe("https://bookhive.buzz/books/bk_MFWLt6dnDDycSWZLrSh9");
+  });
+
+  it("omits sourceUrl when hiveId is missing", () => {
+    const books = bookhiveRecordsToBooks([
+      entry({
+        title: "X",
+        authors: "Y",
+        status: "wantToRead",
+      }),
+    ]);
+
+    expect(books[0].sourceUrl).toBeUndefined();
+  });
+
   it("skips ref-form statuses that aren't wantToRead", () => {
     const books = bookhiveRecordsToBooks([
       entry({

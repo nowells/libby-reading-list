@@ -88,6 +88,7 @@ export function bookhiveRecordsToBooks(entries: BookhiveListEntry[]): Book[] {
       author: normalizeAuthors(rec.authors ?? ""),
       isbn13: pickIsbn13(rec),
       source: "bookhive",
+      sourceUrl: rec.hiveId ? `https://bookhive.buzz/books/${rec.hiveId}` : undefined,
     });
   }
   return books;

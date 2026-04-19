@@ -24,6 +24,7 @@ import { SummaryStats } from "./components/summary-stats";
 import { FormatFilterBar } from "./components/format-filter-bar";
 import { BookCard } from "./components/book-card";
 import { ProgressBar } from "./components/progress-bar";
+import { BookhiveSyncStatus } from "./components/bookhive-sync-status";
 
 export function meta() {
   return [{ title: "Your Books | ShelfCheck" }];
@@ -180,10 +181,13 @@ export default function Books() {
               <Logo className="w-9 h-9" />
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">ShelfCheck</h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {books.length} books &middot; {libraries.length}{" "}
-                  {libraries.length === 1 ? "library" : "libraries"}
-                </p>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+                  <span>
+                    {books.length} books &middot; {libraries.length}{" "}
+                    {libraries.length === 1 ? "library" : "libraries"}
+                  </span>
+                  <BookhiveSyncStatus onBooksChanged={() => setBooksState(getBooks())} />
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-3">

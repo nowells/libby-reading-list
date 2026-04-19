@@ -10,6 +10,90 @@ import {
 } from "../lib/categorize";
 import { timeAgo, libbyTitleUrl, formatAudiobookDuration } from "../lib/utils";
 
+function SourceLinks({ book }: { book: Book }) {
+  if (book.manual) return null;
+  const linkClass =
+    "inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors";
+
+  if (book.source === "storygraph") {
+    return (
+      <a
+        href={
+          book.sourceUrl ??
+          `https://app.thestorygraph.com/browse?search_term=${encodeURIComponent(`${book.title} ${book.author}`)}`
+        }
+        target="_blank"
+        rel="noopener noreferrer"
+        className={linkClass}
+        title="View on The StoryGraph"
+      >
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M3 3h18v18H3V3zm2 2v14h14V5H5zm2 10h2v2H7v-2zm4-4h2v6h-2v-6zm4-4h2v10h-2V7z" />
+        </svg>
+        The StoryGraph
+      </a>
+    );
+  }
+
+  if (book.source === "bookhive") {
+    return (
+      <a
+        href={
+          book.sourceUrl ??
+          `https://bookhive.buzz/search?q=${encodeURIComponent(`${book.title} ${book.author}`)}`
+        }
+        target="_blank"
+        rel="noopener noreferrer"
+        className={linkClass}
+        title="View on Bookhive"
+      >
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2l3 6 6 .9-4.5 4.2 1 6.4L12 16.6 6.5 19.5l1-6.4L3 8.9 9 8l3-6z" />
+        </svg>
+        Bookhive
+      </a>
+    );
+  }
+
+  return (
+    <>
+      {(book.source === "goodreads" || book.source === "unknown") && (
+        <a
+          href={
+            book.sourceUrl ??
+            `https://www.goodreads.com/search?q=${encodeURIComponent(`${book.title} ${book.author}`)}`
+          }
+          target="_blank"
+          rel="noopener noreferrer"
+          className={linkClass}
+          title="View on Goodreads"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M11.43 23.995c-3.608-.208-6.274-2.077-6.448-5.078.695.007 1.375-.013 2.07-.006.224 1.342 1.065 2.43 2.683 3.026 1.583.496 3.737.46 5.082-.174 1.726-.816 2.35-2.201 2.622-3.868.064-.397.076-4.89.076-4.89h-.062c-.565.852-1.256 1.534-2.078 2.05-.823.515-1.777.772-2.86.772-1.4 0-2.56-.33-3.48-.99-.92-.66-1.6-1.59-2.04-2.79-.44-1.2-.66-2.6-.66-4.19 0-1.63.24-3.08.72-4.34.48-1.26 1.2-2.25 2.16-2.97.96-.72 2.14-1.08 3.54-1.08 1.08 0 2.04.27 2.88.81.84.54 1.5 1.21 1.98 2.01h.06l.24-2.4h1.8c-.06.6-.12 1.2-.18 2.1-.06.9-.06 1.84-.06 2.82v8.14c0 1.5-.06 2.78-.18 3.84s-.42 2.02-.9 2.88c-.48.86-1.22 1.52-2.22 1.98-1 .46-2.32.69-3.96.69zm.12-7.8c1.2 0 2.19-.36 2.97-1.08.78-.72 1.35-1.68 1.71-2.88.36-1.2.54-2.5.54-3.9 0-2.28-.42-4.08-1.26-5.4-.84-1.32-2.1-1.98-3.78-1.98-1.68 0-2.94.72-3.78 2.16-.84 1.44-1.26 3.3-1.26 5.58 0 2.16.42 3.84 1.26 5.04.84 1.2 2.1 1.8 3.78 1.8z" />
+          </svg>
+          Goodreads
+        </a>
+      )}
+      {(book.source === "hardcover" || book.source === "unknown") && (
+        <a
+          href={
+            book.sourceUrl ?? `https://hardcover.app/search?q=${encodeURIComponent(book.title)}`
+          }
+          target="_blank"
+          rel="noopener noreferrer"
+          className={linkClass}
+          title="View on Hardcover"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H6zm1 2h10v7l-3-2-3 2V4H7z" />
+          </svg>
+          Hardcover
+        </a>
+      )}
+    </>
+  );
+}
+
 export function BookCard({
   book,
   state,
@@ -253,40 +337,7 @@ export function BookCard({
           {/* Footer row */}
           <div className="flex items-center justify-between px-4 py-2 border-t border-gray-50 dark:border-gray-700/50">
             <div className="flex items-center gap-3">
-              {(book.source === "goodreads" || book.source === "unknown") && !book.manual && (
-                <a
-                  href={
-                    book.sourceUrl ??
-                    `https://www.goodreads.com/search?q=${encodeURIComponent(`${book.title} ${book.author}`)}`
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-                  title="View on Goodreads"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M11.43 23.995c-3.608-.208-6.274-2.077-6.448-5.078.695.007 1.375-.013 2.07-.006.224 1.342 1.065 2.43 2.683 3.026 1.583.496 3.737.46 5.082-.174 1.726-.816 2.35-2.201 2.622-3.868.064-.397.076-4.89.076-4.89h-.062c-.565.852-1.256 1.534-2.078 2.05-.823.515-1.777.772-2.86.772-1.4 0-2.56-.33-3.48-.99-.92-.66-1.6-1.59-2.04-2.79-.44-1.2-.66-2.6-.66-4.19 0-1.63.24-3.08.72-4.34.48-1.26 1.2-2.25 2.16-2.97.96-.72 2.14-1.08 3.54-1.08 1.08 0 2.04.27 2.88.81.84.54 1.5 1.21 1.98 2.01h.06l.24-2.4h1.8c-.06.6-.12 1.2-.18 2.1-.06.9-.06 1.84-.06 2.82v8.14c0 1.5-.06 2.78-.18 3.84s-.42 2.02-.9 2.88c-.48.86-1.22 1.52-2.22 1.98-1 .46-2.32.69-3.96.69zm.12-7.8c1.2 0 2.19-.36 2.97-1.08.78-.72 1.35-1.68 1.71-2.88.36-1.2.54-2.5.54-3.9 0-2.28-.42-4.08-1.26-5.4-.84-1.32-2.1-1.98-3.78-1.98-1.68 0-2.94.72-3.78 2.16-.84 1.44-1.26 3.3-1.26 5.58 0 2.16.42 3.84 1.26 5.04.84 1.2 2.1 1.8 3.78 1.8z" />
-                  </svg>
-                  Goodreads
-                </a>
-              )}
-              {(book.source === "hardcover" || book.source === "unknown") && !book.manual && (
-                <a
-                  href={
-                    book.sourceUrl ??
-                    `https://hardcover.app/search?q=${encodeURIComponent(book.title)}`
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-                  title="View on Hardcover"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H6zm1 2h10v7l-3-2-3 2V4H7z" />
-                  </svg>
-                  Hardcover
-                </a>
-              )}
+              <SourceLinks book={book} />
               {book.manual && onRemove && (
                 <button
                   onClick={onRemove}
@@ -333,40 +384,7 @@ export function BookCard({
       {expanded && isDone && results.length === 0 && (
         <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100 dark:border-gray-700">
           <div className="flex items-center gap-3">
-            {(book.source === "goodreads" || book.source === "unknown") && !book.manual && (
-              <a
-                href={
-                  book.sourceUrl ??
-                  `https://www.goodreads.com/search?q=${encodeURIComponent(`${book.title} ${book.author}`)}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-                title="View on Goodreads"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M11.43 23.995c-3.608-.208-6.274-2.077-6.448-5.078.695.007 1.375-.013 2.07-.006.224 1.342 1.065 2.43 2.683 3.026 1.583.496 3.737.46 5.082-.174 1.726-.816 2.35-2.201 2.622-3.868.064-.397.076-4.89.076-4.89h-.062c-.565.852-1.256 1.534-2.078 2.05-.823.515-1.777.772-2.86.772-1.4 0-2.56-.33-3.48-.99-.92-.66-1.6-1.59-2.04-2.79-.44-1.2-.66-2.6-.66-4.19 0-1.63.24-3.08.72-4.34.48-1.26 1.2-2.25 2.16-2.97.96-.72 2.14-1.08 3.54-1.08 1.08 0 2.04.27 2.88.81.84.54 1.5 1.21 1.98 2.01h.06l.24-2.4h1.8c-.06.6-.12 1.2-.18 2.1-.06.9-.06 1.84-.06 2.82v8.14c0 1.5-.06 2.78-.18 3.84s-.42 2.02-.9 2.88c-.48.86-1.22 1.52-2.22 1.98-1 .46-2.32.69-3.96.69zm.12-7.8c1.2 0 2.19-.36 2.97-1.08.78-.72 1.35-1.68 1.71-2.88.36-1.2.54-2.5.54-3.9 0-2.28-.42-4.08-1.26-5.4-.84-1.32-2.1-1.98-3.78-1.98-1.68 0-2.94.72-3.78 2.16-.84 1.44-1.26 3.3-1.26 5.58 0 2.16.42 3.84 1.26 5.04.84 1.2 2.1 1.8 3.78 1.8z" />
-                </svg>
-                Goodreads
-              </a>
-            )}
-            {(book.source === "hardcover" || book.source === "unknown") && !book.manual && (
-              <a
-                href={
-                  book.sourceUrl ??
-                  `https://hardcover.app/search?q=${encodeURIComponent(book.title)}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-                title="View on Hardcover"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H6zm1 2h10v7l-3-2-3 2V4H7z" />
-                </svg>
-                Hardcover
-              </a>
-            )}
+            <SourceLinks book={book} />
             {book.manual && onRemove && (
               <button
                 onClick={onRemove}

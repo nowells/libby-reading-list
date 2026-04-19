@@ -2,12 +2,13 @@ import { BrowserOAuthClient } from "@atproto/oauth-client-browser";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { Agent } from "@atproto/api";
 import { bookhiveRecordsToBooks, type BookhiveListEntry } from "./bookhive-mapper";
-import type { Book } from "./storage";
+import { getBookhiveLastSync, setBookhiveLastSync, setImportedBooks, type Book } from "./storage";
 
 const PRODUCTION_CLIENT_ID = "https://libby.strite.org/client-metadata.json";
 const BOOKHIVE_COLLECTION = "buzz.bookhive.book";
 const HANDLE_RESOLVER = "https://bsky.social";
 const PUBLIC_APPVIEW = "https://public.api.bsky.app";
+const SYNC_TTL_MS = 24 * 60 * 60 * 1000;
 
 function isLoopback(): boolean {
   const { hostname } = window.location;
@@ -121,11 +122,38 @@ export async function signOut(did: string): Promise<void> {
   initPromise = null;
 }
 
+/** True when last sync is missing or older than SYNC_TTL_MS. */
+export function isBookhiveSyncStale(): boolean {
+  const last = getBookhiveLastSync();
+  if (!last) return true;
+  const lastMs = new Date(last).getTime();
+  if (Number.isNaN(lastMs)) return true;
+  return Date.now() - lastMs > SYNC_TTL_MS;
+}
+
+/**
+ * Full Bookhive sync: fetch records, persist the imported list (preserving
+ * manual books unless `clearManual`), and update the last-sync timestamp.
+ * Always bumps the timestamp on a successful network call — empty repos
+ * should not trigger a retry loop on every page load.
+ */
+export async function syncBookhive(
+  session: OAuthSession,
+  opts: { clearManual?: boolean } = {},
+): Promise<Book[]> {
+  const books = await fetchBookhiveWantToRead(session);
+  setBookhiveLastSync(new Date().toISOString());
+  if (books.length > 0) {
+    setImportedBooks(books, opts.clearManual ?? false);
+  }
+  return books;
+}
+
 /**
  * Fetch all `buzz.bookhive.book` records for the authenticated user and
  * return the ones marked `wantToRead`, mapped into shelfcheck's `Book` shape.
  */
-export async function fetchBookhiveWantToRead(session: OAuthSession): Promise<Book[]> {
+async function fetchBookhiveWantToRead(session: OAuthSession): Promise<Book[]> {
   const agent = new Agent(session);
   const entries: BookhiveListEntry[] = [];
   let cursor: string | undefined;

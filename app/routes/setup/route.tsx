@@ -14,7 +14,6 @@ import {
   clearLibraries,
   clearAll,
   getBookhiveLastSync,
-  setBookhiveLastSync,
   clearBookhiveLastSync,
   type Book,
   type LibraryConfig,
@@ -30,7 +29,8 @@ import {
   initSession,
   signInWithBluesky,
   signOut,
-  fetchBookhiveWantToRead,
+  syncBookhive,
+  isBookhiveSyncStale,
   searchHandleSuggestions,
   type AtprotoSessionInfo,
   type HandleSuggestion,
@@ -96,9 +96,9 @@ export default function Setup() {
         if (result) {
           setBskySession(result.session);
           setBskyInfo(result.info);
-          // Auto-import on fresh sign-in so users don't need an extra click.
-          // Skip on restored sessions — they may have their own CSV imports now.
-          if (result.fresh) {
+          // Auto-import on fresh sign-in, and on restored sessions whose
+          // last sync is missing or older than the TTL (daily cadence).
+          if (result.fresh || isBookhiveSyncStale()) {
             void runBskyImport(result.session, { silent: true });
           }
         }
@@ -235,7 +235,8 @@ export default function Setup() {
     setImportInfo(null);
     setBskyImporting(true);
     try {
-      const imported = await fetchBookhiveWantToRead(session);
+      const imported = await syncBookhive(session, { clearManual: clearManualOnImport });
+      setBskyLastSync(new Date().toISOString());
       if (imported.length === 0) {
         if (!opts.silent) {
           setError(
@@ -245,11 +246,7 @@ export default function Setup() {
         posthog?.capture("bsky_import_failed", { reason: "no_want_to_read" });
         return;
       }
-      setImportedBooks(imported, clearManualOnImport);
       setBooksState(getBooks());
-      const now = new Date().toISOString();
-      setBookhiveLastSync(now);
-      setBskyLastSync(now);
       const keptManual = clearManualOnImport ? 0 : manualBookCount;
       setImportInfo(
         `Imported ${imported.length} want-to-read books from Bookhive (via Bluesky).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
