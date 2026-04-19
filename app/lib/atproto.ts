@@ -4,7 +4,7 @@ import { Agent } from "@atproto/api";
 import { bookhiveRecordsToBooks, type BookhiveListEntry } from "./bookhive-mapper";
 import { getBookhiveLastSync, setBookhiveLastSync, setImportedBooks, type Book } from "./storage";
 
-const PRODUCTION_CLIENT_ID = "https://libby.strite.org/client-metadata.json";
+const PRODUCTION_CLIENT_ID = "https://www.shelfcheck.org/client-metadata.json";
 const BOOKHIVE_COLLECTION = "buzz.bookhive.book";
 const HANDLE_RESOLVER = "https://bsky.social";
 const PUBLIC_APPVIEW = "https://public.api.bsky.app";

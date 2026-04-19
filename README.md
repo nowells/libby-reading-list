@@ -4,7 +4,7 @@ Find your "Want to Read" books that are available at your local library through 
 
 Upload a CSV export from **Goodreads** or **Hardcover**, select your libraries, and instantly see which books you can borrow right now.
 
-**Live at [libby.strite.org](https://libby.strite.org)**
+**Live at [www.shelfcheck.org](https://www.shelfcheck.org)**
 
 ## How it works
 
