@@ -28,7 +28,9 @@ import {
   signInWithBluesky,
   signOut,
   fetchBookhiveWantToRead,
+  searchHandleSuggestions,
   type AtprotoSessionInfo,
+  type HandleSuggestion,
 } from "~/lib/atproto";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 
@@ -58,6 +60,10 @@ export default function Setup() {
   const [bskyInitializing, setBskyInitializing] = useState(true);
   const [bskyHandle, setBskyHandle] = useState("");
   const [bskyImporting, setBskyImporting] = useState(false);
+  const [bskySuggestions, setBskySuggestions] = useState<HandleSuggestion[]>([]);
+  const [bskySuggestionsOpen, setBskySuggestionsOpen] = useState(false);
+  const bskyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bskyAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setBooksState(getBooks());
@@ -146,11 +152,10 @@ export default function Setup() {
     reader.readAsText(file);
   }
 
-  async function handleBskySignIn(e: React.FormEvent) {
-    e.preventDefault();
-    const handle = bskyHandle.trim();
+  async function startBskySignIn(handle: string) {
     if (!handle) return;
     setError(null);
+    setBskySuggestionsOpen(false);
     try {
       posthog?.capture("bsky_sign_in_started", {
         handle_domain: handle.split(".").slice(-2).join("."),
@@ -159,6 +164,43 @@ export default function Setup() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to sign in with Bluesky.");
     }
+  }
+
+  function handleBskySignIn(e: React.FormEvent) {
+    e.preventDefault();
+    startBskySignIn(bskyHandle.trim());
+  }
+
+  function handleBskyHandleChange(value: string) {
+    setBskyHandle(value);
+    const q = value.trim().replace(/^@/, "");
+    if (bskyDebounceRef.current) clearTimeout(bskyDebounceRef.current);
+    if (bskyAbortRef.current) bskyAbortRef.current.abort();
+    if (q.length < 1) {
+      setBskySuggestions([]);
+      setBskySuggestionsOpen(false);
+      return;
+    }
+    bskyDebounceRef.current = setTimeout(async () => {
+      const ac = new AbortController();
+      bskyAbortRef.current = ac;
+      try {
+        const actors = await searchHandleSuggestions(q, ac.signal);
+        if (!ac.signal.aborted) {
+          setBskySuggestions(actors);
+          setBskySuggestionsOpen(actors.length > 0);
+        }
+      } catch {
+        // Typeahead is optional; silently ignore network errors.
+      }
+    }, 250);
+  }
+
+  function handlePickBskySuggestion(s: HandleSuggestion) {
+    setBskyHandle(s.handle);
+    setBskySuggestions([]);
+    setBskySuggestionsOpen(false);
+    startBskySignIn(s.handle);
   }
 
   async function handleBskyImport() {
@@ -473,21 +515,73 @@ export default function Setup() {
                   </button>
                 </div>
               ) : (
-                <form onSubmit={handleBskySignIn} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={bskyHandle}
-                    onChange={(e) => setBskyHandle(e.target.value)}
-                    placeholder="your-handle.bsky.social"
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 text-sm"
-                  />
-                  <button
-                    type="submit"
-                    disabled={bskyHandle.trim().length < 3}
-                    className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
-                  >
-                    Sign in
-                  </button>
+                <form onSubmit={handleBskySignIn} className="relative">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={bskyHandle}
+                      onChange={(e) => handleBskyHandleChange(e.target.value)}
+                      onFocus={() => {
+                        if (bskySuggestions.length > 0) setBskySuggestionsOpen(true);
+                      }}
+                      onBlur={() => {
+                        // Delay so clicks on suggestions register before the list hides.
+                        setTimeout(() => setBskySuggestionsOpen(false), 150);
+                      }}
+                      placeholder="your-handle.bsky.social"
+                      autoComplete="username"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 text-sm"
+                    />
+                    <button
+                      type="submit"
+                      disabled={bskyHandle.trim().length < 3}
+                      className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+                    >
+                      Sign in
+                    </button>
+                  </div>
+                  {bskySuggestionsOpen && bskySuggestions.length > 0 && (
+                    <ul className="absolute left-0 right-0 top-full mt-1 z-10 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg">
+                      {bskySuggestions.map((s) => (
+                        <li key={s.did}>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => {
+                              // Prevent input blur from firing before click.
+                              e.preventDefault();
+                            }}
+                            onClick={() => handlePickBskySuggestion(s)}
+                            className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-sky-50 dark:hover:bg-sky-900/20 transition-colors"
+                          >
+                            {s.avatar ? (
+                              <img
+                                src={s.avatar}
+                                alt=""
+                                className="w-7 h-7 rounded-full flex-shrink-0 bg-gray-100 dark:bg-gray-700"
+                              />
+                            ) : (
+                              <span className="w-7 h-7 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                {s.handle[0]?.toUpperCase()}
+                              </span>
+                            )}
+                            <span className="min-w-0 flex-1">
+                              {s.displayName && (
+                                <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">
+                                  {s.displayName}
+                                </span>
+                              )}
+                              <span className="block text-xs text-gray-500 dark:text-gray-400 truncate">
+                                @{s.handle}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </form>
               )}
             </div>

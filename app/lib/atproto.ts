@@ -7,6 +7,7 @@ import type { Book } from "./storage";
 const PRODUCTION_CLIENT_ID = "https://libby.strite.org/client-metadata.json";
 const BOOKHIVE_COLLECTION = "buzz.bookhive.book";
 const HANDLE_RESOLVER = "https://bsky.social";
+const PUBLIC_APPVIEW = "https://public.api.bsky.app";
 
 function isLoopback(): boolean {
   const { hostname } = window.location;
@@ -68,6 +69,30 @@ export async function initSession(): Promise<{
     // Profile lookup is best-effort; the DID alone is enough to continue.
   }
   return { session, info: { did: session.did, handle } };
+}
+
+export interface HandleSuggestion {
+  did: string;
+  handle: string;
+  displayName?: string;
+  avatar?: string;
+}
+
+/**
+ * Query the Bluesky public appview for handle suggestions matching `query`.
+ * Mirrors the typeahead behavior on bsky.app's login / search fields. Unauthed.
+ */
+export async function searchHandleSuggestions(
+  query: string,
+  signal?: AbortSignal,
+): Promise<HandleSuggestion[]> {
+  const q = query.trim();
+  if (q.length < 1) return [];
+  const url = `${PUBLIC_APPVIEW}/xrpc/app.bsky.actor.searchActorsTypeahead?q=${encodeURIComponent(q)}&limit=8`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) return [];
+  const data: { actors?: HandleSuggestion[] } = await res.json();
+  return data.actors ?? [];
 }
 
 export async function signInWithBluesky(handleOrPds: string): Promise<never> {
