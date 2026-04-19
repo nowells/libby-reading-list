@@ -1,0 +1,106 @@
+import { describe, it, expect } from "vitest";
+import { bookhiveRecordsToBooks, type BookhiveListEntry } from "./bookhive-mapper";
+
+function entry(value: BookhiveListEntry["value"], rkey = "abc123"): BookhiveListEntry {
+  return {
+    uri: `at://did:plc:example/buzz.bookhive.book/${rkey}`,
+    value,
+  };
+}
+
+describe("bookhiveRecordsToBooks", () => {
+  it("keeps only wantToRead records", () => {
+    const books = bookhiveRecordsToBooks([
+      entry(
+        {
+          title: "The Great Gatsby",
+          authors: "F. Scott Fitzgerald",
+          status: "wantToRead",
+        },
+        "rk1",
+      ),
+      entry(
+        {
+          title: "1984",
+          authors: "George Orwell",
+          status: "finished",
+        },
+        "rk2",
+      ),
+      entry(
+        {
+          title: "Abandoned Book",
+          authors: "Nobody",
+          status: "abandoned",
+        },
+        "rk3",
+      ),
+    ]);
+
+    expect(books).toHaveLength(1);
+    expect(books[0].title).toBe("The Great Gatsby");
+    expect(books[0].id).toBe("bh-rk1");
+    expect(books[0].source).toBe("bookhive");
+  });
+
+  it("joins tab-separated authors with commas", () => {
+    const books = bookhiveRecordsToBooks([
+      entry({
+        title: "Good Omens",
+        authors: "Neil Gaiman\tTerry Pratchett",
+        status: "wantToRead",
+      }),
+    ]);
+
+    expect(books[0].author).toBe("Neil Gaiman, Terry Pratchett");
+  });
+
+  it("extracts a 13-digit ISBN from identifiers", () => {
+    const books = bookhiveRecordsToBooks([
+      entry({
+        title: "Dune",
+        authors: "Frank Herbert",
+        status: "wantToRead",
+        identifiers: { isbn13: ["9780441013593"] },
+      }),
+    ]);
+
+    expect(books[0].isbn13).toBe("9780441013593");
+  });
+
+  it("falls back to the generic isbn field when isbn13 is missing", () => {
+    const books = bookhiveRecordsToBooks([
+      entry({
+        title: "Some Book",
+        authors: "Author",
+        status: "wantToRead",
+        identifiers: { isbn: ["978-0-7432-7356-5"] },
+      }),
+    ]);
+
+    expect(books[0].isbn13).toBe("9780743273565");
+  });
+
+  it("skips records without a title", () => {
+    const books = bookhiveRecordsToBooks([
+      entry({
+        title: "",
+        authors: "x",
+        status: "wantToRead",
+      }),
+    ]);
+
+    expect(books).toHaveLength(0);
+  });
+
+  it("ignores records with no status", () => {
+    const books = bookhiveRecordsToBooks([
+      entry({
+        title: "Untagged",
+        authors: "x",
+      }),
+    ]);
+
+    expect(books).toHaveLength(0);
+  });
+});

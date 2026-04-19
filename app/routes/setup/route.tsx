@@ -23,6 +23,14 @@ import {
   type LibbyMediaItem,
 } from "~/lib/libby";
 import { BookSearchPicker } from "~/components/book-search-picker";
+import {
+  initSession,
+  signInWithBluesky,
+  signOut,
+  fetchBookhiveWantToRead,
+  type AtprotoSessionInfo,
+} from "~/lib/atproto";
+import type { OAuthSession } from "@atproto/oauth-client-browser";
 
 export default function Setup() {
   const posthog = usePostHog();
@@ -44,9 +52,37 @@ export default function Setup() {
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Bluesky / ATProto state
+  const [bskySession, setBskySession] = useState<OAuthSession | null>(null);
+  const [bskyInfo, setBskyInfo] = useState<AtprotoSessionInfo | null>(null);
+  const [bskyInitializing, setBskyInitializing] = useState(true);
+  const [bskyHandle, setBskyHandle] = useState("");
+  const [bskyImporting, setBskyImporting] = useState(false);
+
   useEffect(() => {
     setBooksState(getBooks());
     setLibrariesState(getLibraries());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    initSession()
+      .then((result) => {
+        if (cancelled) return;
+        if (result) {
+          setBskySession(result.session);
+          setBskyInfo(result.info);
+        }
+      })
+      .catch(() => {
+        // Non-fatal: user can still use CSV flow.
+      })
+      .finally(() => {
+        if (!cancelled) setBskyInitializing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const booksDone = books.length > 0;
@@ -108,6 +144,63 @@ export default function Setup() {
     };
     reader.onerror = () => setError("Failed to read file.");
     reader.readAsText(file);
+  }
+
+  async function handleBskySignIn(e: React.FormEvent) {
+    e.preventDefault();
+    const handle = bskyHandle.trim();
+    if (!handle) return;
+    setError(null);
+    try {
+      posthog?.capture("bsky_sign_in_started", {
+        handle_domain: handle.split(".").slice(-2).join("."),
+      });
+      await signInWithBluesky(handle);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to sign in with Bluesky.");
+    }
+  }
+
+  async function handleBskyImport() {
+    if (!bskySession) return;
+    setError(null);
+    setImportInfo(null);
+    setBskyImporting(true);
+    try {
+      const imported = await fetchBookhiveWantToRead(bskySession);
+      if (imported.length === 0) {
+        setError(
+          'No "want to read" books found in your Bluesky account. Make sure you have books marked as "wantToRead" in Bookhive.',
+        );
+        posthog?.capture("bsky_import_failed", { reason: "no_want_to_read" });
+        return;
+      }
+      setImportedBooks(imported, clearManualOnImport);
+      setBooksState(getBooks());
+      const keptManual = clearManualOnImport ? 0 : manualBookCount;
+      setImportInfo(
+        `Imported ${imported.length} want-to-read books from Bookhive (via Bluesky).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
+      );
+      posthog?.capture("bsky_imported", { book_count: imported.length });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to import from Bluesky.";
+      setError(message);
+      posthog?.capture("bsky_import_failed", { reason: "fetch_error", error: message });
+    } finally {
+      setBskyImporting(false);
+    }
+  }
+
+  async function handleBskySignOut() {
+    if (!bskySession) return;
+    try {
+      await signOut(bskySession.did);
+    } catch {
+      // Best-effort; clear local state regardless.
+    }
+    setBskySession(null);
+    setBskyInfo(null);
+    posthog?.capture("bsky_signed_out");
   }
 
   function handleQuickAddSelect(item: LibbyMediaItem) {
@@ -257,7 +350,9 @@ export default function Setup() {
                       from{" "}
                       {books.find((b) => !b.manual)!.source === "goodreads"
                         ? "Goodreads"
-                        : "Hardcover"}
+                        : books.find((b) => !b.manual)!.source === "hardcover"
+                          ? "Hardcover"
+                          : "Bookhive"}
                     </span>
                   )}
               </p>
@@ -347,6 +442,55 @@ export default function Setup() {
                 {manualBookCount === 1 ? "" : "s"} on import
               </label>
             )}
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                Or import from Bluesky (Bookhive):
+              </p>
+              {bskyInitializing ? (
+                <p className="text-sm text-gray-400">Checking Bluesky session...</p>
+              ) : bskySession && bskyInfo ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 p-3 border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 rounded-lg">
+                    <span className="text-sm text-gray-700 dark:text-gray-200 truncate">
+                      Signed in as{" "}
+                      <span className="font-medium">@{bskyInfo.handle ?? bskyInfo.did}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleBskySignOut}
+                      className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 underline flex-shrink-0"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleBskyImport}
+                    disabled={bskyImporting}
+                    className="w-full px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+                  >
+                    {bskyImporting ? "Importing..." : "Import want-to-read from Bookhive"}
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleBskySignIn} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={bskyHandle}
+                    onChange={(e) => setBskyHandle(e.target.value)}
+                    placeholder="your-handle.bsky.social"
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 text-sm"
+                  />
+                  <button
+                    type="submit"
+                    disabled={bskyHandle.trim().length < 3}
+                    className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+                  >
+                    Sign in
+                  </button>
+                </form>
+              )}
+            </div>
             <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                 Or search Libby to add a book:
