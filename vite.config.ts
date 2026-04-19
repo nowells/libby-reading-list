@@ -9,7 +9,7 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   server: {
-    host: '127.0.0.1'
+    host: "127.0.0.1",
   },
   ssr: {
     noExternal: ["posthog-js", "@posthog/react"],
