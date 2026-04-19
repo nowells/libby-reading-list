@@ -1,3 +1,5 @@
+import { dedupeBooks } from "./dedupe";
+
 const PREFIX = "shelfcheck:";
 
 export interface LibraryConfig {
@@ -16,6 +18,10 @@ export interface Book {
   source: "goodreads" | "hardcover" | "storygraph" | "bookhive" | "unknown";
   sourceUrl?: string;
   manual?: boolean;
+  /** Open Library Work ID (e.g. "OL45883W"); edition-independent. */
+  workId?: string;
+  /** Canonical title from Open Library, if different from the source title. */
+  canonicalTitle?: string;
 }
 
 function get<T>(key: string): T | null {
@@ -87,14 +93,21 @@ function setBooks(books: Book[]) {
   set("books", books);
 }
 
-/** Replace imported books while preserving manually-added ones */
+/**
+ * Replace imported books while preserving manually-added ones. Deduplicates
+ * the combined list by Open Library workId (when present) or a normalized
+ * title+author fuzzy key, so re-imports + manual adds don't accumulate
+ * duplicates.
+ */
 export function setImportedBooks(imported: Book[], clearManual = false) {
   if (clearManual) {
-    set("books", imported);
+    set("books", dedupeBooks(imported));
     return;
   }
   const manual = getBooks().filter((b) => b.manual);
-  set("books", [...imported, ...manual]);
+  // Imported entries listed first so their id wins on merge, keeping
+  // availability-cache hits stable across re-imports.
+  set("books", dedupeBooks([...imported, ...manual]));
 }
 
 export function addBook(book: Omit<Book, "id" | "manual">) {

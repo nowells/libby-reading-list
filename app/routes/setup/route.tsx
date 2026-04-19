@@ -2,6 +2,7 @@ import { usePostHog } from "@posthog/react";
 import { Link } from "react-router";
 import { useState, useEffect, useRef } from "react";
 import { importBooks } from "~/lib/csv-parser";
+import { enrichBooksWithWorkId } from "~/lib/openlibrary";
 import { Logo } from "~/components/logo";
 import {
   getBooks,
@@ -132,7 +133,7 @@ export default function Setup() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const text = reader.result as string;
       const result = importBooks(text);
 
@@ -157,7 +158,8 @@ export default function Setup() {
         return;
       }
 
-      setImportedBooks(result.books, clearManualOnImport);
+      const enriched = await enrichBooksWithWorkId(result.books);
+      setImportedBooks(enriched, clearManualOnImport);
       setBooksState(getBooks());
       posthog?.capture("csv_uploaded", {
         format: result.format,

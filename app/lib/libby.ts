@@ -217,6 +217,7 @@ export async function findBookInLibrary(
   libraryKey: string,
   title: string,
   author: string,
+  options: { alternateIsbns?: string[] } = {},
 ): Promise<BookAvailability> {
   const result: BookAvailability = {
     bookTitle: title,
@@ -319,6 +320,46 @@ export async function findBookInLibrary(
       }
     } catch {
       // Deep search failed, continue without results
+    }
+  }
+
+  // ISBN fallback: when text search (and the reference-library deep search)
+  // both come up empty, try querying by the book's alternate edition ISBNs
+  // from Open Library. A direct ISBN hit is treated as a definitive match,
+  // so we skip the title/author similarity gate.
+  if (result.results.length === 0 && options.alternateIsbns?.length) {
+    const MAX_ISBN_TRIES = 6;
+    for (const isbn of options.alternateIsbns.slice(0, MAX_ISBN_TRIES)) {
+      if (result.results.length > 0) break;
+      try {
+        const items = await searchLibrary(libraryKey, isbn);
+        for (const item of items.slice(0, 3)) {
+          if (seenIds.has(item.id)) continue;
+          seenIds.add(item.id);
+          let avail: AvailabilityInfo;
+          try {
+            avail = await getAvailability(libraryKey, item.id);
+          } catch {
+            avail = {
+              id: item.id,
+              copiesOwned: item.ownedCopies ?? 0,
+              copiesAvailable: item.availableCopies ?? 0,
+              numberOfHolds: item.holdsCount ?? 0,
+              isAvailable: item.isAvailable ?? false,
+              estimatedWaitDays: item.estimatedWaitDays,
+            };
+          }
+          result.results.push({
+            mediaItem: item,
+            availability: avail,
+            matchScore: 1,
+            formatType: item.type?.id ?? "unknown",
+            libraryKey,
+          });
+        }
+      } catch {
+        // Continue to next ISBN
+      }
     }
   }
 

@@ -46,7 +46,7 @@ jobs:
         run: cp build/client/index.html build/client/404.html
 
       - name: Add CNAME file
-        run: echo "libby.strite.org" > build/client/CNAME
+        run: echo "www.shelfcheck.org" > build/client/CNAME
 
       - uses: actions/upload-pages-artifact@v3
         with:

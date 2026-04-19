@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Book, LibraryConfig } from "~/lib/storage";
 import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
+import { getWorkEditionIsbns } from "~/lib/openlibrary";
 import { readCache, cacheMaxAge, getCached, setCached } from "../lib/cache";
 import type { BookAvailState } from "../lib/categorize";
 
@@ -20,10 +21,17 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
   const fetchAndCache = useCallback(
     async (book: Book): Promise<BookAvailState> => {
       try {
+        // Resolve alternate ISBNs for the work, so that if text-based Libby
+        // search misses we can retry by each edition's ISBN. Only pay for
+        // this when the book is actually linked to an Open Library work.
+        const alternateIsbns = book.workId
+          ? (await getWorkEditionIsbns(book.workId)).filter((i) => i !== book.isbn13)
+          : [];
+
         // Search across all libraries and merge results
         const allResults = await Promise.all(
           libraries.map((lib) =>
-            findBookInLibrary(lib.key, book.title, book.author).catch(
+            findBookInLibrary(lib.key, book.title, book.author, { alternateIsbns }).catch(
               () =>
                 ({
                   bookTitle: book.title,
