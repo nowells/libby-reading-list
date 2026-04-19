@@ -166,7 +166,9 @@ export default function Setup() {
           ? "Goodreads"
           : result.format === "hardcover"
             ? "Hardcover"
-            : "CSV";
+            : result.format === "storygraph"
+              ? "The StoryGraph"
+              : "CSV";
       const keptManual = clearManualOnImport ? 0 : manualBookCount;
       setImportInfo(
         `Imported ${result.books.length} want-to-read books from ${formatName} (${result.totalRows} total rows in file).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
@@ -431,11 +433,13 @@ export default function Setup() {
                     <span className="text-gray-500 dark:text-gray-400">
                       {" "}
                       from{" "}
-                      {books.find((b) => !b.manual)!.source === "goodreads"
-                        ? "Goodreads"
-                        : books.find((b) => !b.manual)!.source === "hardcover"
-                          ? "Hardcover"
-                          : "Bookhive"}
+                      {(() => {
+                        const src = books.find((b) => !b.manual)!.source;
+                        if (src === "goodreads") return "Goodreads";
+                        if (src === "hardcover") return "Hardcover";
+                        if (src === "storygraph") return "The StoryGraph";
+                        return "Bookhive";
+                      })()}
                     </span>
                   )}
               </p>
@@ -494,6 +498,26 @@ export default function Setup() {
                     </li>
                     <li>Click "Export" to generate a CSV</li>
                     <li>Download the file when ready</li>
+                  </ol>
+                </details>
+                <details className="text-sm text-gray-500 dark:text-gray-400">
+                  <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
+                    How to export from The StoryGraph
+                  </summary>
+                  <ol className="list-decimal list-inside mt-2 space-y-1 pl-2">
+                    <li>
+                      Go to{" "}
+                      <a
+                        href="https://app.thestorygraph.com/manage_account"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-amber-600 hover:text-amber-700 underline"
+                      >
+                        app.thestorygraph.com/manage_account
+                      </a>
+                    </li>
+                    <li>Scroll to the "Manage Your Data" section</li>
+                    <li>Click "Export StoryGraph Library" and download the CSV</li>
                   </ol>
                 </details>
               </>

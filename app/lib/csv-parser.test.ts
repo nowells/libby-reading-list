@@ -30,6 +30,34 @@ describe("importBooks", () => {
     expect(result.books[0].imageUrl).toBe("https://example.com/dune.jpg");
   });
 
+  it("parses StoryGraph CSV with to-read books", () => {
+    const csv = `Title,Authors,Contributors,ISBN/UID,Format,Read Status,Date Added,Last Date Read,Dates Read,Read Count,Moods,Pace,Character- or Plot-Driven?,Strong Character Development?,Loveable Characters?,Diverse Characters?,Flawed Characters?,Star Rating,Review,Content Warnings,Content Warning Description,Tags,Owned?
+"Children of Time","Adrian Tchaikovsky",,"9781447273288","Paperback","to-read","2026-04-01",,,0,,,,,,,,,,,,,
+"Dune","Frank Herbert",,"9780441013593","Hardcover","read","2024-01-01","2024-02-15","2024-02-15",1,,,,,,,,,,,,,`;
+
+    const result = importBooks(csv);
+    expect(result.format).toBe("storygraph");
+    expect(result.books).toHaveLength(1);
+    expect(result.books[0].title).toBe("Children of Time");
+    expect(result.books[0].author).toBe("Adrian Tchaikovsky");
+    expect(result.books[0].isbn13).toBe("9781447273288");
+    expect(result.books[0].source).toBe("storygraph");
+    expect(result.books[0].sourceUrl).toContain("app.thestorygraph.com/browse?search_term=");
+    expect(result.books[0].sourceUrl).toContain("Children%20of%20Time");
+  });
+
+  it("tolerates 'to read' (no hyphen) in StoryGraph Read Status", () => {
+    const csv = `Title,Authors,ISBN/UID,Read Status,Moods
+"Book A","Author A","9780000000001","to read",
+"Book B","Author B","","to-read",`;
+
+    const result = importBooks(csv);
+    expect(result.format).toBe("storygraph");
+    expect(result.books).toHaveLength(2);
+    expect(result.books[0].isbn13).toBe("9780000000001");
+    expect(result.books[1].isbn13).toBeUndefined();
+  });
+
   it("returns error for empty input", () => {
     const result = importBooks("");
     expect(result.error).toBeTruthy();

@@ -13,7 +13,7 @@ export interface Book {
   author: string;
   isbn13?: string;
   imageUrl?: string;
-  source: "goodreads" | "hardcover" | "bookhive" | "unknown";
+  source: "goodreads" | "hardcover" | "storygraph" | "bookhive" | "unknown";
   sourceUrl?: string;
   manual?: boolean;
 }
