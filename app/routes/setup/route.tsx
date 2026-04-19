@@ -411,7 +411,7 @@ export default function Setup() {
               {booksDone ? "\u2713" : "1"}
             </span>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-              Upload Reading List
+              Import Reading List
             </h2>
           </div>
 
@@ -449,106 +449,27 @@ export default function Setup() {
             </div>
           )}
 
-          <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-            {booksDone
-              ? "Upload a new CSV to replace your current list."
-              : 'Upload a CSV export of your reading list. We\'ll find the "want to read" books.'}
-          </p>
-          <div className="space-y-3">
-            {!booksDone && (
-              <>
-                <details className="text-sm text-gray-500 dark:text-gray-400">
-                  <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
-                    How to export from Goodreads
-                  </summary>
-                  <ol className="list-decimal list-inside mt-2 space-y-1 pl-2">
-                    <li>
-                      Go to{" "}
-                      <a
-                        href="https://www.goodreads.com/review/import"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-amber-600 hover:text-amber-700 underline"
-                      >
-                        goodreads.com/review/import
-                      </a>
-                    </li>
-                    <li>Click "Export Library" at the top</li>
-                    <li>Wait for the export to complete, then download the CSV</li>
-                  </ol>
-                </details>
-                <details className="text-sm text-gray-500 dark:text-gray-400">
-                  <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
-                    How to export from Hardcover
-                  </summary>
-                  <ol className="list-decimal list-inside mt-2 space-y-1 pl-2">
-                    <li>
-                      Go to{" "}
-                      <a
-                        href="https://hardcover.app/account/exports"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-amber-600 hover:text-amber-700 underline"
-                      >
-                        hardcover.app/account/exports
-                      </a>
-                    </li>
-                    <li>Click "Export" to generate a CSV</li>
-                    <li>Download the file when ready</li>
-                  </ol>
-                </details>
-                <details className="text-sm text-gray-500 dark:text-gray-400">
-                  <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
-                    How to export from The StoryGraph
-                  </summary>
-                  <ol className="list-decimal list-inside mt-2 space-y-1 pl-2">
-                    <li>
-                      Go to{" "}
-                      <a
-                        href="https://app.thestorygraph.com/manage_account"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-amber-600 hover:text-amber-700 underline"
-                      >
-                        app.thestorygraph.com/manage_account
-                      </a>
-                    </li>
-                    <li>Scroll to the "Manage Your Data" section</li>
-                    <li>Click "Export StoryGraph Library" and download the CSV</li>
-                  </ol>
-                </details>
-              </>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              onChange={handleFileUpload}
-              className="block w-full text-sm text-gray-500 dark:text-gray-400
-                file:mr-4 file:py-2 file:px-4
-                file:rounded-lg file:border-0
-                file:text-sm file:font-medium
-                file:bg-amber-50 file:text-amber-700
-                hover:file:bg-amber-100
-                dark:file:bg-amber-900/30 dark:file:text-amber-300
-                dark:hover:file:bg-amber-900/50
-                cursor-pointer"
-            />
-            {manualBookCount > 0 && (
-              <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                <input
-                  type="checkbox"
-                  checked={clearManualOnImport}
-                  onChange={(e) => setClearManualOnImport(e.target.checked)}
-                  className="rounded border-gray-300 dark:border-gray-600"
-                />
-                Also remove {manualBookCount} manually added book
-                {manualBookCount === 1 ? "" : "s"} on import
-              </label>
-            )}
-            <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                Or import from Bluesky (Bookhive):
+          <div className="space-y-4">
+            {/* Option 1: Bluesky / Bookhive (live sync) */}
+            <div className="rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50/60 dark:bg-sky-900/15 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <svg
+                  className="w-4 h-4 text-sky-600 dark:text-sky-400"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.649 8.649 0 01-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z" />
+                </svg>
+                <h3 className="font-semibold text-sm text-sky-900 dark:text-sky-100">
+                  Sync from Bluesky
+                </h3>
+                <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300">
+                  Live
+                </span>
+              </div>
+              <p className="text-xs text-sky-800/80 dark:text-sky-200/70">
+                Sign in to automatically sync your Bookhive "want to read" shelf. Updates daily and
+                on demand — no re-uploading CSVs.
               </p>
               {bskyInitializing ? (
                 <p className="text-sm text-gray-400">Checking Bluesky session...</p>
@@ -669,9 +590,146 @@ export default function Setup() {
                 </form>
               )}
             </div>
-            <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                Or search Libby to add a book:
+
+            {/* Option 2: CSV upload */}
+            <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/10 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <svg
+                  className="w-4 h-4 text-amber-600 dark:text-amber-400"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12h6m-3-3v6m-9 1V7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z"
+                  />
+                </svg>
+                <h3 className="font-semibold text-sm text-amber-900 dark:text-amber-100">
+                  Upload a CSV
+                </h3>
+              </div>
+              <p className="text-xs text-amber-800/80 dark:text-amber-200/70">
+                Export your reading list from Goodreads, Hardcover, or The StoryGraph. One-time
+                import — re-upload to refresh.
+              </p>
+              {!booksDone && (
+                <div className="space-y-1">
+                  <details className="text-xs text-gray-600 dark:text-gray-400">
+                    <summary className="cursor-pointer hover:text-gray-800 dark:hover:text-gray-200">
+                      How to export from Goodreads
+                    </summary>
+                    <ol className="list-decimal list-inside mt-2 space-y-1 pl-2">
+                      <li>
+                        Go to{" "}
+                        <a
+                          href="https://www.goodreads.com/review/import"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-amber-600 hover:text-amber-700 underline"
+                        >
+                          goodreads.com/review/import
+                        </a>
+                      </li>
+                      <li>Click "Export Library" at the top</li>
+                      <li>Wait for the export to complete, then download the CSV</li>
+                    </ol>
+                  </details>
+                  <details className="text-xs text-gray-600 dark:text-gray-400">
+                    <summary className="cursor-pointer hover:text-gray-800 dark:hover:text-gray-200">
+                      How to export from Hardcover
+                    </summary>
+                    <ol className="list-decimal list-inside mt-2 space-y-1 pl-2">
+                      <li>
+                        Go to{" "}
+                        <a
+                          href="https://hardcover.app/account/exports"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-amber-600 hover:text-amber-700 underline"
+                        >
+                          hardcover.app/account/exports
+                        </a>
+                      </li>
+                      <li>Click "Export" to generate a CSV</li>
+                      <li>Download the file when ready</li>
+                    </ol>
+                  </details>
+                  <details className="text-xs text-gray-600 dark:text-gray-400">
+                    <summary className="cursor-pointer hover:text-gray-800 dark:hover:text-gray-200">
+                      How to export from The StoryGraph
+                    </summary>
+                    <ol className="list-decimal list-inside mt-2 space-y-1 pl-2">
+                      <li>
+                        Go to{" "}
+                        <a
+                          href="https://app.thestorygraph.com/manage_account"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-amber-600 hover:text-amber-700 underline"
+                        >
+                          app.thestorygraph.com/manage_account
+                        </a>
+                      </li>
+                      <li>Scroll to the "Manage Your Data" section</li>
+                      <li>Click "Export StoryGraph Library" and download the CSV</li>
+                    </ol>
+                  </details>
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleFileUpload}
+                className="block w-full text-sm text-gray-500 dark:text-gray-400
+                  file:mr-4 file:py-2 file:px-4
+                  file:rounded-lg file:border-0
+                  file:text-sm file:font-medium
+                  file:bg-amber-100 file:text-amber-700
+                  hover:file:bg-amber-200
+                  dark:file:bg-amber-900/40 dark:file:text-amber-300
+                  dark:hover:file:bg-amber-900/60
+                  cursor-pointer"
+              />
+              {manualBookCount > 0 && (
+                <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={clearManualOnImport}
+                    onChange={(e) => setClearManualOnImport(e.target.checked)}
+                    className="rounded border-gray-300 dark:border-gray-600"
+                  />
+                  Also remove {manualBookCount} manually added book
+                  {manualBookCount === 1 ? "" : "s"} on import
+                </label>
+              )}
+            </div>
+
+            {/* Option 3: Add one book via Libby */}
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/30 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <svg
+                  className="w-4 h-4 text-gray-600 dark:text-gray-400"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+                  />
+                </svg>
+                <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+                  Add one book
+                </h3>
+              </div>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                Search Libby directly to add a single book.
               </p>
               <BookSearchPicker
                 libraryKey={libraries[0]?.preferredKey}
