@@ -55,7 +55,7 @@ describe("bookhiveRecordsToBooks", () => {
     expect(books[0].author).toBe("Neil Gaiman, Terry Pratchett");
   });
 
-  it("extracts a 13-digit ISBN from identifiers", () => {
+  it("extracts a 13-digit ISBN from identifiers (array form)", () => {
     const books = bookhiveRecordsToBooks([
       entry({
         title: "Dune",
@@ -66,6 +66,50 @@ describe("bookhiveRecordsToBooks", () => {
     ]);
 
     expect(books[0].isbn13).toBe("9780441013593");
+  });
+
+  it("extracts a 13-digit ISBN from identifiers (string form)", () => {
+    const books = bookhiveRecordsToBooks([
+      entry({
+        title: "Dune",
+        authors: "Frank Herbert",
+        status: "wantToRead",
+        identifiers: {
+          isbn13: "9780441013593",
+        } as unknown as BookhiveListEntry["value"]["identifiers"],
+      }),
+    ]);
+
+    expect(books[0].isbn13).toBe("9780441013593");
+  });
+
+  it("accepts the lexicon-ref form of status (buzz.bookhive.defs#wantToRead)", () => {
+    const books = bookhiveRecordsToBooks([
+      entry({
+        title: "Children of Time",
+        authors: "Adrian Tchaikovsky",
+        status: "buzz.bookhive.defs#wantToRead",
+        identifiers: {
+          isbn13: "9781447273288",
+        } as unknown as BookhiveListEntry["value"]["identifiers"],
+      }),
+    ]);
+
+    expect(books).toHaveLength(1);
+    expect(books[0].title).toBe("Children of Time");
+    expect(books[0].isbn13).toBe("9781447273288");
+  });
+
+  it("skips ref-form statuses that aren't wantToRead", () => {
+    const books = bookhiveRecordsToBooks([
+      entry({
+        title: "Done",
+        authors: "x",
+        status: "buzz.bookhive.defs#finished",
+      }),
+    ]);
+
+    expect(books).toHaveLength(0);
   });
 
   it("falls back to the generic isbn field when isbn13 is missing", () => {

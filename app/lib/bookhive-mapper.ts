@@ -7,19 +7,33 @@ import type { Book } from "./storage";
  *
  * Lexicon: https://github.com/nperez0111/bookhive/blob/main/lexicons/book.json
  */
+/**
+ * Status is stored as a lexicon reference string, e.g.
+ * `"buzz.bookhive.defs#wantToRead"`. Older clients may write the bare
+ * token — we normalize both forms.
+ */
+
 export interface BookhiveBookRecord {
   $type?: string;
   title: string;
   authors: string;
   hiveId?: string;
-  status?: "finished" | "reading" | "wantToRead" | "abandoned";
+  status?: string;
   createdAt?: string;
   identifiers?: {
     isbn?: string[];
+    isbn10?: string[];
     isbn13?: string[];
     [k: string]: unknown;
   };
   hiveBookUri?: string;
+}
+
+/** Returns just the token part of a status string (`"a.b.c#wantToRead"` -> `"wantToRead"`). */
+function statusToken(status: string | undefined): string | undefined {
+  if (!status) return undefined;
+  const hash = status.lastIndexOf("#");
+  return hash >= 0 ? status.slice(hash + 1) : status;
 }
 
 export interface BookhiveListEntry {
@@ -33,17 +47,18 @@ function rkeyFromAtUri(uri: string): string {
   return parts[parts.length - 1] || uri;
 }
 
+function toStringArray(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
+  return [];
+}
+
 function pickIsbn13(record: BookhiveBookRecord): string | undefined {
   const ids = record.identifiers;
   if (!ids) return undefined;
-  const candidates = [
-    ...(Array.isArray(ids.isbn13) ? ids.isbn13 : []),
-    ...(Array.isArray(ids.isbn) ? ids.isbn : []),
-  ];
-  const thirteen = candidates.find(
-    (v) => typeof v === "string" && v.replace(/\D/g, "").length === 13,
-  );
-  return thirteen?.replace(/\D/g, "");
+  const candidates = [...toStringArray(ids.isbn13), ...toStringArray(ids.isbn)];
+  const thirteen = candidates.map((v) => v.replace(/\D/g, "")).find((v) => v.length === 13);
+  return thirteen;
 }
 
 function normalizeAuthors(authors: string): string {
@@ -63,7 +78,7 @@ export function bookhiveRecordsToBooks(entries: BookhiveListEntry[]): Book[] {
   const books: Book[] = [];
   for (const entry of entries) {
     const rec = entry.value;
-    if (!rec || rec.status !== "wantToRead") continue;
+    if (!rec || statusToken(rec.status) !== "wantToRead") continue;
     if (!rec.title) continue;
 
     const rkey = rkeyFromAtUri(entry.uri);
