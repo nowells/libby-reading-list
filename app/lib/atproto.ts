@@ -46,29 +46,37 @@ export interface AtprotoSessionInfo {
   handle?: string;
 }
 
+let initPromise: Promise<{ session: OAuthSession; info: AtprotoSessionInfo } | null> | null = null;
+
 /**
  * Initialize the OAuth client. If the current URL is an OAuth callback this
  * completes the flow and strips the params; otherwise it restores the last
- * active session (if any).
+ * active session (if any). Memoized because `client.init()` must run exactly
+ * once per page load — React StrictMode's double-mount would otherwise race
+ * the callback out of the URL before the second call could read it.
  */
-export async function initSession(): Promise<{
+export function initSession(): Promise<{
   session: OAuthSession;
   info: AtprotoSessionInfo;
 } | null> {
-  const client = await getClient();
-  const result = await client.init();
-  if (!result) return null;
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    const client = await getClient();
+    const result = await client.init();
+    if (!result) return null;
 
-  const session = result.session;
-  const agent = new Agent(session);
-  let handle: string | undefined;
-  try {
-    const profile = await agent.getProfile({ actor: session.did });
-    handle = profile.data.handle;
-  } catch {
-    // Profile lookup is best-effort; the DID alone is enough to continue.
-  }
-  return { session, info: { did: session.did, handle } };
+    const session = result.session;
+    const agent = new Agent(session);
+    let handle: string | undefined;
+    try {
+      const profile = await agent.getProfile({ actor: session.did });
+      handle = profile.data.handle;
+    } catch {
+      // Profile lookup is best-effort; the DID alone is enough to continue.
+    }
+    return { session, info: { did: session.did, handle } };
+  })();
+  return initPromise;
 }
 
 export interface HandleSuggestion {
@@ -104,6 +112,7 @@ export async function signInWithBluesky(handleOrPds: string): Promise<never> {
 export async function signOut(did: string): Promise<void> {
   const client = await getClient();
   await client.revoke(did);
+  initPromise = null;
 }
 
 /**
