@@ -187,6 +187,34 @@ export default function Books() {
                     {libraries.length === 1 ? "library" : "libraries"}
                   </span>
                   <BookhiveSyncStatus onBooksChanged={() => setBooksState(getBooks())} />
+                  {oldestFetchedAt && checkedCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleRefreshAll}
+                      disabled={loadingCount > 0}
+                      title="Refresh Libby availability"
+                      className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-70"
+                    >
+                      <svg
+                        className={`w-3 h-3 ${loadingCount > 0 ? "animate-spin" : ""}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      <span>
+                        {loadingCount > 0
+                          ? `Syncing Libby... ${checkedCount}/${totalBooks}`
+                          : `Synced from Libby ${timeAgo(oldestFetchedAt)}`}
+                      </span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -232,56 +260,6 @@ export default function Books() {
               </Link>
             </div>
           </div>
-          {oldestFetchedAt && checkedCount > 0 && (
-            <div className="flex items-center gap-2 mt-2 ml-12">
-              {loadingCount > 0 ? (
-                <>
-                  <svg
-                    className="w-3 h-3 animate-spin text-blue-500"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                  <span className="text-xs text-blue-500 dark:text-blue-400">
-                    Refreshing... {checkedCount} / {totalBooks}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="text-xs text-gray-400 dark:text-gray-500">
-                    Updated {timeAgo(oldestFetchedAt)}
-                  </span>
-                  <span className="text-gray-300 dark:text-gray-600">·</span>
-                  <button
-                    onClick={handleRefreshAll}
-                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
-                  >
-                    <svg
-                      className="w-3 h-3"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-                    Refresh All
-                  </button>
-                </>
-              )}
-            </div>
-          )}
         </div>
 
         {showAddBook && libraries.length > 0 && (
