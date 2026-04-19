@@ -46,7 +46,14 @@ export interface AtprotoSessionInfo {
   handle?: string;
 }
 
-let initPromise: Promise<{ session: OAuthSession; info: AtprotoSessionInfo } | null> | null = null;
+interface InitResult {
+  session: OAuthSession;
+  info: AtprotoSessionInfo;
+  /** True when this init processed an OAuth callback (fresh sign-in), false when restoring a stored session. */
+  fresh: boolean;
+}
+
+let initPromise: Promise<InitResult | null> | null = null;
 
 /**
  * Initialize the OAuth client. If the current URL is an OAuth callback this
@@ -55,10 +62,7 @@ let initPromise: Promise<{ session: OAuthSession; info: AtprotoSessionInfo } | n
  * once per page load — React StrictMode's double-mount would otherwise race
  * the callback out of the URL before the second call could read it.
  */
-export function initSession(): Promise<{
-  session: OAuthSession;
-  info: AtprotoSessionInfo;
-} | null> {
+export function initSession(): Promise<InitResult | null> {
   if (initPromise) return initPromise;
   initPromise = (async () => {
     const client = await getClient();
@@ -66,6 +70,8 @@ export function initSession(): Promise<{
     if (!result) return null;
 
     const session = result.session;
+    // `state` is present only when init processed an OAuth callback.
+    const fresh = (result as { state?: string | null }).state !== undefined;
     const agent = new Agent(session);
     let handle: string | undefined;
     try {
@@ -74,7 +80,7 @@ export function initSession(): Promise<{
     } catch {
       // Profile lookup is best-effort; the DID alone is enough to continue.
     }
-    return { session, info: { did: session.did, handle } };
+    return { session, info: { did: session.did, handle }, fresh };
   })();
   return initPromise;
 }

@@ -13,6 +13,9 @@ import {
   removeLibrary,
   clearLibraries,
   clearAll,
+  getBookhiveLastSync,
+  setBookhiveLastSync,
+  clearBookhiveLastSync,
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
@@ -33,6 +36,19 @@ import {
   type HandleSuggestion,
 } from "~/lib/atproto";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
+
+const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "just now";
+  const diffSeconds = Math.round((then - Date.now()) / 1000);
+  const abs = Math.abs(diffSeconds);
+  if (abs < 60) return relativeTimeFormatter.format(diffSeconds, "second");
+  if (abs < 3600) return relativeTimeFormatter.format(Math.round(diffSeconds / 60), "minute");
+  if (abs < 86400) return relativeTimeFormatter.format(Math.round(diffSeconds / 3600), "hour");
+  return relativeTimeFormatter.format(Math.round(diffSeconds / 86400), "day");
+}
 
 export default function Setup() {
   const posthog = usePostHog();
@@ -60,6 +76,7 @@ export default function Setup() {
   const [bskyInitializing, setBskyInitializing] = useState(true);
   const [bskyHandle, setBskyHandle] = useState("");
   const [bskyImporting, setBskyImporting] = useState(false);
+  const [bskyLastSync, setBskyLastSync] = useState<string | null>(null);
   const [bskySuggestions, setBskySuggestions] = useState<HandleSuggestion[]>([]);
   const [bskySuggestionsOpen, setBskySuggestionsOpen] = useState(false);
   const bskyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -68,6 +85,7 @@ export default function Setup() {
   useEffect(() => {
     setBooksState(getBooks());
     setLibrariesState(getLibraries());
+    setBskyLastSync(getBookhiveLastSync());
   }, []);
 
   useEffect(() => {
@@ -78,6 +96,11 @@ export default function Setup() {
         if (result) {
           setBskySession(result.session);
           setBskyInfo(result.info);
+          // Auto-import on fresh sign-in so users don't need an extra click.
+          // Skip on restored sessions — they may have their own CSV imports now.
+          if (result.fresh) {
+            void runBskyImport(result.session, { silent: true });
+          }
         }
       })
       .catch(() => {
@@ -89,6 +112,8 @@ export default function Setup() {
     return () => {
       cancelled = true;
     };
+    // runBskyImport is stable via function declaration; deps intentionally empty for one-shot init.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const booksDone = books.length > 0;
@@ -203,27 +228,34 @@ export default function Setup() {
     startBskySignIn(s.handle);
   }
 
-  async function handleBskyImport() {
-    if (!bskySession) return;
+  async function runBskyImport(session: OAuthSession, opts: { silent?: boolean } = {}) {
     setError(null);
     setImportInfo(null);
     setBskyImporting(true);
     try {
-      const imported = await fetchBookhiveWantToRead(bskySession);
+      const imported = await fetchBookhiveWantToRead(session);
       if (imported.length === 0) {
-        setError(
-          'No "want to read" books found in your Bluesky account. Make sure you have books marked as "wantToRead" in Bookhive.',
-        );
+        if (!opts.silent) {
+          setError(
+            'No "want to read" books found in your Bluesky account. Make sure you have books marked as "wantToRead" in Bookhive.',
+          );
+        }
         posthog?.capture("bsky_import_failed", { reason: "no_want_to_read" });
         return;
       }
       setImportedBooks(imported, clearManualOnImport);
       setBooksState(getBooks());
+      const now = new Date().toISOString();
+      setBookhiveLastSync(now);
+      setBskyLastSync(now);
       const keptManual = clearManualOnImport ? 0 : manualBookCount;
       setImportInfo(
         `Imported ${imported.length} want-to-read books from Bookhive (via Bluesky).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
       );
-      posthog?.capture("bsky_imported", { book_count: imported.length });
+      posthog?.capture("bsky_imported", {
+        book_count: imported.length,
+        trigger: opts.silent ? "auto" : "manual",
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to import from Bluesky.";
       setError(message);
@@ -231,6 +263,11 @@ export default function Setup() {
     } finally {
       setBskyImporting(false);
     }
+  }
+
+  function handleBskyImport() {
+    if (!bskySession) return;
+    void runBskyImport(bskySession);
   }
 
   async function handleBskySignOut() {
@@ -242,6 +279,8 @@ export default function Setup() {
     }
     setBskySession(null);
     setBskyInfo(null);
+    clearBookhiveLastSync();
+    setBskyLastSync(null);
     posthog?.capture("bsky_signed_out");
   }
 
@@ -259,7 +298,9 @@ export default function Setup() {
 
   function handleClearBooks() {
     clearBooks();
+    clearBookhiveLastSync();
     setBooksState([]);
+    setBskyLastSync(null);
     setImportInfo(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -505,14 +546,36 @@ export default function Setup() {
                       Sign out
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleBskyImport}
-                    disabled={bskyImporting}
-                    className="w-full px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
-                  >
-                    {bskyImporting ? "Importing..." : "Import want-to-read from Bookhive"}
-                  </button>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {bskyImporting
+                        ? "Syncing Bookhive..."
+                        : bskyLastSync
+                          ? `Last synced ${formatRelativeTime(bskyLastSync)}`
+                          : "Not yet synced"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleBskyImport}
+                      disabled={bskyImporting}
+                      className="px-3 py-1.5 text-sm bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
+                    >
+                      <svg
+                        className={`w-3.5 h-3.5 ${bskyImporting ? "animate-spin" : ""}`}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      {bskyImporting ? "Syncing" : bskyLastSync ? "Refresh" : "Import"}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <form onSubmit={handleBskySignIn} className="relative">
