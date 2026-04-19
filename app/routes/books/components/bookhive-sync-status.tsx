@@ -8,17 +8,17 @@ import {
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { getBookhiveLastSync } from "~/lib/storage";
 
-const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-
 function formatRelativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "just now";
-  const diffSeconds = Math.round((then - Date.now()) / 1000);
-  const abs = Math.abs(diffSeconds);
-  if (abs < 60) return relativeTimeFormatter.format(diffSeconds, "second");
-  if (abs < 3600) return relativeTimeFormatter.format(Math.round(diffSeconds / 60), "minute");
-  if (abs < 86400) return relativeTimeFormatter.format(Math.round(diffSeconds / 3600), "hour");
-  return relativeTimeFormatter.format(Math.round(diffSeconds / 86400), "day");
+  const diffMs = Date.now() - then;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
 }
 
 /**
@@ -82,7 +82,7 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
       onClick={() => runSync(session, false)}
       disabled={syncing}
       title={error ?? `Signed in as @${info.handle ?? info.did}`}
-      className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors disabled:opacity-70"
+      className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors disabled:opacity-70 whitespace-nowrap"
     >
       <svg
         className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`}
