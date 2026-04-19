@@ -8,7 +8,7 @@ export function meta() {
     {
       name: "description",
       content:
-        "Upload your Goodreads or Hardcover reading list and instantly see which books are available to borrow for free at your local library through Libby.",
+        "Upload your Goodreads, Hardcover, or StoryGraph reading list — or sign in with Bluesky to live-sync your Bookhive library — and instantly see which books are available to borrow for free at your local library through Libby.",
     },
   ];
 }
@@ -38,7 +38,7 @@ export default function Home() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">How it works</h2>
           <ol className="list-decimal list-inside space-y-3 text-gray-700 dark:text-gray-300">
             <li>
-              Upload a CSV export from{" "}
+              Import your reading list — upload a CSV from{" "}
               <a
                 href="https://www.goodreads.com"
                 target="_blank"
@@ -46,8 +46,8 @@ export default function Home() {
                 className="font-medium text-amber-700 dark:text-amber-400 underline hover:text-amber-800 dark:hover:text-amber-300"
               >
                 Goodreads
-              </a>{" "}
-              or{" "}
+              </a>
+              ,{" "}
               <a
                 href="https://hardcover.app"
                 target="_blank"
@@ -56,6 +56,34 @@ export default function Home() {
               >
                 Hardcover
               </a>
+              , or{" "}
+              <a
+                href="https://thestorygraph.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-amber-700 dark:text-amber-400 underline hover:text-amber-800 dark:hover:text-amber-300"
+              >
+                The StoryGraph
+              </a>
+              , or sign in with{" "}
+              <a
+                href="https://bsky.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-sky-700 dark:text-sky-400 underline hover:text-sky-800 dark:hover:text-sky-300"
+              >
+                Bluesky
+              </a>{" "}
+              to live-sync your{" "}
+              <a
+                href="https://bookhive.buzz"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-sky-700 dark:text-sky-400 underline hover:text-sky-800 dark:hover:text-sky-300"
+              >
+                Bookhive
+              </a>{" "}
+              library
             </li>
             <li>
               Select your{" "}
@@ -71,6 +99,21 @@ export default function Home() {
             </li>
             <li>See which books on your wishlist are available to borrow right now</li>
           </ol>
+          <div className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700 pt-3">
+            <svg
+              className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span>
+              New: Sign in with Bluesky to keep your want-to-read list in sync automatically — no
+              re-uploading CSVs when your Bookhive shelf changes.
+            </span>
+          </div>
         </div>
 
         <Link
