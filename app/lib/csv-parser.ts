@@ -66,12 +66,16 @@ function parseCSV(text: string): ParsedCSV {
   return { headers, rows: dataRows };
 }
 
-type Format = "goodreads" | "hardcover" | "unknown";
+type Format = "goodreads" | "hardcover" | "storygraph" | "unknown";
 
 function detectFormat(headers: string[]): Format {
   const lower = new Set(headers.map((h) => h.toLowerCase()));
   if (lower.has("exclusive shelf") && lower.has("title")) {
     return "goodreads";
+  }
+  // StoryGraph exports use "Read Status" together with "Moods" or "ISBN/UID".
+  if (lower.has("read status") && (lower.has("moods") || lower.has("isbn/uid"))) {
+    return "storygraph";
   }
   // Hardcover exports use "Title" and "Status" (or "Reading Status")
   if (lower.has("title") && (lower.has("status") || lower.has("reading status"))) {
@@ -153,6 +157,40 @@ function parseHardcoverRows(rows: Record<string, string>[]): Book[] {
   return books;
 }
 
+function parseStorygraphRows(rows: Record<string, string>[]): Book[] {
+  const books: Book[] = [];
+  let id = 0;
+
+  for (const row of rows) {
+    const status = findColumn(row, "Read Status").toLowerCase().trim();
+    if (status !== "to-read" && status !== "to read") continue;
+
+    const title = findColumn(row, "Title");
+    if (!title) continue;
+
+    const authors = findColumn(row, "Authors", "Author");
+    const rawIsbn = findColumn(row, "ISBN/UID", "ISBN13", "ISBN").replace(/\D/g, "");
+    const isbn13 = rawIsbn.length === 13 ? rawIsbn : undefined;
+
+    // StoryGraph's export has no book id/slug, so link back to an in-app search.
+    const query = `${title} ${authors}`.trim();
+    const sourceUrl = query
+      ? `https://app.thestorygraph.com/browse?search_term=${encodeURIComponent(query)}`
+      : undefined;
+
+    books.push({
+      id: `sg-${id++}`,
+      title,
+      author: authors,
+      isbn13,
+      source: "storygraph",
+      sourceUrl,
+    });
+  }
+
+  return books;
+}
+
 interface ImportResult {
   books: Book[];
   format: Format;
@@ -176,6 +214,11 @@ export function importBooks(fileContent: string): ImportResult {
 
   if (format === "hardcover") {
     const books = parseHardcoverRows(rows);
+    return { books, format, totalRows: rows.length };
+  }
+
+  if (format === "storygraph") {
+    const books = parseStorygraphRows(rows);
     return { books, format, totalRows: rows.length };
   }
 

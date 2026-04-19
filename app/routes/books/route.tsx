@@ -24,6 +24,7 @@ import { SummaryStats } from "./components/summary-stats";
 import { FormatFilterBar } from "./components/format-filter-bar";
 import { BookCard } from "./components/book-card";
 import { ProgressBar } from "./components/progress-bar";
+import { BookhiveSyncStatus } from "./components/bookhive-sync-status";
 
 export function meta() {
   return [{ title: "Your Books | ShelfCheck" }];
@@ -175,18 +176,12 @@ export default function Books() {
     <main className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900 py-8 px-4">
       <div className="max-w-3xl mx-auto">
         <div className="mb-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Logo className="w-9 h-9" />
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">ShelfCheck</h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {books.length} books &middot; {libraries.length}{" "}
-                  {libraries.length === 1 ? "library" : "libraries"}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
+            <Logo className="w-9 h-9 flex-shrink-0" />
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex-1 min-w-0 truncate">
+              ShelfCheck
+            </h1>
+            <div className="flex items-center gap-3 flex-shrink-0">
               <button
                 onClick={() => setShowAddBook((s) => !s)}
                 className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -200,7 +195,7 @@ export default function Books() {
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
-                Add
+                <span className="hidden sm:inline">Add</span>
               </button>
               <Link
                 to="/setup"
@@ -224,16 +219,27 @@ export default function Books() {
                     d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
                   />
                 </svg>
-                Settings
+                <span className="hidden sm:inline">Settings</span>
               </Link>
             </div>
           </div>
-          {oldestFetchedAt && checkedCount > 0 && (
-            <div className="flex items-center gap-2 mt-2 ml-12">
-              {loadingCount > 0 ? (
-                <>
+          <div className="mt-1 sm:ml-12">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {books.length} books &middot; {libraries.length}{" "}
+              {libraries.length === 1 ? "library" : "libraries"}
+            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <BookhiveSyncStatus onBooksChanged={() => setBooksState(getBooks())} />
+              {oldestFetchedAt && checkedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleRefreshAll}
+                  disabled={loadingCount > 0}
+                  title="Refresh Libby availability"
+                  className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-70 whitespace-nowrap"
+                >
                   <svg
-                    className="w-3 h-3 animate-spin text-blue-500"
+                    className={`w-3 h-3 ${loadingCount > 0 ? "animate-spin" : ""}`}
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -245,39 +251,15 @@ export default function Books() {
                       d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                     />
                   </svg>
-                  <span className="text-xs text-blue-500 dark:text-blue-400">
-                    Refreshing... {checkedCount} / {totalBooks}
+                  <span>
+                    {loadingCount > 0
+                      ? `Syncing Libby... ${checkedCount}/${totalBooks}`
+                      : `Synced from Libby ${timeAgo(oldestFetchedAt)}`}
                   </span>
-                </>
-              ) : (
-                <>
-                  <span className="text-xs text-gray-400 dark:text-gray-500">
-                    Updated {timeAgo(oldestFetchedAt)}
-                  </span>
-                  <span className="text-gray-300 dark:text-gray-600">·</span>
-                  <button
-                    onClick={handleRefreshAll}
-                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
-                  >
-                    <svg
-                      className="w-3 h-3"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-                    Refresh All
-                  </button>
-                </>
+                </button>
               )}
             </div>
-          )}
+          </div>
         </div>
 
         {showAddBook && libraries.length > 0 && (

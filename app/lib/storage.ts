@@ -13,7 +13,7 @@ export interface Book {
   author: string;
   isbn13?: string;
   imageUrl?: string;
-  source: "goodreads" | "hardcover" | "unknown";
+  source: "goodreads" | "hardcover" | "storygraph" | "bookhive" | "unknown";
   sourceUrl?: string;
   manual?: boolean;
 }
@@ -115,8 +115,21 @@ export function clearBooks() {
   remove("books");
 }
 
+export function getBookhiveLastSync(): string | null {
+  return get<string>("bookhive-last-sync");
+}
+
+export function setBookhiveLastSync(iso: string) {
+  set("bookhive-last-sync", iso);
+}
+
+export function clearBookhiveLastSync() {
+  remove("bookhive-last-sync");
+}
+
 export function clearAll() {
   clearLibraries();
   clearBooks();
+  clearBookhiveLastSync();
   remove("availability");
 }
