@@ -71,10 +71,10 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
   if (!session || !info) return null;
 
   const label = syncing
-    ? "Syncing from atmosphere..."
+    ? "Syncing from ATmosphere..."
     : lastSync
-      ? `Synced from atmosphere ${formatRelativeTime(lastSync)}`
-      : "Synced from atmosphere";
+      ? `Synced from ATmosphere ${formatRelativeTime(lastSync)}`
+      : "Synced from ATmosphere";
 
   return (
     <button
