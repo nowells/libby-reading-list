@@ -2,6 +2,7 @@ import { BrowserOAuthClient } from "@atproto/oauth-client-browser";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { Agent } from "@atproto/api";
 import { bookhiveRecordsToBooks, type BookhiveListEntry } from "./bookhive-mapper";
+import { enrichBooksWithWorkId } from "./openlibrary";
 import { getBookhiveLastSync, setBookhiveLastSync, setImportedBooks, type Book } from "./storage";
 
 const PRODUCTION_CLIENT_ID = "https://www.shelfcheck.org/client-metadata.json";
@@ -142,11 +143,12 @@ export async function syncBookhive(
   opts: { clearManual?: boolean } = {},
 ): Promise<Book[]> {
   const books = await fetchBookhiveWantToRead(session);
+  const enriched = await enrichBooksWithWorkId(books);
   setBookhiveLastSync(new Date().toISOString());
-  if (books.length > 0) {
-    setImportedBooks(books, opts.clearManual ?? false);
+  if (enriched.length > 0) {
+    setImportedBooks(enriched, "bookhive", { clearManual: opts.clearManual });
   }
-  return books;
+  return enriched;
 }
 
 /**

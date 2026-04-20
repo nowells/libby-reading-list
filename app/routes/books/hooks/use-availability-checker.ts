@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Book, LibraryConfig } from "~/lib/storage";
 import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
+import { getWorkEditionIsbns } from "~/lib/openlibrary";
 import { readCache, cacheMaxAge, getCached, setCached } from "../lib/cache";
 import type { BookAvailState } from "../lib/categorize";
 
@@ -18,12 +19,23 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
   const loadingCount = Object.values(availMap).filter((s) => s.status === "loading").length;
 
   const fetchAndCache = useCallback(
-    async (book: Book): Promise<BookAvailState> => {
+    async (book: Book, opts: { liveAvailability?: boolean } = {}): Promise<BookAvailState> => {
       try {
+        // The primary ISBN is tried first; alternate-edition ISBNs from
+        // Open Library are resolved lazily and only fetched when the
+        // primary search misses, so books found on their primary ISBN
+        // never trigger an OL editions round-trip.
+        const workId = book.workId;
+        const getAlternateIsbns = workId ? () => getWorkEditionIsbns(workId) : undefined;
+
         // Search across all libraries and merge results
         const allResults = await Promise.all(
           libraries.map((lib) =>
-            findBookInLibrary(lib.key, book.title, book.author).catch(
+            findBookInLibrary(lib.key, book.title, book.author, {
+              primaryIsbn: book.isbn13,
+              getAlternateIsbns,
+              liveAvailability: opts.liveAvailability,
+            }).catch(
               () =>
                 ({
                   bookTitle: book.title,
@@ -80,7 +92,11 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
         ...prev,
         [book.id]: { ...prev[book.id], status: "loading" },
       }));
-      const result = await fetchAndCache(book);
+      // Per-book refresh hits the canonical /availability endpoint so the
+      // numbers shown here aren't subject to Libby's CDN cache. Bulk and
+      // background refreshes stay search-embedded to keep request volume
+      // sane on a 100+ book library.
+      const result = await fetchAndCache(book, { liveAvailability: true });
       setAvailMap((prev) => ({ ...prev, [book.id]: result }));
     },
     [fetchAndCache],
@@ -93,6 +109,7 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
 
   useEffect(() => {
     refreshingRef.current = true;
+    let cancelled = false;
 
     const forceRefresh = refreshToken > 0;
 
@@ -132,7 +149,7 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
     let idx = 0;
 
     async function processNext(): Promise<void> {
-      while (idx < toFetch.length) {
+      while (idx < toFetch.length && !cancelled) {
         const current = idx++;
         const book = toFetch[current];
         setAvailMap((prev) => ({
@@ -140,7 +157,9 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
           [book.id]: { ...prev[book.id], status: "loading" },
         }));
         const result = await fetchAndCache(book);
-        setAvailMap((prev) => ({ ...prev, [book.id]: result }));
+        if (!cancelled) {
+          setAvailMap((prev) => ({ ...prev, [book.id]: result }));
+        }
       }
     }
 
@@ -150,6 +169,10 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
     void Promise.all(workers).then(() => {
       refreshingRef.current = false;
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [books, fetchAndCache, refreshToken]);
 
   // Background auto-refresh: check every 30 min for stale cached entries

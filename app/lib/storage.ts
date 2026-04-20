@@ -1,3 +1,5 @@
+import { dedupeBooks } from "./dedupe";
+
 const PREFIX = "shelfcheck:";
 
 export interface LibraryConfig {
@@ -16,6 +18,10 @@ export interface Book {
   source: "goodreads" | "hardcover" | "storygraph" | "bookhive" | "unknown";
   sourceUrl?: string;
   manual?: boolean;
+  /** Open Library Work ID (e.g. "OL45883W"); edition-independent. */
+  workId?: string;
+  /** Canonical title from Open Library, if different from the source title. */
+  canonicalTitle?: string;
 }
 
 function get<T>(key: string): T | null {
@@ -87,14 +93,57 @@ function setBooks(books: Book[]) {
   set("books", books);
 }
 
-/** Replace imported books while preserving manually-added ones */
-export function setImportedBooks(imported: Book[], clearManual = false) {
-  if (clearManual) {
-    set("books", imported);
-    return;
-  }
-  const manual = getBooks().filter((b) => b.manual);
-  set("books", [...imported, ...manual]);
+/**
+ * Source priority for de-dup tie-breaking. Lower number = higher priority.
+ * Bookhive wins because it's a live sync, so its `id` and metadata stay
+ * stable when CSV imports add the same work under a different source.
+ */
+const SOURCE_PRIORITY: Record<Book["source"], number> = {
+  bookhive: 0,
+  goodreads: 1,
+  hardcover: 1,
+  storygraph: 1,
+  unknown: 2,
+};
+
+/**
+ * Compute the new book list when importing `imported` from `source`,
+ * preserving books from other sources and (optionally) manual additions.
+ * Pure / no I/O so it can be unit-tested directly.
+ */
+export function mergeImportForSource(
+  existing: Book[],
+  imported: Book[],
+  source: Book["source"],
+  opts: { clearManual?: boolean } = {},
+): Book[] {
+  const kept = existing.filter((b) => {
+    if (b.manual) return !opts.clearManual;
+    return b.source !== source;
+  });
+
+  // Sort by source priority so dedupe's first-wins semantics let higher-
+  // priority sources keep their id and metadata. Sort is stable so books
+  // within the same priority keep their relative order.
+  const ordered = [...imported, ...kept].sort(
+    (a, b) => (SOURCE_PRIORITY[a.source] ?? 99) - (SOURCE_PRIORITY[b.source] ?? 99),
+  );
+
+  return dedupeBooks(ordered);
+}
+
+/**
+ * Replace the books from a single import source while preserving books from
+ * other sources and (optionally) manual additions. After merge the combined
+ * list is deduped by Open Library workId / fuzzy title+author key, with
+ * Bookhive entries winning on collisions so live-sync metadata persists.
+ */
+export function setImportedBooks(
+  imported: Book[],
+  source: Book["source"],
+  opts: { clearManual?: boolean } = {},
+) {
+  set("books", mergeImportForSource(getBooks(), imported, source, opts));
 }
 
 export function addBook(book: Omit<Book, "id" | "manual">) {

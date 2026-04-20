@@ -43,17 +43,32 @@ export interface AvailabilityInfo {
   estimatedWaitDays?: number;
 }
 
+// In-flight request deduplication: concurrent fetches for the same URL
+// share a single network request instead of firing duplicates.
+const inflight = new Map<string, Promise<unknown>>();
+
 async function thunderFetch(path: string) {
   const url = `${THUNDER_API_URL}${path}`;
-  const res = await fetch(url, {
-    headers: {
-      "x-client-id": "dewey",
-    },
+
+  const existing = inflight.get(url);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const res = await fetch(url, {
+      headers: {
+        "x-client-id": "dewey",
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`Libby API error: ${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  })().finally(() => {
+    inflight.delete(url);
   });
-  if (!res.ok) {
-    throw new Error(`Libby API error: ${res.status} ${res.statusText}`);
-  }
-  return res.json();
+
+  inflight.set(url, promise);
+  return promise;
 }
 
 export async function getLibraryPreferredKey(fulfillmentId: string): Promise<string> {
@@ -77,18 +92,6 @@ export async function searchLibrary(
   }
   const data = await thunderFetch(`/libraries/${libraryKey}/media?${params.toString()}`);
   return data.items ?? [];
-}
-
-async function getAvailability(libraryKey: string, titleId: string): Promise<AvailabilityInfo> {
-  const data = await thunderFetch(`/libraries/${libraryKey}/media/${titleId}/availability`);
-  return {
-    id: titleId,
-    copiesOwned: data.ownedCopies ?? 0,
-    copiesAvailable: data.availableCopies ?? 0,
-    numberOfHolds: data.holdsCount ?? 0,
-    isAvailable: data.isAvailable ?? (data.availableCopies ?? 0) > 0,
-    estimatedWaitDays: data.estimatedWaitDays,
-  };
 }
 
 // Large reference library used for deep search (scope-auto) when local search finds nothing
@@ -180,16 +183,15 @@ function similarityScore(a: string, b: string): number {
   return (2 * intersection.length) / (wordsA.length + wordsB.length);
 }
 
-// Check that the significant words in the search title appear in the result.
-// Returns false for series books that share only common words like "sea".
-function contentWordsMatch(searchTitle: string, resultTitle: string): boolean {
+// Check that every significant word in the search title appears in the
+// result title. Strict (all-must-match) so that titles which only share
+// the series stem — "Children of Time" vs "Children of Ruin" — don't get
+// accepted as the same book. Exported for tests.
+export function contentWordsMatch(searchTitle: string, resultTitle: string): boolean {
   const searchContent = contentWords(searchTitle);
-  const resultContent = contentWords(resultTitle);
   if (searchContent.length === 0) return true;
-
-  const matchCount = searchContent.filter((w) => resultContent.includes(w)).length;
-  // At least half of the content words from the search must appear in the result
-  return matchCount >= Math.ceil(searchContent.length / 2);
+  const resultContent = new Set(contentWords(resultTitle));
+  return searchContent.every((w) => resultContent.has(w));
 }
 
 export interface BookAvailabilityResult {
@@ -213,10 +215,79 @@ export interface BookAvailability {
   results: BookAvailabilityResult[];
 }
 
+// Pull availability from the LibbyMediaItem itself rather than calling the
+// dedicated /availability endpoint per item — the search response already
+// carries every field we need (copies, holds, isAvailable, ETA), and
+// skipping the second round-trip cuts request volume roughly in half.
+// Use `fetchLiveAvailability` for the canonical, non-cached numbers when a
+// user explicitly refreshes a single book.
+function availabilityFor(item: LibbyMediaItem): AvailabilityInfo {
+  return {
+    id: item.id,
+    copiesOwned: item.ownedCopies ?? 0,
+    copiesAvailable: item.availableCopies ?? 0,
+    numberOfHolds: item.holdsCount ?? 0,
+    isAvailable: item.isAvailable ?? (item.availableCopies ?? 0) > 0,
+    estimatedWaitDays: item.estimatedWaitDays,
+  };
+}
+
+/**
+ * Hit the canonical /availability endpoint for a single title. Slower than
+ * relying on search-embedded fields (which may be a few minutes more
+ * cached on Libby's CDN), so this is reserved for explicit per-book
+ * refreshes rather than the bulk first-load path.
+ */
+async function fetchLiveAvailability(
+  libraryKey: string,
+  titleId: string,
+): Promise<AvailabilityInfo> {
+  const data = await thunderFetch(`/libraries/${libraryKey}/media/${titleId}/availability`);
+  return {
+    id: titleId,
+    copiesOwned: data.ownedCopies ?? 0,
+    copiesAvailable: data.availableCopies ?? 0,
+    numberOfHolds: data.holdsCount ?? 0,
+    isAvailable: data.isAvailable ?? (data.availableCopies ?? 0) > 0,
+    estimatedWaitDays: data.estimatedWaitDays,
+  };
+}
+
+function buildResult(
+  libraryKey: string,
+  item: LibbyMediaItem,
+  avail: AvailabilityInfo,
+  matchScore: number,
+): BookAvailabilityResult {
+  return {
+    mediaItem: item,
+    availability: avail,
+    matchScore,
+    formatType: item.type?.id ?? "unknown",
+    libraryKey,
+  };
+}
+
 export async function findBookInLibrary(
   libraryKey: string,
   title: string,
   author: string,
+  options: {
+    primaryIsbn?: string;
+    /**
+     * Lazy resolver for alternate-edition ISBNs. Only invoked when the
+     * primary ISBN search misses, so books found on their primary ISBN
+     * never trigger an Open Library editions fetch.
+     */
+    getAlternateIsbns?: () => Promise<string[]>;
+    /**
+     * When true, hit the dedicated /availability endpoint for each match
+     * after the search-based pass — slower but returns canonical numbers
+     * not subject to Libby's CDN cache. Reserved for explicit per-book
+     * refreshes.
+     */
+    liveAvailability?: boolean;
+  } = {},
 ): Promise<BookAvailability> {
   const result: BookAvailability = {
     bookTitle: title,
@@ -224,60 +295,83 @@ export async function findBookInLibrary(
     results: [],
   };
 
-  const queries = [
-    `${author} ${title}`,
-    title.includes(":") ? `${author} ${title.split(":")[0].trim()}` : null,
-    title,
-  ].filter(Boolean) as string[];
-
   const seenIds = new Set<string>();
 
-  for (const query of queries) {
+  async function tryIsbn(isbn: string) {
     try {
-      const items = await searchLibrary(libraryKey, query);
-      for (const item of items.slice(0, 5)) {
+      const items = await searchLibrary(libraryKey, isbn);
+      for (const item of items.slice(0, 3)) {
         if (seenIds.has(item.id)) continue;
-
-        const titleScore = similarityScore(title, item.title);
-        const authorName = item.creators?.find((c) => c.role === "Author")?.name ?? "";
-        const authorScore = author ? similarityScore(author, authorName) : 0.5;
-
-        if (titleScore >= 0.4 && authorScore >= 0.3 && contentWordsMatch(title, item.title)) {
-          seenIds.add(item.id);
-          let avail: AvailabilityInfo;
-          try {
-            avail = await getAvailability(libraryKey, item.id);
-          } catch {
-            // Fallback for pre-release / notify-me titles where availability API fails
-            avail = {
-              id: item.id,
-              copiesOwned: item.ownedCopies ?? 0,
-              copiesAvailable: item.availableCopies ?? 0,
-              numberOfHolds: item.holdsCount ?? 0,
-              isAvailable: item.isAvailable ?? false,
-              estimatedWaitDays: item.estimatedWaitDays,
-            };
-          }
-          const formatType = item.type?.id ?? "unknown";
-          result.results.push({
-            mediaItem: item,
-            availability: avail,
-            matchScore: (titleScore + authorScore) / 2,
-            formatType,
-            libraryKey,
-          });
-        }
+        seenIds.add(item.id);
+        result.results.push(buildResult(libraryKey, item, availabilityFor(item), 1));
       }
     } catch {
-      // Continue to next query
+      // Continue to next ISBN
     }
-
-    if (result.results.length > 0) break;
   }
 
-  // Deep search fallback: when library search finds nothing, search a large
-  // reference library to find OverDrive title IDs, then fetch from user's library.
-  // This mirrors Libby's "scope-auto" behavior for notify-me / not-yet-owned titles.
+  // Phase 1a: primary ISBN — the most precise lookup, treated as a
+  // definitive match (no title/author similarity gate).
+  if (options.primaryIsbn) {
+    await tryIsbn(options.primaryIsbn);
+  }
+
+  // Phase 1b: alternate-edition ISBNs from Open Library. Resolved lazily
+  // so books found on their primary ISBN don't pay for the OL editions
+  // round-trip.
+  if (result.results.length === 0 && options.getAlternateIsbns) {
+    const MAX_ALT_TRIES = 5;
+    try {
+      const alts = await options.getAlternateIsbns();
+      for (const isbn of alts.slice(0, MAX_ALT_TRIES)) {
+        if (result.results.length > 0) break;
+        if (isbn === options.primaryIsbn) continue;
+        await tryIsbn(isbn);
+      }
+    } catch {
+      // Alt-ISBN resolution failed; fall through to text search.
+    }
+  }
+
+  // Phase 2: text search fallback. The contentWordsMatch gate now requires
+  // every search content word to be present in the result title, so series
+  // books like "Children of Ruin" no longer match "Children of Time".
+  if (result.results.length === 0) {
+    const queries = [
+      `${author} ${title}`,
+      title.includes(":") ? `${author} ${title.split(":")[0].trim()}` : null,
+      title,
+    ].filter(Boolean) as string[];
+
+    for (const query of queries) {
+      try {
+        const items = await searchLibrary(libraryKey, query);
+        for (const item of items.slice(0, 5)) {
+          if (seenIds.has(item.id)) continue;
+
+          const titleScore = similarityScore(title, item.title);
+          const authorName = item.creators?.find((c) => c.role === "Author")?.name ?? "";
+          const authorScore = author ? similarityScore(author, authorName) : 0.5;
+
+          if (titleScore >= 0.4 && authorScore >= 0.3 && contentWordsMatch(title, item.title)) {
+            seenIds.add(item.id);
+            result.results.push(
+              buildResult(libraryKey, item, availabilityFor(item), (titleScore + authorScore) / 2),
+            );
+          }
+        }
+      } catch {
+        // Continue to next query
+      }
+
+      if (result.results.length > 0) break;
+    }
+  }
+
+  // Phase 3: reference-library deep search — when the user's library has
+  // no hit at all, fall back to a large reference library to find a
+  // canonical OverDrive title id, then fetch the local copy from the
+  // user's library. Mirrors Libby's "scope-auto" notify-me behavior.
   if (result.results.length === 0 && libraryKey !== REFERENCE_LIBRARY) {
     try {
       const refItems = await searchLibrary(REFERENCE_LIBRARY, `${author} ${title}`);
@@ -290,36 +384,37 @@ export async function findBookInLibrary(
 
         if (titleScore >= 0.4 && authorScore >= 0.3 && contentWordsMatch(title, item.title)) {
           seenIds.add(item.id);
-          // Fetch the title from the user's library to get library-specific data
           const localItem = await getMediaItem(libraryKey, item.id);
           if (!localItem) continue;
-
-          let avail: AvailabilityInfo;
-          try {
-            avail = await getAvailability(libraryKey, localItem.id);
-          } catch {
-            avail = {
-              id: localItem.id,
-              copiesOwned: localItem.ownedCopies ?? 0,
-              copiesAvailable: localItem.availableCopies ?? 0,
-              numberOfHolds: localItem.holdsCount ?? 0,
-              isAvailable: localItem.isAvailable ?? false,
-              estimatedWaitDays: localItem.estimatedWaitDays,
-            };
-          }
-          const formatType = localItem.type?.id ?? "unknown";
-          result.results.push({
-            mediaItem: localItem,
-            availability: avail,
-            matchScore: (titleScore + authorScore) / 2,
-            formatType,
-            libraryKey,
-          });
+          result.results.push(
+            buildResult(
+              libraryKey,
+              localItem,
+              availabilityFor(localItem),
+              (titleScore + authorScore) / 2,
+            ),
+          );
         }
       }
     } catch {
       // Deep search failed, continue without results
     }
+  }
+
+  // Optional: replace search-embedded availability with canonical numbers
+  // from the /availability endpoint. Only requested for explicit per-book
+  // refreshes so we don't pay an extra round-trip for every match on the
+  // initial bulk load.
+  if (options.liveAvailability && result.results.length > 0) {
+    await Promise.all(
+      result.results.map(async (r) => {
+        try {
+          r.availability = await fetchLiveAvailability(r.libraryKey, r.mediaItem.id);
+        } catch {
+          // Keep the search-embedded availability if the canonical fetch fails.
+        }
+      }),
+    );
   }
 
   result.results.sort((a, b) => b.matchScore - a.matchScore);
