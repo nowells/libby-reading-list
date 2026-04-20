@@ -98,16 +98,28 @@ async function lookupIsbn(
  * Enrich a list of books by resolving their ISBNs to Open Library works.
  * Concurrent up to `concurrency` in-flight lookups. Books without an ISBN
  * (or that already have a workId) are passed through untouched.
+ *
+ * `onProgress` is fired once with `(0, total)` before any lookups, then
+ * after every completed lookup with the cumulative count, so UIs can
+ * render a progress meter without polling.
  */
 export async function enrichBooksWithWorkId(
   books: Book[],
-  opts: { concurrency?: number; signal?: AbortSignal } = {},
+  opts: {
+    concurrency?: number;
+    signal?: AbortSignal;
+    onProgress?: (done: number, total: number) => void;
+  } = {},
 ): Promise<Book[]> {
   const concurrency = opts.concurrency ?? 6;
   const out = books.slice();
   const pending = out.map((b, i) => ({ i, b })).filter(({ b }) => !b.workId && b.isbn13);
+  const total = pending.length;
+  opts.onProgress?.(0, total);
+  if (total === 0) return out;
 
   let cursor = 0;
+  let done = 0;
   async function worker() {
     while (cursor < pending.length) {
       const mine = pending[cursor++];
@@ -120,10 +132,12 @@ export async function enrichBooksWithWorkId(
           canonicalTitle: enrichment.canonicalTitle ?? mine.b.canonicalTitle,
         };
       }
+      done += 1;
+      opts.onProgress?.(done, total);
     }
   }
 
-  const workers = Array.from({ length: Math.min(concurrency, pending.length) }, worker);
+  const workers = Array.from({ length: Math.min(concurrency, total) }, worker);
   await Promise.all(workers);
   return out;
 }

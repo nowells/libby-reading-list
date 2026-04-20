@@ -102,6 +102,16 @@ export default function Setup() {
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // CSV import progress: null when idle, otherwise tracks the active phase
+  // and Open Library enrichment progress so the user sees movement instead
+  // of a frozen UI while N HTTP lookups complete.
+  const [csvImport, setCsvImport] = useState<{
+    phase: "reading" | "parsing" | "enriching" | "saving";
+    fileName?: string;
+    done: number;
+    total: number;
+  } | null>(null);
+
   // Bluesky / ATProto state
   const [bskySession, setBskySession] = useState<OAuthSession | null>(null);
   const [bskyInfo, setBskyInfo] = useState<AtprotoSessionInfo | null>(null);
@@ -164,60 +174,86 @@ export default function Setup() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setCsvImport({ phase: "reading", fileName: file.name, done: 0, total: 0 });
+
     const reader = new FileReader();
     reader.onload = async () => {
-      const text = reader.result as string;
-      const result = importBooks(text);
+      try {
+        setCsvImport({ phase: "parsing", fileName: file.name, done: 0, total: 0 });
+        const text = reader.result as string;
+        const result = importBooks(text);
 
-      if (result.error) {
-        setError(result.error);
-        posthog?.capture("csv_upload_failed", {
-          error: result.error,
-          format: result.format,
-          total_rows: result.totalRows,
+        if (result.error) {
+          setError(result.error);
+          posthog?.capture("csv_upload_failed", {
+            error: result.error,
+            format: result.format,
+            total_rows: result.totalRows,
+          });
+          return;
+        }
+
+        if (result.books.length === 0) {
+          const noWantToReadError = `No "want to read" books found in the CSV. Found ${result.totalRows} total rows.`;
+          setError(noWantToReadError);
+          posthog?.capture("csv_upload_failed", {
+            error: noWantToReadError,
+            format: result.format,
+            total_rows: result.totalRows,
+          });
+          return;
+        }
+
+        setCsvImport({
+          phase: "enriching",
+          fileName: file.name,
+          done: 0,
+          total: result.books.length,
         });
-        return;
-      }
-
-      if (result.books.length === 0) {
-        const noWantToReadError = `No "want to read" books found in the CSV. Found ${result.totalRows} total rows.`;
-        setError(noWantToReadError);
-        posthog?.capture("csv_upload_failed", {
-          error: noWantToReadError,
-          format: result.format,
-          total_rows: result.totalRows,
+        const enriched = await enrichBooksWithWorkId(result.books, {
+          onProgress: (done, total) =>
+            setCsvImport({ phase: "enriching", fileName: file.name, done, total }),
         });
-        return;
+
+        setCsvImport({
+          phase: "saving",
+          fileName: file.name,
+          done: result.books.length,
+          total: result.books.length,
+        });
+        // All books in a CSV batch share the same source (set by csv-parser);
+        // pass it explicitly so we only replace prior books from this source.
+        const csvSource = enriched[0]?.source ?? "unknown";
+        setImportedBooks(enriched, csvSource, { clearManual: clearManualOnImport });
+        setBooksState(getBooks());
+        posthog?.capture("csv_uploaded", {
+          format: result.format,
+          book_count: result.books.length,
+          total_rows: result.totalRows,
+          manual_cleared: clearManualOnImport,
+        });
+
+        const formatName =
+          result.format === "goodreads"
+            ? "Goodreads"
+            : result.format === "hardcover"
+              ? "Hardcover"
+              : result.format === "storygraph"
+                ? "The StoryGraph"
+                : "CSV";
+        const keptManual = clearManualOnImport ? 0 : manualBookCount;
+        setImportInfo(
+          `Imported ${result.books.length} want-to-read books from ${formatName} (${result.totalRows} total rows in file).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
+        );
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      } finally {
+        setCsvImport(null);
       }
-
-      const enriched = await enrichBooksWithWorkId(result.books);
-      // All books in a CSV batch share the same source (set by csv-parser);
-      // pass it explicitly so we only replace prior books from this source.
-      const csvSource = enriched[0]?.source ?? "unknown";
-      setImportedBooks(enriched, csvSource, { clearManual: clearManualOnImport });
-      setBooksState(getBooks());
-      posthog?.capture("csv_uploaded", {
-        format: result.format,
-        book_count: result.books.length,
-        total_rows: result.totalRows,
-        manual_cleared: clearManualOnImport,
-      });
-
-      const formatName =
-        result.format === "goodreads"
-          ? "Goodreads"
-          : result.format === "hardcover"
-            ? "Hardcover"
-            : result.format === "storygraph"
-              ? "The StoryGraph"
-              : "CSV";
-      const keptManual = clearManualOnImport ? 0 : manualBookCount;
-      setImportInfo(
-        `Imported ${result.books.length} want-to-read books from ${formatName} (${result.totalRows} total rows in file).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
-      );
-      if (fileInputRef.current) fileInputRef.current.value = "";
     };
-    reader.onerror = () => setError("Failed to read file.");
+    reader.onerror = () => {
+      setError("Failed to read file.");
+      setCsvImport(null);
+    };
     reader.readAsText(file);
   }
 
@@ -740,6 +776,7 @@ export default function Setup() {
                   type="file"
                   accept=".csv,text/csv"
                   onChange={handleFileUpload}
+                  disabled={csvImport !== null}
                   className="block w-full text-sm text-gray-500 dark:text-gray-400
                   file:mr-4 file:py-2 file:px-4
                   file:rounded-lg file:border-0
@@ -748,8 +785,49 @@ export default function Setup() {
                   hover:file:bg-amber-200
                   dark:file:bg-amber-900/40 dark:file:text-amber-300
                   dark:hover:file:bg-amber-900/60
-                  cursor-pointer"
+                  cursor-pointer disabled:opacity-60 disabled:cursor-wait"
                 />
+                {csvImport && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+                      <svg
+                        className="w-3.5 h-3.5 animate-spin flex-shrink-0"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      <span className="min-w-0 truncate">
+                        {csvImport.phase === "reading" && (
+                          <>Reading{csvImport.fileName ? ` ${csvImport.fileName}` : "..."}</>
+                        )}
+                        {csvImport.phase === "parsing" && <>Parsing CSV...</>}
+                        {csvImport.phase === "enriching" && (
+                          <>
+                            Looking up books on Open Library… {csvImport.done}/{csvImport.total}
+                          </>
+                        )}
+                        {csvImport.phase === "saving" && <>Saving...</>}
+                      </span>
+                    </div>
+                    {csvImport.phase === "enriching" && csvImport.total > 0 && (
+                      <div className="w-full h-1 bg-amber-100 dark:bg-amber-900/40 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-500 dark:bg-amber-400 transition-all duration-200"
+                          style={{
+                            width: `${Math.round((csvImport.done / csvImport.total) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
                 {manualBookCount > 0 && (
                   <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                     <input
