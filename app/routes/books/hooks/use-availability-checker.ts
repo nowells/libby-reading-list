@@ -21,17 +21,21 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
   const fetchAndCache = useCallback(
     async (book: Book): Promise<BookAvailState> => {
       try {
-        // Resolve alternate ISBNs for the work, so that if text-based Libby
-        // search misses we can retry by each edition's ISBN. Only pay for
-        // this when the book is actually linked to an Open Library work.
-        const alternateIsbns = book.workId
-          ? (await getWorkEditionIsbns(book.workId)).filter((i) => i !== book.isbn13)
-          : [];
+        // Build the ISBN list Libby search will try first: the book's own
+        // ISBN, then every other edition ISBN we can resolve via Open
+        // Library's work. ISBN matches are definitive so Libby never
+        // false-matches a sibling-series book like "Children of Ruin"
+        // when we're looking for "Children of Time".
+        const editionIsbns = book.workId ? await getWorkEditionIsbns(book.workId) : [];
+        const isbnSet = new Set<string>();
+        if (book.isbn13) isbnSet.add(book.isbn13);
+        for (const isbn of editionIsbns) isbnSet.add(isbn);
+        const isbns = [...isbnSet];
 
         // Search across all libraries and merge results
         const allResults = await Promise.all(
           libraries.map((lib) =>
-            findBookInLibrary(lib.key, book.title, book.author, { alternateIsbns }).catch(
+            findBookInLibrary(lib.key, book.title, book.author, { isbns }).catch(
               () =>
                 ({
                   bookTitle: book.title,
