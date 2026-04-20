@@ -159,7 +159,10 @@ export default function Setup() {
       }
 
       const enriched = await enrichBooksWithWorkId(result.books);
-      setImportedBooks(enriched, clearManualOnImport);
+      // All books in a CSV batch share the same source (set by csv-parser);
+      // pass it explicitly so we only replace prior books from this source.
+      const csvSource = enriched[0]?.source ?? "unknown";
+      setImportedBooks(enriched, csvSource, { clearManual: clearManualOnImport });
       setBooksState(getBooks());
       posthog?.capture("csv_uploaded", {
         format: result.format,

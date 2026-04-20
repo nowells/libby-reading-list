@@ -146,7 +146,7 @@ export async function syncBookhive(
   const enriched = await enrichBooksWithWorkId(books);
   setBookhiveLastSync(new Date().toISOString());
   if (enriched.length > 0) {
-    setImportedBooks(enriched, opts.clearManual ?? false);
+    setImportedBooks(enriched, "bookhive", { clearManual: opts.clearManual });
   }
   return enriched;
 }
