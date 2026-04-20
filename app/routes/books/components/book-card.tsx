@@ -10,11 +10,10 @@ import {
 } from "../lib/categorize";
 import { timeAgo, libbyTitleUrl, formatAudiobookDuration } from "../lib/utils";
 
-function SourceLinks({ book }: { book: Book }) {
-  if (book.manual) return null;
-  const linkClass =
-    "inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors";
+const EXTERNAL_LINK_CLASS =
+  "inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors";
 
+function PrimarySourceLink({ book }: { book: Book }) {
   if (book.source === "storygraph") {
     return (
       <a
@@ -24,7 +23,7 @@ function SourceLinks({ book }: { book: Book }) {
         }
         target="_blank"
         rel="noopener noreferrer"
-        className={linkClass}
+        className={EXTERNAL_LINK_CLASS}
         title="View on The StoryGraph"
       >
         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
@@ -44,7 +43,7 @@ function SourceLinks({ book }: { book: Book }) {
         }
         target="_blank"
         rel="noopener noreferrer"
-        className={linkClass}
+        className={EXTERNAL_LINK_CLASS}
         title="View on Bookhive"
       >
         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
@@ -65,7 +64,7 @@ function SourceLinks({ book }: { book: Book }) {
           }
           target="_blank"
           rel="noopener noreferrer"
-          className={linkClass}
+          className={EXTERNAL_LINK_CLASS}
           title="View on Goodreads"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
@@ -81,13 +80,36 @@ function SourceLinks({ book }: { book: Book }) {
           }
           target="_blank"
           rel="noopener noreferrer"
-          className={linkClass}
+          className={EXTERNAL_LINK_CLASS}
           title="View on Hardcover"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
             <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H6zm1 2h10v7l-3-2-3 2V4H7z" />
           </svg>
           Hardcover
+        </a>
+      )}
+    </>
+  );
+}
+
+function SourceLinks({ book }: { book: Book }) {
+  if (book.manual) return null;
+  return (
+    <>
+      <PrimarySourceLink book={book} />
+      {book.workId && (
+        <a
+          href={`https://openlibrary.org/works/${book.workId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={EXTERNAL_LINK_CLASS}
+          title="View on Open Library"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M4 4h6a3 3 0 013 3v13a2 2 0 00-2-2H4V4zm16 0h-6a3 3 0 00-3 3v13a2 2 0 012-2h7V4z" />
+          </svg>
+          Open Library
         </a>
       )}
     </>

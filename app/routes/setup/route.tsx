@@ -1,6 +1,6 @@
 import { usePostHog } from "@posthog/react";
 import { Link } from "react-router";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { importBooks } from "~/lib/csv-parser";
 import { enrichBooksWithWorkId } from "~/lib/openlibrary";
 import { Logo } from "~/components/logo";
@@ -37,6 +37,37 @@ import {
   type HandleSuggestion,
 } from "~/lib/atproto";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
+
+const SOURCE_LABELS: Record<string, string> = {
+  bookhive: "Bookhive",
+  goodreads: "Goodreads",
+  hardcover: "Hardcover",
+  storygraph: "The StoryGraph",
+  unknown: "CSV",
+  manual: "manual",
+};
+
+// Display order for the per-source breakdown: live-sync first, then CSV
+// sources alphabetically, then unknown CSVs, then manual additions.
+const SOURCE_DISPLAY_ORDER = [
+  "bookhive",
+  "goodreads",
+  "hardcover",
+  "storygraph",
+  "unknown",
+  "manual",
+];
+
+function summarizeSources(books: Book[]): string[] {
+  const counts = new Map<string, number>();
+  for (const b of books) {
+    const key = b.manual ? "manual" : b.source;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return SOURCE_DISPLAY_ORDER.filter((k) => counts.has(k)).map(
+    (k) => `${counts.get(k)} ${SOURCE_LABELS[k]}`,
+  );
+}
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
@@ -125,6 +156,7 @@ export default function Setup() {
   const libraryDone = libraries.length > 0;
   const allDone = booksDone && libraryDone;
   const step1Collapsed = booksDone && !step1ForceOpen;
+  const sourceBreakdown = useMemo(() => summarizeSources(books), [books]);
 
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     setError(null);
@@ -429,26 +461,12 @@ export default function Setup() {
             <div className="flex items-center justify-between gap-3 mb-4">
               <p className="text-green-600 dark:text-green-400 min-w-0 truncate">
                 {books.length} books loaded
-                {manualBookCount > 0 && (
+                {sourceBreakdown.length > 0 && (
                   <span className="text-gray-500 dark:text-gray-400">
-                    {" "}
-                    ({manualBookCount} manual)
+                    {" \u2014 "}
+                    {sourceBreakdown.join(" \u00b7 ")}
                   </span>
                 )}
-                {books.find((b) => !b.manual)?.source &&
-                  books.find((b) => !b.manual)!.source !== "unknown" && (
-                    <span className="text-gray-500 dark:text-gray-400">
-                      {" "}
-                      from{" "}
-                      {(() => {
-                        const src = books.find((b) => !b.manual)!.source;
-                        if (src === "goodreads") return "Goodreads";
-                        if (src === "hardcover") return "Hardcover";
-                        if (src === "storygraph") return "The StoryGraph";
-                        return "Bookhive";
-                      })()}
-                    </span>
-                  )}
               </p>
               <div className="flex items-center gap-3 flex-shrink-0">
                 <button
