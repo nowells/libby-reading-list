@@ -19,7 +19,7 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
   const loadingCount = Object.values(availMap).filter((s) => s.status === "loading").length;
 
   const fetchAndCache = useCallback(
-    async (book: Book): Promise<BookAvailState> => {
+    async (book: Book, opts: { liveAvailability?: boolean } = {}): Promise<BookAvailState> => {
       try {
         // The primary ISBN is tried first; alternate-edition ISBNs from
         // Open Library are resolved lazily and only fetched when the
@@ -34,6 +34,7 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
             findBookInLibrary(lib.key, book.title, book.author, {
               primaryIsbn: book.isbn13,
               getAlternateIsbns,
+              liveAvailability: opts.liveAvailability,
             }).catch(
               () =>
                 ({
@@ -91,7 +92,11 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
         ...prev,
         [book.id]: { ...prev[book.id], status: "loading" },
       }));
-      const result = await fetchAndCache(book);
+      // Per-book refresh hits the canonical /availability endpoint so the
+      // numbers shown here aren't subject to Libby's CDN cache. Bulk and
+      // background refreshes stay search-embedded to keep request volume
+      // sane on a 100+ book library.
+      const result = await fetchAndCache(book, { liveAvailability: true });
       setAvailMap((prev) => ({ ...prev, [book.id]: result }));
     },
     [fetchAndCache],

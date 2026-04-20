@@ -204,6 +204,8 @@ export interface BookAvailability {
 // dedicated /availability endpoint per item — the search response already
 // carries every field we need (copies, holds, isAvailable, ETA), and
 // skipping the second round-trip cuts request volume roughly in half.
+// Use `fetchLiveAvailability` for the canonical, non-cached numbers when a
+// user explicitly refreshes a single book.
 function availabilityFor(item: LibbyMediaItem): AvailabilityInfo {
   return {
     id: item.id,
@@ -212,6 +214,27 @@ function availabilityFor(item: LibbyMediaItem): AvailabilityInfo {
     numberOfHolds: item.holdsCount ?? 0,
     isAvailable: item.isAvailable ?? (item.availableCopies ?? 0) > 0,
     estimatedWaitDays: item.estimatedWaitDays,
+  };
+}
+
+/**
+ * Hit the canonical /availability endpoint for a single title. Slower than
+ * relying on search-embedded fields (which may be a few minutes more
+ * cached on Libby's CDN), so this is reserved for explicit per-book
+ * refreshes rather than the bulk first-load path.
+ */
+async function fetchLiveAvailability(
+  libraryKey: string,
+  titleId: string,
+): Promise<AvailabilityInfo> {
+  const data = await thunderFetch(`/libraries/${libraryKey}/media/${titleId}/availability`);
+  return {
+    id: titleId,
+    copiesOwned: data.ownedCopies ?? 0,
+    copiesAvailable: data.availableCopies ?? 0,
+    numberOfHolds: data.holdsCount ?? 0,
+    isAvailable: data.isAvailable ?? (data.availableCopies ?? 0) > 0,
+    estimatedWaitDays: data.estimatedWaitDays,
   };
 }
 
@@ -242,6 +265,13 @@ export async function findBookInLibrary(
      * never trigger an Open Library editions fetch.
      */
     getAlternateIsbns?: () => Promise<string[]>;
+    /**
+     * When true, hit the dedicated /availability endpoint for each match
+     * after the search-based pass — slower but returns canonical numbers
+     * not subject to Libby's CDN cache. Reserved for explicit per-book
+     * refreshes.
+     */
+    liveAvailability?: boolean;
   } = {},
 ): Promise<BookAvailability> {
   const result: BookAvailability = {
@@ -354,6 +384,22 @@ export async function findBookInLibrary(
     } catch {
       // Deep search failed, continue without results
     }
+  }
+
+  // Optional: replace search-embedded availability with canonical numbers
+  // from the /availability endpoint. Only requested for explicit per-book
+  // refreshes so we don't pay an extra round-trip for every match on the
+  // initial bulk load.
+  if (options.liveAvailability && result.results.length > 0) {
+    await Promise.all(
+      result.results.map(async (r) => {
+        try {
+          r.availability = await fetchLiveAvailability(r.libraryKey, r.mediaItem.id);
+        } catch {
+          // Keep the search-embedded availability if the canonical fetch fails.
+        }
+      }),
+    );
   }
 
   result.results.sort((a, b) => b.matchScore - a.matchScore);
