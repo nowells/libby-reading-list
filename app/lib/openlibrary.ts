@@ -2,6 +2,9 @@ import type { Book } from "./storage";
 
 const BASE = "https://openlibrary.org";
 const CACHE_PREFIX = "shelfcheck:ol-isbn:";
+
+// In-flight request deduplication for OpenLibrary fetches.
+const olInflight = new Map<string, Promise<unknown>>();
 /** Cache successful lookups for 30 days; negative cache for 7 days. */
 const POSITIVE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const NEGATIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -75,23 +78,34 @@ async function lookupIsbn(
   const cached = readCache(clean);
   if (cached !== undefined) return cached;
 
-  try {
-    const res = await fetch(`${BASE}/isbn/${clean}.json`, {
-      signal,
-      headers: { Accept: "application/json" },
-    });
-    if (res.status === 404) {
-      writeCache(clean, null);
+  const cacheKey = `isbn:${clean}`;
+  const existing = olInflight.get(cacheKey);
+  if (existing) return existing as Promise<OpenLibraryEnrichment | null>;
+
+  const promise = (async () => {
+    try {
+      const res = await fetch(`${BASE}/isbn/${clean}.json`, {
+        signal,
+        headers: { Accept: "application/json" },
+      });
+      if (res.status === 404) {
+        writeCache(clean, null);
+        return null;
+      }
+      if (!res.ok) return null;
+      const json: unknown = await res.json();
+      const parsed = parseEdition(json);
+      writeCache(clean, parsed);
+      return parsed;
+    } catch {
       return null;
     }
-    if (!res.ok) return null;
-    const json: unknown = await res.json();
-    const parsed = parseEdition(json);
-    writeCache(clean, parsed);
-    return parsed;
-  } catch {
-    return null;
-  }
+  })().finally(() => {
+    olInflight.delete(cacheKey);
+  });
+
+  olInflight.set(cacheKey, promise);
+  return promise;
 }
 
 /**
@@ -215,22 +229,33 @@ export async function getWorkEditionIsbns(workId: string, signal?: AbortSignal):
     // ignore cache read errors
   }
 
-  try {
-    const res = await fetch(`${BASE}/works/${workId}/editions.json?limit=500`, {
-      signal,
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) return [];
-    const json: unknown = await res.json();
-    const isbns = parseWorkEditions(json);
+  const cacheKey = `editions:${workId}`;
+  const existing = olInflight.get(cacheKey);
+  if (existing) return existing as Promise<string[]>;
+
+  const promise = (async () => {
     try {
-      const entry: EditionsCacheEntry = { v: isbns, t: Date.now() + POSITIVE_TTL_MS };
-      localStorage.setItem(EDITIONS_CACHE_PREFIX + workId, JSON.stringify(entry));
+      const res = await fetch(`${BASE}/works/${workId}/editions.json?limit=500`, {
+        signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return [];
+      const json: unknown = await res.json();
+      const isbns = parseWorkEditions(json);
+      try {
+        const entry: EditionsCacheEntry = { v: isbns, t: Date.now() + POSITIVE_TTL_MS };
+        localStorage.setItem(EDITIONS_CACHE_PREFIX + workId, JSON.stringify(entry));
+      } catch {
+        // ignore cache write errors
+      }
+      return isbns;
     } catch {
-      // ignore cache write errors
+      return [];
     }
-    return isbns;
-  } catch {
-    return [];
-  }
+  })().finally(() => {
+    olInflight.delete(cacheKey);
+  });
+
+  olInflight.set(cacheKey, promise);
+  return promise;
 }

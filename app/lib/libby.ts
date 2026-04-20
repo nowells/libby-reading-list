@@ -43,17 +43,32 @@ export interface AvailabilityInfo {
   estimatedWaitDays?: number;
 }
 
+// In-flight request deduplication: concurrent fetches for the same URL
+// share a single network request instead of firing duplicates.
+const inflight = new Map<string, Promise<unknown>>();
+
 async function thunderFetch(path: string) {
   const url = `${THUNDER_API_URL}${path}`;
-  const res = await fetch(url, {
-    headers: {
-      "x-client-id": "dewey",
-    },
+
+  const existing = inflight.get(url);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const res = await fetch(url, {
+      headers: {
+        "x-client-id": "dewey",
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`Libby API error: ${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  })().finally(() => {
+    inflight.delete(url);
   });
-  if (!res.ok) {
-    throw new Error(`Libby API error: ${res.status} ${res.statusText}`);
-  }
-  return res.json();
+
+  inflight.set(url, promise);
+  return promise;
 }
 
 export async function getLibraryPreferredKey(fulfillmentId: string): Promise<string> {

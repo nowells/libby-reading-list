@@ -109,6 +109,7 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
 
   useEffect(() => {
     refreshingRef.current = true;
+    let cancelled = false;
 
     const forceRefresh = refreshToken > 0;
 
@@ -148,7 +149,7 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
     let idx = 0;
 
     async function processNext(): Promise<void> {
-      while (idx < toFetch.length) {
+      while (idx < toFetch.length && !cancelled) {
         const current = idx++;
         const book = toFetch[current];
         setAvailMap((prev) => ({
@@ -156,7 +157,9 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
           [book.id]: { ...prev[book.id], status: "loading" },
         }));
         const result = await fetchAndCache(book);
-        setAvailMap((prev) => ({ ...prev, [book.id]: result }));
+        if (!cancelled) {
+          setAvailMap((prev) => ({ ...prev, [book.id]: result }));
+        }
       }
     }
 
@@ -166,6 +169,10 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
     void Promise.all(workers).then(() => {
       refreshingRef.current = false;
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [books, fetchAndCache, refreshToken]);
 
   // Background auto-refresh: check every 30 min for stale cached entries
