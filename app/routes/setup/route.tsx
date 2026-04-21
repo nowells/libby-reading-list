@@ -16,6 +16,8 @@ import {
   clearAll,
   getBookhiveLastSync,
   clearBookhiveLastSync,
+  addAuthor,
+  getAuthors,
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
@@ -226,9 +228,18 @@ export default function Setup() {
         const csvSource = enriched[0]?.source ?? "unknown";
         setImportedBooks(enriched, csvSource, { clearManual: clearManualOnImport });
         setBooksState(getBooks());
+
+        // Save authors extracted from Lyndi-format CSVs
+        if (result.authors.length > 0) {
+          for (const author of result.authors) {
+            addAuthor({ name: author.name, olKey: author.olKey });
+          }
+        }
+
         posthog?.capture("csv_uploaded", {
           format: result.format,
           book_count: result.books.length,
+          author_count: result.authors.length,
           total_rows: result.totalRows,
           manual_cleared: clearManualOnImport,
         });
@@ -240,10 +251,14 @@ export default function Setup() {
               ? "Hardcover"
               : result.format === "storygraph"
                 ? "The StoryGraph"
-                : "CSV";
+                : result.format === "lyndi"
+                  ? "Lyndi"
+                  : "CSV";
         const keptManual = clearManualOnImport ? 0 : manualBookCount;
+        const authorInfo =
+          result.authors.length > 0 ? ` Also added ${result.authors.length} author${result.authors.length === 1 ? "" : "s"} to follow.` : "";
         setImportInfo(
-          `Imported ${result.books.length} want-to-read books from ${formatName} (${result.totalRows} total rows in file).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
+          `Imported ${result.books.length} want-to-read books from ${formatName} (${result.totalRows} total rows in file).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}${authorInfo}`,
         );
         if (fileInputRef.current) fileInputRef.current.value = "";
       } finally {

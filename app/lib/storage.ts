@@ -9,6 +9,14 @@ export interface LibraryConfig {
   logoUrl?: string;
 }
 
+export interface AuthorEntry {
+  id: string;
+  name: string;
+  /** Open Library author key (e.g. "OL23919A"). */
+  olKey?: string;
+  imageUrl?: string;
+}
+
 export interface Book {
   id: string;
   title: string;
@@ -176,9 +184,41 @@ export function clearBookhiveLastSync() {
   remove("bookhive-last-sync");
 }
 
+// --- Authors ---
+
+export function getAuthors(): AuthorEntry[] {
+  return get<AuthorEntry[]>("authors") ?? [];
+}
+
+export function setAuthors(authors: AuthorEntry[]) {
+  set("authors", authors);
+}
+
+export function addAuthor(author: Omit<AuthorEntry, "id">) {
+  const authors = getAuthors();
+  // Dedupe by name (case-insensitive)
+  if (authors.some((a) => a.name.toLowerCase() === author.name.toLowerCase())) return;
+  const id = `author-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  authors.push({ ...author, id });
+  set("authors", authors);
+}
+
+export function removeAuthor(id: string) {
+  set(
+    "authors",
+    getAuthors().filter((a) => a.id !== id),
+  );
+}
+
+export function clearAuthors() {
+  remove("authors");
+}
+
 export function clearAll() {
   clearLibraries();
   clearBooks();
+  clearAuthors();
   clearBookhiveLastSync();
   remove("availability");
+  remove("author-availability");
 }
