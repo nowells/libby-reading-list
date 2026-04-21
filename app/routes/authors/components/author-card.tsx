@@ -4,10 +4,7 @@ import { FormatIcon } from "~/components/format-icon";
 import { LibraryIcon, LibraryName } from "~/components/library-icon";
 import { EtaBadge } from "~/routes/books/components/eta-badge";
 import { libbyTitleUrl } from "~/routes/books/lib/utils";
-import type {
-  AuthorAvailState,
-  AuthorBookResult,
-} from "../hooks/use-author-availability";
+import type { AuthorAvailState, AuthorBookResult } from "../hooks/use-author-availability";
 
 function WorkRow({
   work,
@@ -193,9 +190,7 @@ export function categorizeWork(
       : w.libbyResults.filter((r) => r.formatType === formatFilter);
   if (results.length === 0) return "not_found";
   if (results.some((r) => r.availability.isAvailable)) return "available";
-  const bestEta = Math.min(
-    ...results.map((r) => r.availability.estimatedWaitDays ?? Infinity),
-  );
+  const bestEta = Math.min(...results.map((r) => r.availability.estimatedWaitDays ?? Infinity));
   if (bestEta <= 14) return "soon";
   return "waiting";
 }
@@ -207,15 +202,20 @@ function bestEtaDays(w: AuthorBookResult, ff: AuthorFormatFilter): number {
   const results = ff === "all" ? w.libbyResults : w.libbyResults.filter((r) => r.formatType === ff);
   if (results.length === 0) return Infinity;
   return Math.min(
-    ...results.map((r) => (r.availability.isAvailable ? 0 : (r.availability.estimatedWaitDays ?? Infinity))),
+    ...results.map((r) =>
+      r.availability.isAvailable ? 0 : (r.availability.estimatedWaitDays ?? Infinity),
+    ),
   );
 }
+
+export type AuthorCategoryFilter = "available" | "soon" | "waiting" | "not_found" | null;
 
 export function AuthorCard({
   author,
   state,
   libraries,
   formatFilter = "all",
+  categoryFilter = null,
   onRefresh,
   onRemove,
 }: {
@@ -223,6 +223,7 @@ export function AuthorCard({
   state: AuthorAvailState;
   libraries: LibraryConfig[];
   formatFilter?: AuthorFormatFilter;
+  categoryFilter?: AuthorCategoryFilter;
   onRefresh: () => void;
   onRemove: () => void;
 }) {
@@ -231,8 +232,13 @@ export function AuthorCard({
   const multiLibrary = libraries.length > 1;
 
   // Sort works by availability category, then ETA within category, then title
+  // When a category filter is active, only show matching works
   const sortedWorks = useMemo(() => {
-    return [...state.works].sort((a, b) => {
+    let works = [...state.works];
+    if (categoryFilter) {
+      works = works.filter((w) => categorizeWork(w, formatFilter) === categoryFilter);
+    }
+    return works.sort((a, b) => {
       const catDiff =
         CATEGORY_ORDER[categorizeWork(a, formatFilter)] -
         CATEGORY_ORDER[categorizeWork(b, formatFilter)];
@@ -242,15 +248,15 @@ export function AuthorCard({
       if (etaDiff !== 0) return etaDiff;
       return a.title.localeCompare(b.title);
     });
-  }, [state.works, formatFilter]);
+  }, [state.works, formatFilter, categoryFilter]);
 
-  const availableCount = sortedWorks.filter(
-    (w) => categorizeWork(w, formatFilter) === "available",
-  ).length;
-  const inLibraryCount = sortedWorks.filter(
-    (w) => categorizeWork(w, formatFilter) !== "not_found",
-  ).length;
-  const totalWorks = sortedWorks.length;
+  const availableCount = categoryFilter
+    ? sortedWorks.length
+    : sortedWorks.filter((w) => categorizeWork(w, formatFilter) === "available").length;
+  const inLibraryCount = categoryFilter
+    ? sortedWorks.length
+    : sortedWorks.filter((w) => categorizeWork(w, formatFilter) !== "not_found").length;
+  const totalWorks = categoryFilter ? sortedWorks.length : state.works.length;
 
   const MAX_VISIBLE = 10;
   const visibleWorks = showAll ? sortedWorks : sortedWorks.slice(0, MAX_VISIBLE);
@@ -291,7 +297,8 @@ export function AuthorCard({
               {totalWorks} works &middot; {inLibraryCount} in library
               {availableCount > 0 && (
                 <span className="text-green-600 dark:text-green-400">
-                  {" "}&middot; {availableCount} available now
+                  {" "}
+                  &middot; {availableCount} available now
                 </span>
               )}
             </p>
@@ -302,14 +309,10 @@ export function AuthorCard({
             </p>
           )}
           {state.status === "loading-works" && !state.progress && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Loading works...
-            </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Loading works...</p>
           )}
           {state.status === "error" && (
-            <p className="text-sm text-red-500 dark:text-red-400">
-              {state.error}
-            </p>
+            <p className="text-sm text-red-500 dark:text-red-400">{state.error}</p>
           )}
         </div>
 
@@ -363,9 +366,7 @@ export function AuthorCard({
               onClick={() => setShowAll((s) => !s)}
               className="w-full text-center py-2 border-t border-gray-100 dark:border-gray-700/50 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
             >
-              {showAll
-                ? "Show less"
-                : `Show ${sortedWorks.length - MAX_VISIBLE} more works`}
+              {showAll ? "Show less" : `Show ${sortedWorks.length - MAX_VISIBLE} more works`}
             </button>
           )}
         </>

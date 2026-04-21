@@ -101,9 +101,7 @@ export async function getAuthorWorks(
         firstPublishYear: entry.first_publish_date
           ? parseInt(entry.first_publish_date, 10) || undefined
           : undefined,
-        coverEditionKey: entry.covers?.[0]
-          ? undefined
-          : undefined,
+        coverEditionKey: entry.covers?.[0] ? undefined : undefined,
         coverId: Array.isArray(entry.covers) ? entry.covers[0] : undefined,
         key: entry.key,
       });

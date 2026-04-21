@@ -134,8 +134,7 @@ function SkippedRowsPanel({
           />
         </svg>
         <h3 className="font-semibold text-sm text-yellow-800 dark:text-yellow-200">
-          {skippedRows.length} row{skippedRows.length === 1 ? "" : "s"} could not be
-          auto-imported
+          {skippedRows.length} row{skippedRows.length === 1 ? "" : "s"} could not be auto-imported
         </h3>
       </div>
       <p className="text-xs text-yellow-700/80 dark:text-yellow-300/70 mb-3">
@@ -153,9 +152,7 @@ function SkippedRowsPanel({
                   {row.author}
                 </span>
                 {row.note && (
-                  <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
-                    {row.note}
-                  </span>
+                  <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">{row.note}</span>
                 )}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -179,11 +176,7 @@ function SkippedRowsPanel({
                     stroke="currentColor"
                     strokeWidth={2}
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               </div>
@@ -402,9 +395,13 @@ export default function Setup() {
                   : "CSV";
         const keptManual = clearManualOnImport ? 0 : manualBookCount;
         const authorInfo =
-          result.authors.length > 0 ? ` Also added ${result.authors.length} author${result.authors.length === 1 ? "" : "s"} to follow.` : "";
+          result.authors.length > 0
+            ? ` Also added ${result.authors.length} author${result.authors.length === 1 ? "" : "s"} to follow.`
+            : "";
         const skippedInfo =
-          result.skipped.length > 0 ? ` ${result.skipped.length} row${result.skipped.length === 1 ? "" : "s"} could not be imported (see below).` : "";
+          result.skipped.length > 0
+            ? ` ${result.skipped.length} row${result.skipped.length === 1 ? "" : "s"} could not be imported (see below).`
+            : "";
         setImportInfo(
           `Imported ${result.books.length} books from ${formatName} (${result.totalRows} total rows in file).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}${authorInfo}${skippedInfo}`,
         );
@@ -867,8 +864,8 @@ export default function Setup() {
                   </h3>
                 </div>
                 <p className="text-xs text-amber-800/80 dark:text-amber-200/70">
-                  Export your reading list from Goodreads, Hardcover, The StoryGraph, or use
-                  a simple Lyndi CSV. One-time import — re-upload to refresh.
+                  Export your reading list from Goodreads, Hardcover, The StoryGraph, or use a
+                  simple Lyndi CSV. One-time import — re-upload to refresh.
                 </p>
                 {!booksDone && (
                   <div className="space-y-1">
@@ -938,9 +935,9 @@ export default function Setup() {
                       </summary>
                       <div className="mt-2 space-y-2 pl-2">
                         <p>
-                          Create a CSV file with <strong>Title</strong> and{" "}
-                          <strong>Author</strong> columns. Extra rows at the top (like a
-                          heading) are fine — we'll auto-detect the header row.
+                          Create a CSV file with <strong>Title</strong> and <strong>Author</strong>{" "}
+                          columns. Extra rows at the top (like a heading) are fine — we'll
+                          auto-detect the header row.
                         </p>
                         <div className="bg-gray-100 dark:bg-gray-700 rounded p-2 font-mono text-[11px] leading-relaxed">
                           Books to Read
@@ -955,8 +952,8 @@ export default function Setup() {
                         </div>
                         <ul className="list-disc list-inside space-y-1">
                           <li>
-                            Rows with both <strong>Title</strong> and <strong>Author</strong>{" "}
-                            are imported as books
+                            Rows with both <strong>Title</strong> and <strong>Author</strong> are
+                            imported as books
                           </li>
                           <li>
                             Rows with only an <strong>Author</strong> (no title) are added as
@@ -1248,9 +1245,7 @@ export default function Setup() {
             skippedRows={skippedRows}
             libraries={libraries}
             onBookAdded={() => setBooksState(getBooks())}
-            onDismiss={(idx) =>
-              setSkippedRows((prev) => prev.filter((_, i) => i !== idx))
-            }
+            onDismiss={(idx) => setSkippedRows((prev) => prev.filter((_, i) => i !== idx))}
           />
         )}
       </div>

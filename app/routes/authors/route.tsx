@@ -15,6 +15,7 @@ import {
   AuthorCard,
   categorizeWork,
   type AuthorFormatFilter,
+  type AuthorCategoryFilter,
 } from "./components/author-card";
 import { SummaryStats } from "~/routes/books/components/summary-stats";
 import { FormatFilterBar } from "~/routes/books/components/format-filter-bar";
@@ -35,11 +36,7 @@ export function clientLoader() {
 }
 
 /** Simple fuzzy match for author name / work title */
-function authorMatchesSearch(
-  query: string,
-  authorName: string,
-  workTitles: string[],
-): boolean {
+function authorMatchesSearch(query: string, authorName: string, workTitles: string[]): boolean {
   if (!query.trim()) return true;
   const q = query.toLowerCase();
   if (authorName.toLowerCase().includes(q)) return true;
@@ -59,14 +56,8 @@ export default function Authors() {
   const [formatFilter, setFormatFilter] = useState<FormatFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const {
-    stateMap,
-    refreshAuthor,
-    refreshAll,
-    checkedCount,
-    loadingCount,
-    oldestFetchedAt,
-  } = useAuthorAvailability(authors, libraries);
+  const { stateMap, refreshAuthor, refreshAll, checkedCount, loadingCount, oldestFetchedAt } =
+    useAuthorAvailability(authors, libraries);
 
   // Check if any author data has loaded
   const anyLoaded = authors.some((a) => {
@@ -96,10 +87,7 @@ export default function Authors() {
       const workTitles = works.map((w) => w.title);
 
       // Search filter
-      if (
-        searchQuery.trim() &&
-        !authorMatchesSearch(searchQuery, author.name, workTitles)
-      ) {
+      if (searchQuery.trim() && !authorMatchesSearch(searchQuery, author.name, workTitles)) {
         return false;
       }
 
@@ -312,9 +300,7 @@ export default function Authors() {
                       <span className="text-sm font-medium text-gray-900 dark:text-white">
                         {result.name}
                       </span>
-                      <span className="ml-2 text-xs text-gray-400">
-                        {result.workCount} works
-                      </span>
+                      <span className="ml-2 text-xs text-gray-400">{result.workCount} works</span>
                       {result.topWork && (
                         <p className="text-xs text-gray-500 dark:text-gray-400">
                           Notable: {result.topWork}
@@ -328,7 +314,11 @@ export default function Authors() {
                       stroke="currentColor"
                       strokeWidth={2}
                     >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 4.5v15m7.5-7.5h-15"
+                      />
                     </svg>
                   </button>
                 ))}
@@ -480,6 +470,7 @@ export default function Authors() {
                 state={state}
                 libraries={libraries}
                 formatFilter={formatFilter as AuthorFormatFilter}
+                categoryFilter={categoryFilter as AuthorCategoryFilter}
                 onRefresh={() => refreshAuthor(author)}
                 onRemove={() => handleRemoveAuthor(author.id)}
               />

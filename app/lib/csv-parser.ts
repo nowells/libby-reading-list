@@ -302,14 +302,6 @@ function parseLyndiRows(rows: Record<string, string>[]): {
         id: `ly-author-${authors.length}`,
         name: author,
       });
-
-      // Track as skipped if we didn't extract any books from this row
-      if (!extractedBooks) {
-        skipped.push({
-          author,
-          note: noteText.replace(/[()]/g, "").trim(),
-        });
-      }
     }
   }
 

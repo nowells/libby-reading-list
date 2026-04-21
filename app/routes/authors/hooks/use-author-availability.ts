@@ -1,16 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { AuthorEntry, LibraryConfig } from "~/lib/storage";
-import {
-  resolveAuthorKey,
-  getAuthorWorks,
-} from "~/lib/openlibrary-author";
+import { resolveAuthorKey, getAuthorWorks } from "~/lib/openlibrary-author";
 import { searchLibrary, type LibbyMediaItem, type AvailabilityInfo } from "~/lib/libby";
-import {
-  getCachedAuthor,
-  setCachedAuthor,
-  readAuthorCache,
-  authorCacheMaxAge,
-} from "../lib/cache";
+import { getCachedAuthor, setCachedAuthor, readAuthorCache, authorCacheMaxAge } from "../lib/cache";
 
 export interface AuthorBookResult {
   title: string;
@@ -79,8 +71,7 @@ function dedupeWorks(works: AuthorBookResult[]): AuthorBookResult[] {
         w.libbyResults.length > existing.libbyResults.length ||
         (w.libbyResults.length === existing.libbyResults.length &&
           (w.firstPublishYear ?? Infinity) < (existing.firstPublishYear ?? Infinity)) ||
-        (w.libbyResults.length === existing.libbyResults.length &&
-          !existing.coverId && w.coverId)
+        (w.libbyResults.length === existing.libbyResults.length && !existing.coverId && w.coverId)
       ) {
         map.set(key, w);
       }
@@ -177,15 +168,10 @@ export function useAuthorAvailability(authors: AuthorEntry[], libraries: Library
             // Search each library for this title + author
             for (const lib of libraries) {
               try {
-                const items = await searchLibrary(
-                  lib.key,
-                  `${work.title} ${author.name}`,
-                );
+                const items = await searchLibrary(lib.key, `${work.title} ${author.name}`);
                 // Filter to items that match the author name
                 for (const item of items) {
-                  const itemAuthor = item.creators?.find(
-                    (c) => c.role === "Author",
-                  )?.name ?? "";
+                  const itemAuthor = item.creators?.find((c) => c.role === "Author")?.name ?? "";
                   const authorLower = author.name.toLowerCase();
                   const itemAuthorLower = itemAuthor.toLowerCase();
                   // Check if author names overlap (at least last name match)
@@ -202,9 +188,7 @@ export function useAuthorAvailability(authors: AuthorEntry[], libraries: Library
                   ) {
                     // Looser check: compare significant words
                     const workWords = workTitleLower.split(/\s+/).filter((w) => w.length > 2);
-                    const matchCount = workWords.filter((w) =>
-                      itemTitleLower.includes(w),
-                    ).length;
+                    const matchCount = workWords.filter((w) => itemTitleLower.includes(w)).length;
                     if (matchCount < workWords.length * 0.5) continue;
                   }
 
@@ -250,9 +234,7 @@ export function useAuthorAvailability(authors: AuthorEntry[], libraries: Library
           }
         }
 
-        await Promise.all(
-          Array.from({ length: Math.min(CONCURRENCY, works.length) }, worker),
-        );
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, works.length) }, worker));
 
         // Deduplicate works by normalized title
         const dedupedResults = dedupeWorks(results.filter(Boolean));
@@ -369,9 +351,7 @@ export function useAuthorAvailability(authors: AuthorEntry[], libraries: Library
   }, []);
 
   // Compute loading stats
-  const checkedCount = Object.values(stateMap).filter(
-    (s) => s.status === "done",
-  ).length;
+  const checkedCount = Object.values(stateMap).filter((s) => s.status === "done").length;
   const loadingCount = Object.values(stateMap).filter(
     (s) => s.status === "loading-works" || s.status === "loading-availability",
   ).length;

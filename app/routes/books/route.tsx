@@ -401,7 +401,11 @@ export default function Books() {
                 formatFilter={formatFilter}
                 onRefresh={() => refreshBook(book)}
                 onLibbyClick={handleLibbyClick}
-                onRemove={book.manual || book.source === "lyndi" ? () => handleRemoveBook(book.id) : undefined}
+                onRemove={
+                  book.manual || book.source === "lyndi"
+                    ? () => handleRemoveBook(book.id)
+                    : undefined
+                }
               />
             );
           })}
