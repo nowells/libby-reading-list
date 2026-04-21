@@ -195,7 +195,21 @@ export function categorizeWork(
   return "waiting";
 }
 
-const CATEGORY_ORDER = { available: 0, soon: 1, waiting: 2, not_found: 3 };
+export const CATEGORY_ORDER = { available: 0, soon: 1, waiting: 2, not_found: 3 };
+
+/** Best availability category across all works for an author. */
+export function bestAuthorCategory(
+  works: AuthorBookResult[],
+  ff: AuthorFormatFilter,
+): "available" | "soon" | "waiting" | "not_found" {
+  let best: "available" | "soon" | "waiting" | "not_found" = "not_found";
+  for (const w of works) {
+    const cat = categorizeWork(w, ff);
+    if (CATEGORY_ORDER[cat] < CATEGORY_ORDER[best]) best = cat;
+    if (best === "available") break;
+  }
+  return best;
+}
 
 /** Best ETA across a work's libby results (0 for available, Infinity for not found). */
 function bestEtaDays(w: AuthorBookResult, ff: AuthorFormatFilter): number {
@@ -250,13 +264,43 @@ export function AuthorCard({
     });
   }, [state.works, formatFilter, categoryFilter]);
 
-  const availableCount = categoryFilter
+  const filteredCount = categoryFilter
     ? sortedWorks.length
     : sortedWorks.filter((w) => categorizeWork(w, formatFilter) === "available").length;
   const inLibraryCount = categoryFilter
     ? sortedWorks.length
     : sortedWorks.filter((w) => categorizeWork(w, formatFilter) !== "not_found").length;
   const totalWorks = categoryFilter ? sortedWorks.length : state.works.length;
+
+  // Badge text/color based on active category filter
+  const badgeConfig = (() => {
+    switch (categoryFilter) {
+      case "soon":
+        return {
+          label: "soon",
+          pill: "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300",
+
+        };
+      case "waiting":
+        return {
+          label: "waiting",
+          pill: "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300",
+
+        };
+      case "not_found":
+        return {
+          label: "not found",
+          pill: "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300",
+
+        };
+      default:
+        return {
+          label: "available",
+          pill: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300",
+
+        };
+    }
+  })();
 
   const MAX_VISIBLE = 10;
   const visibleWorks = showAll ? sortedWorks : sortedWorks.slice(0, MAX_VISIBLE);
@@ -295,12 +339,6 @@ export function AuthorCard({
           {state.status === "done" && (
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {totalWorks} works &middot; {inLibraryCount} in library
-              {availableCount > 0 && (
-                <span className="text-green-600 dark:text-green-400">
-                  {" "}
-                  &middot; {availableCount} available now
-                </span>
-              )}
             </p>
           )}
           {isLoading && state.progress && (
@@ -320,9 +358,9 @@ export function AuthorCard({
           {isLoading && (
             <span className="inline-block w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
           )}
-          {state.status === "done" && availableCount > 0 && (
-            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full font-medium">
-              {availableCount} available
+          {state.status === "done" && filteredCount > 0 && (
+            <span className={`hidden sm:inline-flex text-sm px-3 py-1.5 rounded-full font-medium ${badgeConfig.pill}`}>
+              {filteredCount} {badgeConfig.label}
             </span>
           )}
           <svg
