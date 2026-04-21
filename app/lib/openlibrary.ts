@@ -287,7 +287,6 @@ async function searchByTitleAuthor(
         return result;
       }
 
-      writeSearchCache(cacheKey, null);
       return null;
     } catch {
       return null;
