@@ -157,6 +157,15 @@ export function setImportedBooks(
   set("books", mergeImportForSource(getBooks(), imported, source, opts));
 }
 
+/** Update a single book in storage by id, merging new fields. */
+export function updateBook(id: string, updates: Partial<Book>) {
+  const books = getBooks();
+  const idx = books.findIndex((b) => b.id === id);
+  if (idx === -1) return;
+  books[idx] = { ...books[idx], ...updates };
+  set("books", books);
+}
+
 export function addBook(book: Omit<Book, "id" | "manual">) {
   const books = getBooks();
   const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

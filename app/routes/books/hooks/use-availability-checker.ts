@@ -1,11 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Book, LibraryConfig } from "~/lib/storage";
+import { updateBook } from "~/lib/storage";
 import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
-import { getWorkEditionIsbns } from "~/lib/openlibrary";
+import { getWorkEditionIsbns, enrichBooksWithWorkId } from "~/lib/openlibrary";
 import { readCache, cacheMaxAge, getCached, setCached } from "../lib/cache";
 import type { BookAvailState } from "../lib/categorize";
 
-export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]) {
+export function useAvailabilityChecker(
+  books: Book[],
+  libraries: LibraryConfig[],
+  opts?: { onBookEnriched?: (bookId: string, updates: Partial<Book>) => void },
+) {
   const [availMap, setAvailMap] = useState<Record<string, BookAvailState>>({});
   const availMapRef = useRef(availMap);
   availMapRef.current = availMap;
@@ -92,14 +97,32 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
         ...prev,
         [book.id]: { ...prev[book.id], status: "loading" },
       }));
+
+      // Re-enrich from OpenLibrary if this book is missing a workId
+      let enrichedBook = book;
+      if (!book.workId && (book.isbn13 || (book.title && book.author))) {
+        const [result] = await enrichBooksWithWorkId([book]);
+        if (result.workId) {
+          enrichedBook = result;
+          const updates: Partial<Book> = {
+            workId: result.workId,
+            canonicalTitle: result.canonicalTitle,
+            canonicalAuthor: result.canonicalAuthor,
+            isbn13: result.isbn13,
+          };
+          updateBook(book.id, updates);
+          opts?.onBookEnriched?.(book.id, updates);
+        }
+      }
+
       // Per-book refresh hits the canonical /availability endpoint so the
       // numbers shown here aren't subject to Libby's CDN cache. Bulk and
       // background refreshes stay search-embedded to keep request volume
       // sane on a 100+ book library.
-      const result = await fetchAndCache(book, { liveAvailability: true });
+      const result = await fetchAndCache(enrichedBook, { liveAvailability: true });
       setAvailMap((prev) => ({ ...prev, [book.id]: result }));
     },
-    [fetchAndCache],
+    [fetchAndCache, opts?.onBookEnriched],
   );
 
   const refreshAll = useCallback(() => {
@@ -145,10 +168,43 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
       return;
     }
 
+    // Re-enrich books missing workId from OpenLibrary before availability check
+    const needsEnrichment = toFetch.filter(
+      (b) => !b.workId && (b.isbn13 || (b.title && b.author)),
+    );
+
+    const enrichmentDone = needsEnrichment.length > 0
+      ? enrichBooksWithWorkId(needsEnrichment).then((enriched) => {
+          if (cancelled) return;
+          const enrichedMap = new Map<string, Book>();
+          for (let i = 0; i < needsEnrichment.length; i++) {
+            const orig = needsEnrichment[i];
+            const result = enriched[i];
+            if (result.workId && result.workId !== orig.workId) {
+              enrichedMap.set(orig.id, result);
+              const updates: Partial<Book> = {
+                workId: result.workId,
+                canonicalTitle: result.canonicalTitle,
+                canonicalAuthor: result.canonicalAuthor,
+                isbn13: result.isbn13,
+              };
+              updateBook(orig.id, updates);
+              opts?.onBookEnriched?.(orig.id, updates);
+            }
+          }
+          // Update toFetch entries in-place with enriched data
+          for (let i = 0; i < toFetch.length; i++) {
+            const enriched = enrichedMap.get(toFetch[i].id);
+            if (enriched) toFetch[i] = enriched;
+          }
+        })
+      : Promise.resolve();
+
     const CONCURRENCY = 4;
     let idx = 0;
 
     async function processNext(): Promise<void> {
+      await enrichmentDone;
       while (idx < toFetch.length && !cancelled) {
         const current = idx++;
         const book = toFetch[current];
@@ -173,7 +229,7 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
     return () => {
       cancelled = true;
     };
-  }, [books, fetchAndCache, refreshToken]);
+  }, [books, fetchAndCache, refreshToken, opts?.onBookEnriched]);
 
   // Background auto-refresh: check every 30 min for stale cached entries
   useEffect(() => {

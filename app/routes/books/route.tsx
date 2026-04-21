@@ -1,6 +1,6 @@
 import { usePostHog } from "@posthog/react";
 import { Link, redirect, useSearchParams } from "react-router";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   getBooks,
   getLibraries,
@@ -61,6 +61,15 @@ export default function Books() {
   const [formatFilter, setFormatFilter] = useState<FormatFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const handleBookEnriched = useCallback(
+    (bookId: string, updates: Partial<Book>) => {
+      setBooksState((prev) =>
+        prev.map((b) => (b.id === bookId ? { ...b, ...updates } : b)),
+      );
+    },
+    [],
+  );
+
   const {
     availMap,
     checkedCount,
@@ -69,7 +78,7 @@ export default function Books() {
     refreshBook,
     refreshAll,
     oldestFetchedAt,
-  } = useAvailabilityChecker(books, libraries);
+  } = useAvailabilityChecker(books, libraries, { onBookEnriched: handleBookEnriched });
 
   const categoryCounts = useMemo(() => {
     const counts = { available: 0, soon: 0, waiting: 0, not_found: 0 };
