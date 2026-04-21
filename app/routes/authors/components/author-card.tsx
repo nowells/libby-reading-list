@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { AuthorEntry, LibraryConfig } from "~/lib/storage";
 import { FormatIcon } from "~/components/format-icon";
 import { LibraryIcon, LibraryName } from "~/components/library-icon";
@@ -13,17 +13,23 @@ function WorkRow({
   work,
   libraries,
   multiLibrary,
+  formatFilter = "all",
 }: {
   work: AuthorBookResult;
   libraries: LibraryConfig[];
   multiLibrary: boolean;
+  formatFilter?: "all" | "ebook" | "audiobook";
 }) {
   const [expanded, setExpanded] = useState(false);
-  const hasResults = work.libbyResults.length > 0;
-  const isAvailable = work.libbyResults.some((r) => r.availability.isAvailable);
+  const filteredResults =
+    formatFilter === "all"
+      ? work.libbyResults
+      : work.libbyResults.filter((r) => r.formatType === formatFilter);
+  const hasResults = filteredResults.length > 0;
+  const isAvailable = filteredResults.some((r) => r.availability.isAvailable);
   const bestEta = hasResults
     ? Math.min(
-        ...work.libbyResults.map((r) =>
+        ...filteredResults.map((r) =>
           r.availability.isAvailable ? 0 : (r.availability.estimatedWaitDays ?? Infinity),
         ),
       )
@@ -76,12 +82,12 @@ function WorkRow({
             <>
               {/* Format icons */}
               <span className="flex gap-1 text-gray-400 dark:text-gray-500">
-                {work.libbyResults.some((r) => r.formatType === "ebook") && (
+                {filteredResults.some((r) => r.formatType === "ebook") && (
                   <span className="[&_svg]:w-4 [&_svg]:h-4">
                     <FormatIcon type="ebook" />
                   </span>
                 )}
-                {work.libbyResults.some((r) => r.formatType === "audiobook") && (
+                {filteredResults.some((r) => r.formatType === "audiobook") && (
                   <span className="[&_svg]:w-4 [&_svg]:h-4">
                     <FormatIcon type="audiobook" />
                   </span>
@@ -119,7 +125,7 @@ function WorkRow({
       {/* Expanded: show individual Libby results */}
       {expanded && hasResults && (
         <div className="bg-gray-50/50 dark:bg-gray-800/50">
-          {work.libbyResults.map((r) => {
+          {filteredResults.map((r) => {
             const preferredKey =
               libraries.find((l) => l.key === r.libraryKey)?.preferredKey ?? r.libraryKey;
             const url = libbyTitleUrl(preferredKey, r.mediaItem.id);
@@ -174,16 +180,49 @@ function WorkRow({
   );
 }
 
+export type AuthorFormatFilter = "all" | "ebook" | "audiobook";
+
+/** Categorize a work by its best availability (with optional format filter). */
+export function categorizeWork(
+  w: AuthorBookResult,
+  formatFilter: AuthorFormatFilter = "all",
+): "available" | "soon" | "waiting" | "not_found" {
+  const results =
+    formatFilter === "all"
+      ? w.libbyResults
+      : w.libbyResults.filter((r) => r.formatType === formatFilter);
+  if (results.length === 0) return "not_found";
+  if (results.some((r) => r.availability.isAvailable)) return "available";
+  const bestEta = Math.min(
+    ...results.map((r) => r.availability.estimatedWaitDays ?? Infinity),
+  );
+  if (bestEta <= 14) return "soon";
+  return "waiting";
+}
+
+const CATEGORY_ORDER = { available: 0, soon: 1, waiting: 2, not_found: 3 };
+
+/** Best ETA across a work's libby results (0 for available, Infinity for not found). */
+function bestEtaDays(w: AuthorBookResult, ff: AuthorFormatFilter): number {
+  const results = ff === "all" ? w.libbyResults : w.libbyResults.filter((r) => r.formatType === ff);
+  if (results.length === 0) return Infinity;
+  return Math.min(
+    ...results.map((r) => (r.availability.isAvailable ? 0 : (r.availability.estimatedWaitDays ?? Infinity))),
+  );
+}
+
 export function AuthorCard({
   author,
   state,
   libraries,
+  formatFilter = "all",
   onRefresh,
   onRemove,
 }: {
   author: AuthorEntry;
   state: AuthorAvailState;
   libraries: LibraryConfig[];
+  formatFilter?: AuthorFormatFilter;
   onRefresh: () => void;
   onRemove: () => void;
 }) {
@@ -191,15 +230,31 @@ export function AuthorCard({
   const [showAll, setShowAll] = useState(false);
   const multiLibrary = libraries.length > 1;
 
-  const availableCount = state.works.filter((w) =>
-    w.libbyResults.some((r) => r.availability.isAvailable),
+  // Sort works by availability category, then ETA within category, then title
+  const sortedWorks = useMemo(() => {
+    return [...state.works].sort((a, b) => {
+      const catDiff =
+        CATEGORY_ORDER[categorizeWork(a, formatFilter)] -
+        CATEGORY_ORDER[categorizeWork(b, formatFilter)];
+      if (catDiff !== 0) return catDiff;
+      // Within same category, sort by best ETA ascending
+      const etaDiff = bestEtaDays(a, formatFilter) - bestEtaDays(b, formatFilter);
+      if (etaDiff !== 0) return etaDiff;
+      return a.title.localeCompare(b.title);
+    });
+  }, [state.works, formatFilter]);
+
+  const availableCount = sortedWorks.filter(
+    (w) => categorizeWork(w, formatFilter) === "available",
   ).length;
-  const inLibraryCount = state.works.filter((w) => w.libbyResults.length > 0).length;
-  const totalWorks = state.works.length;
+  const inLibraryCount = sortedWorks.filter(
+    (w) => categorizeWork(w, formatFilter) !== "not_found",
+  ).length;
+  const totalWorks = sortedWorks.length;
 
   const MAX_VISIBLE = 10;
-  const visibleWorks = showAll ? state.works : state.works.slice(0, MAX_VISIBLE);
-  const hasMore = state.works.length > MAX_VISIBLE;
+  const visibleWorks = showAll ? sortedWorks : sortedWorks.slice(0, MAX_VISIBLE);
+  const hasMore = sortedWorks.length > MAX_VISIBLE;
 
   const isLoading = state.status === "loading-works" || state.status === "loading-availability";
 
@@ -300,6 +355,7 @@ export function AuthorCard({
               work={work}
               libraries={libraries}
               multiLibrary={multiLibrary}
+              formatFilter={formatFilter}
             />
           ))}
           {hasMore && (
@@ -309,7 +365,7 @@ export function AuthorCard({
             >
               {showAll
                 ? "Show less"
-                : `Show ${state.works.length - MAX_VISIBLE} more works`}
+                : `Show ${sortedWorks.length - MAX_VISIBLE} more works`}
             </button>
           )}
         </>

@@ -3,9 +3,14 @@ import type { AuthorEntry, LibraryConfig } from "~/lib/storage";
 import {
   resolveAuthorKey,
   getAuthorWorks,
-  type AuthorWork,
 } from "~/lib/openlibrary-author";
 import { searchLibrary, type LibbyMediaItem, type AvailabilityInfo } from "~/lib/libby";
+import {
+  getCachedAuthor,
+  setCachedAuthor,
+  readAuthorCache,
+  authorCacheMaxAge,
+} from "../lib/cache";
 
 export interface AuthorBookResult {
   title: string;
@@ -31,6 +36,7 @@ export interface AuthorAvailState {
   works: AuthorBookResult[];
   progress?: { done: number; total: number };
   error?: string;
+  fetchedAt?: number;
 }
 
 function extractAvailability(item: LibbyMediaItem): AvailabilityInfo {
@@ -50,15 +56,72 @@ function getFormatType(item: LibbyMediaItem): string {
   return "ebook";
 }
 
+/** Normalize title for dedup comparison. */
+function normalizeTitle(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Deduplicate works by normalized title, keeping the one with more libby results or earlier publish year. */
+function dedupeWorks(works: AuthorBookResult[]): AuthorBookResult[] {
+  const map = new Map<string, AuthorBookResult>();
+  for (const w of works) {
+    const key = normalizeTitle(w.title);
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, w);
+    } else {
+      // Prefer the one with more libby results; tie-break by earlier publish year, then cover
+      if (
+        w.libbyResults.length > existing.libbyResults.length ||
+        (w.libbyResults.length === existing.libbyResults.length &&
+          (w.firstPublishYear ?? Infinity) < (existing.firstPublishYear ?? Infinity)) ||
+        (w.libbyResults.length === existing.libbyResults.length &&
+          !existing.coverId && w.coverId)
+      ) {
+        map.set(key, w);
+      }
+    }
+  }
+  return [...map.values()];
+}
+
 export function useAuthorAvailability(authors: AuthorEntry[], libraries: LibraryConfig[]) {
   const [stateMap, setStateMap] = useState<Record<string, AuthorAvailState>>({});
   const activeRef = useRef(true);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const refreshingRef = useRef(false);
 
   const loadAuthor = useCallback(
-    async (author: AuthorEntry) => {
+    async (author: AuthorEntry, opts: { skipCache?: boolean } = {}) => {
+      // Check cache first
+      if (!opts.skipCache) {
+        const cached = getCachedAuthor(author.id);
+        if (cached) {
+          setStateMap((prev) => ({
+            ...prev,
+            [author.id]: {
+              status: "done",
+              olKey: cached.olKey,
+              resolvedName: cached.resolvedName,
+              works: cached.works,
+              fetchedAt: cached.fetchedAt,
+            },
+          }));
+          return;
+        }
+      }
+
       setStateMap((prev) => ({
         ...prev,
-        [author.id]: { status: "loading-works", works: [] },
+        [author.id]: {
+          ...prev[author.id],
+          status: "loading-works",
+          works: prev[author.id]?.works ?? [],
+        },
       }));
 
       try {
@@ -191,8 +254,11 @@ export function useAuthorAvailability(authors: AuthorEntry[], libraries: Library
           Array.from({ length: Math.min(CONCURRENCY, works.length) }, worker),
         );
 
+        // Deduplicate works by normalized title
+        const dedupedResults = dedupeWorks(results.filter(Boolean));
+
         // Sort: books with availability first, then by year descending
-        results.sort((a, b) => {
+        dedupedResults.sort((a, b) => {
           const aHas = a.libbyResults.length > 0 ? 1 : 0;
           const bHas = b.libbyResults.length > 0 ? 1 : 0;
           if (bHas !== aHas) return bHas - aHas;
@@ -201,6 +267,9 @@ export function useAuthorAvailability(authors: AuthorEntry[], libraries: Library
           return yb - ya;
         });
 
+        // Cache the result
+        setCachedAuthor(author.id, resolved.key, resolved.name, dedupedResults);
+
         if (activeRef.current) {
           setStateMap((prev) => ({
             ...prev,
@@ -208,7 +277,8 @@ export function useAuthorAvailability(authors: AuthorEntry[], libraries: Library
               status: "done",
               olKey: resolved.key,
               resolvedName: resolved.name,
-              works: results,
+              works: dedupedResults,
+              fetchedAt: Date.now(),
             },
           }));
         }
@@ -228,19 +298,21 @@ export function useAuthorAvailability(authors: AuthorEntry[], libraries: Library
     [libraries],
   );
 
-  // Load all authors on mount
+  // Load all authors on mount (or force refresh)
   useEffect(() => {
     activeRef.current = true;
+    refreshingRef.current = true;
     let cancelled = false;
+    const forceRefresh = refreshToken > 0;
 
     async function loadAll() {
-      // Process authors sequentially to avoid hammering APIs
       for (const author of authors) {
         if (cancelled) break;
-        // Skip if already loaded
-        if (stateMap[author.id]?.status === "done") continue;
-        await loadAuthor(author);
+        // Skip if already loaded (unless force refresh)
+        if (!forceRefresh && stateMap[author.id]?.status === "done") continue;
+        await loadAuthor(author, { skipCache: forceRefresh });
       }
+      refreshingRef.current = false;
     }
 
     void loadAll();
@@ -249,14 +321,70 @@ export function useAuthorAvailability(authors: AuthorEntry[], libraries: Library
       cancelled = true;
       activeRef.current = false;
     };
-  }, [authors, loadAuthor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authors, loadAuthor, refreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Background auto-refresh: check every 30 min for stale cached entries
+  useEffect(() => {
+    const INTERVAL_MS = 30 * 60 * 1000;
+    const bgRefreshingRef = { current: false };
+
+    const timer = setInterval(async () => {
+      if (bgRefreshingRef.current || refreshingRef.current) return;
+      bgRefreshingRef.current = true;
+
+      try {
+        const cache = readAuthorCache();
+        const stale: AuthorEntry[] = [];
+        for (const author of authors) {
+          const entry = cache[author.id];
+          if (!entry) continue;
+          if (Date.now() - entry.fetchedAt > authorCacheMaxAge(entry)) {
+            stale.push(author);
+          }
+        }
+
+        if (stale.length === 0) return;
+
+        for (const author of stale) {
+          await loadAuthor(author, { skipCache: true });
+        }
+      } finally {
+        bgRefreshingRef.current = false;
+      }
+    }, INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [authors, loadAuthor]);
 
   const refreshAuthor = useCallback(
     (author: AuthorEntry) => {
-      void loadAuthor(author);
+      void loadAuthor(author, { skipCache: true });
     },
     [loadAuthor],
   );
 
-  return { stateMap, refreshAuthor };
+  const refreshAll = useCallback(() => {
+    if (refreshingRef.current) return;
+    setRefreshToken((t) => t + 1);
+  }, []);
+
+  // Compute loading stats
+  const checkedCount = Object.values(stateMap).filter(
+    (s) => s.status === "done",
+  ).length;
+  const loadingCount = Object.values(stateMap).filter(
+    (s) => s.status === "loading-works" || s.status === "loading-availability",
+  ).length;
+
+  const oldestFetchedAt = (() => {
+    let oldest: number | null = null;
+    for (const s of Object.values(stateMap)) {
+      if (s.fetchedAt && (oldest === null || s.fetchedAt < oldest)) {
+        oldest = s.fetchedAt;
+      }
+    }
+    return oldest;
+  })();
+
+  return { stateMap, refreshAuthor, refreshAll, checkedCount, loadingCount, oldestFetchedAt };
 }

@@ -1,5 +1,5 @@
 import { Link, redirect } from "react-router";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   getAuthors,
   getLibraries,
@@ -11,7 +11,16 @@ import {
 import { Logo } from "~/components/logo";
 import { searchAuthor, type AuthorSearchResult } from "~/lib/openlibrary-author";
 import { useAuthorAvailability } from "./hooks/use-author-availability";
-import { AuthorCard } from "./components/author-card";
+import {
+  AuthorCard,
+  categorizeWork,
+  type AuthorFormatFilter,
+} from "./components/author-card";
+import { SummaryStats } from "~/routes/books/components/summary-stats";
+import { FormatFilterBar } from "~/routes/books/components/format-filter-bar";
+import type { BookCategory } from "~/routes/books/lib/categorize";
+import type { FormatFilter } from "~/routes/books/lib/categorize";
+import { timeAgo } from "~/routes/books/lib/utils";
 
 export function meta() {
   return [{ title: "Authors | ShelfCheck" }];
@@ -25,21 +34,92 @@ export function clientLoader() {
   return { libraries };
 }
 
+/** Simple fuzzy match for author name / work title */
+function authorMatchesSearch(
+  query: string,
+  authorName: string,
+  workTitles: string[],
+): boolean {
+  if (!query.trim()) return true;
+  const q = query.toLowerCase();
+  if (authorName.toLowerCase().includes(q)) return true;
+  return workTitles.some((t) => t.toLowerCase().includes(q));
+}
+
 export default function Authors() {
   const [authors, setAuthorsState] = useState<AuthorEntry[]>(() => getAuthors());
   const [libraries] = useState<LibraryConfig[]>(() => getLibraries());
   const [showAddAuthor, setShowAddAuthor] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [addSearchQuery, setAddSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<AuthorSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
 
-  const { stateMap, refreshAuthor } = useAuthorAvailability(authors, libraries);
+  // Filters
+  const [categoryFilter, setCategoryFilter] = useState<BookCategory | null>(null);
+  const [formatFilter, setFormatFilter] = useState<FormatFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const {
+    stateMap,
+    refreshAuthor,
+    refreshAll,
+    checkedCount,
+    loadingCount,
+    oldestFetchedAt,
+  } = useAuthorAvailability(authors, libraries);
+
+  // Check if any author data has loaded
+  const anyLoaded = authors.some((a) => {
+    const s = stateMap[a.id];
+    return s && s.status === "done" && s.works.length > 0;
+  });
+
+  // Aggregate availability stats across ALL works from ALL authors
+  const categoryCounts = useMemo(() => {
+    const counts = { available: 0, soon: 0, waiting: 0, not_found: 0 };
+    for (const author of authors) {
+      const state = stateMap[author.id];
+      if (!state || state.status !== "done") continue;
+      for (const work of state.works) {
+        const cat = categorizeWork(work, formatFilter as AuthorFormatFilter);
+        counts[cat]++;
+      }
+    }
+    return counts;
+  }, [authors, stateMap, formatFilter]);
+
+  // Filter authors based on search, category, and format
+  const filteredAuthors = useMemo(() => {
+    return authors.filter((author) => {
+      const state = stateMap[author.id];
+      const works = state?.works ?? [];
+      const workTitles = works.map((w) => w.title);
+
+      // Search filter
+      if (
+        searchQuery.trim() &&
+        !authorMatchesSearch(searchQuery, author.name, workTitles)
+      ) {
+        return false;
+      }
+
+      // Category filter: author must have at least one work matching
+      if (categoryFilter && state?.status === "done") {
+        const hasMatch = works.some(
+          (w) => categorizeWork(w, formatFilter as AuthorFormatFilter) === categoryFilter,
+        );
+        if (!hasMatch) return false;
+      }
+
+      return true;
+    });
+  }, [authors, stateMap, categoryFilter, formatFilter, searchQuery]);
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+    if (!addSearchQuery.trim()) return;
     setSearching(true);
     try {
-      const results = await searchAuthor(searchQuery.trim());
+      const results = await searchAuthor(addSearchQuery.trim());
       setSearchResults(results);
     } catch {
       setSearchResults([]);
@@ -51,16 +131,16 @@ export default function Authors() {
   const handleAddAuthor = (result: AuthorSearchResult) => {
     addAuthor({ name: result.name, olKey: result.key });
     setAuthorsState(getAuthors());
-    setSearchQuery("");
+    setAddSearchQuery("");
     setSearchResults([]);
     setShowAddAuthor(false);
   };
 
   const handleAddCustomAuthor = () => {
-    if (!searchQuery.trim()) return;
-    addAuthor({ name: searchQuery.trim() });
+    if (!addSearchQuery.trim()) return;
+    addAuthor({ name: addSearchQuery.trim() });
     setAuthorsState(getAuthors());
-    setSearchQuery("");
+    setAddSearchQuery("");
     setSearchResults([]);
     setShowAddAuthor(false);
   };
@@ -68,6 +148,14 @@ export default function Authors() {
   const handleRemoveAuthor = (id: string) => {
     removeAuthor(id);
     setAuthorsState(getAuthors());
+  };
+
+  const handleToggleCategory = (cat: BookCategory) => {
+    setCategoryFilter(categoryFilter === cat ? null : cat);
+  };
+
+  const handleToggleFormat = (f: FormatFilter) => {
+    setFormatFilter(f);
   };
 
   return (
@@ -141,10 +229,40 @@ export default function Authors() {
               </Link>
             </div>
           </div>
-          <p className="mt-1 sm:ml-12 text-sm text-gray-500 dark:text-gray-400">
-            {authors.length} {authors.length === 1 ? "author" : "authors"} &middot;{" "}
-            {libraries.length} {libraries.length === 1 ? "library" : "libraries"}
-          </p>
+          <div className="mt-1 sm:ml-12 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              {authors.length} {authors.length === 1 ? "author" : "authors"} &middot;{" "}
+              {libraries.length} {libraries.length === 1 ? "library" : "libraries"}
+            </span>
+            {oldestFetchedAt && checkedCount > 0 && (
+              <button
+                type="button"
+                onClick={refreshAll}
+                disabled={loadingCount > 0}
+                title="Refresh Libby availability"
+                className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors disabled:opacity-70 whitespace-nowrap"
+              >
+                <svg
+                  className={`w-3 h-3 ${loadingCount > 0 ? "animate-spin" : ""}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                <span>
+                  {loadingCount > 0
+                    ? `Syncing... ${checkedCount}/${authors.length}`
+                    : `Synced ${timeAgo(oldestFetchedAt)}`}
+                </span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Add Author */}
@@ -153,8 +271,8 @@ export default function Authors() {
             <div className="flex gap-2">
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={addSearchQuery}
+                onChange={(e) => setAddSearchQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleSearch();
                 }}
@@ -164,7 +282,7 @@ export default function Authors() {
               />
               <button
                 onClick={handleSearch}
-                disabled={searching || !searchQuery.trim()}
+                disabled={searching || !addSearchQuery.trim()}
                 className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
               >
                 {searching ? "..." : "Search"}
@@ -172,7 +290,7 @@ export default function Authors() {
               <button
                 onClick={() => {
                   setShowAddAuthor(false);
-                  setSearchQuery("");
+                  setAddSearchQuery("");
                   setSearchResults([]);
                 }}
                 className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -218,20 +336,20 @@ export default function Authors() {
             )}
 
             {/* Option to add as custom name */}
-            {searchQuery.trim() && searchResults.length > 0 && (
+            {addSearchQuery.trim() && searchResults.length > 0 && (
               <button
                 onClick={handleAddCustomAuthor}
                 className="mt-2 w-full text-center text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
-                Or add &quot;{searchQuery.trim()}&quot; as-is
+                Or add &quot;{addSearchQuery.trim()}&quot; as-is
               </button>
             )}
-            {searchQuery.trim() && !searching && searchResults.length === 0 && (
+            {addSearchQuery.trim() && !searching && searchResults.length === 0 && (
               <button
                 onClick={handleAddCustomAuthor}
                 className="mt-3 w-full text-center text-sm text-purple-600 hover:text-purple-700"
               >
-                Add &quot;{searchQuery.trim()}&quot;
+                Add &quot;{addSearchQuery.trim()}&quot;
               </button>
             )}
           </div>
@@ -277,9 +395,83 @@ export default function Authors() {
           </div>
         )}
 
+        {/* Filters */}
+        {authors.length > 0 && anyLoaded && (
+          <>
+            <SummaryStats
+              available={categoryCounts.available}
+              soon={categoryCounts.soon}
+              waiting={categoryCounts.waiting}
+              notFound={categoryCounts.not_found}
+              activeCategory={categoryFilter}
+              onToggleCategory={handleToggleCategory}
+            />
+            <FormatFilterBar active={formatFilter} onToggle={handleToggleFormat} />
+            <div className="relative mb-4">
+              <svg
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+                />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter by author or book title..."
+                className="w-full pl-10 pr-9 py-2.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-400 dark:focus:ring-purple-500 focus:border-transparent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* No results */}
+        {filteredAuthors.length === 0 && authors.length > 0 && (
+          <div className="text-center py-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
+              {searchQuery.trim()
+                ? `No authors matching "${searchQuery.trim()}".`
+                : "No authors match the current filters."}
+            </p>
+            <button
+              onClick={() => {
+                setCategoryFilter(null);
+                setFormatFilter("all");
+                setSearchQuery("");
+              }}
+              className="mt-2 text-sm text-purple-600 hover:text-purple-700"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
+
         {/* Author cards */}
         <div className="space-y-4">
-          {authors.map((author) => {
+          {filteredAuthors.map((author) => {
             const state = stateMap[author.id] ?? { status: "idle" as const, works: [] };
             return (
               <AuthorCard
@@ -287,6 +479,7 @@ export default function Authors() {
                 author={author}
                 state={state}
                 libraries={libraries}
+                formatFilter={formatFilter as AuthorFormatFilter}
                 onRefresh={() => refreshAuthor(author)}
                 onRemove={() => handleRemoveAuthor(author.id)}
               />
