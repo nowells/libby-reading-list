@@ -4,7 +4,7 @@ const CACHE_KEY = "shelfcheck:author-availability";
 const MIN_CACHE_MS = 2 * 60 * 60 * 1000; // 2 hours
 const DEFAULT_CACHE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-export interface CachedAuthorEntry {
+interface CachedAuthorEntry {
   olKey: string;
   resolvedName: string;
   works: AuthorBookResult[];

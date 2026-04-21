@@ -18,8 +18,10 @@ import {
   clearBookhiveLastSync,
   addAuthor,
   getAuthors,
+  clearAuthors,
   getSkippedRows,
   setSkippedRows as saveSkippedRows,
+  clearSkippedRows,
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
@@ -535,8 +537,11 @@ export default function Setup() {
 
   function handleClearBooks() {
     clearBooks();
+    clearAuthors();
+    clearSkippedRows();
     clearBookhiveLastSync();
     setBooksState([]);
+    setSkippedRowsState([]);
     setBskyLastSync(null);
     setImportInfo(null);
     if (fileInputRef.current) fileInputRef.current.value = "";

@@ -2,7 +2,7 @@ const BASE = "https://openlibrary.org";
 const CACHE_PREFIX = "shelfcheck:ol-author:";
 const POSITIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-export interface AuthorWork {
+interface AuthorWork {
   title: string;
   firstPublishYear?: number;
   coverEditionKey?: string;

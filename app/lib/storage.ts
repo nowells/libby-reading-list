@@ -207,7 +207,7 @@ export function getAuthors(): AuthorEntry[] {
   return get<AuthorEntry[]>("authors") ?? [];
 }
 
-export function setAuthors(authors: AuthorEntry[]) {
+function setAuthors(authors: AuthorEntry[]) {
   set("authors", authors);
 }
 
