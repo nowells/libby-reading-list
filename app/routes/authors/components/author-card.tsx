@@ -279,25 +279,21 @@ export function AuthorCard({
         return {
           label: "soon",
           pill: "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300",
-
         };
       case "waiting":
         return {
           label: "waiting",
           pill: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
-
         };
       case "not_found":
         return {
           label: "not found",
           pill: "bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300",
-
         };
       default:
         return {
           label: "available",
           pill: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300",
-
         };
     }
   })();
@@ -359,7 +355,9 @@ export function AuthorCard({
             <span className="inline-block w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
           )}
           {state.status === "done" && filteredCount > 0 && (
-            <span className={`hidden sm:inline-flex text-sm px-3 py-1.5 rounded-full font-medium ${badgeConfig.pill}`}>
+            <span
+              className={`hidden sm:inline-flex text-sm px-3 py-1.5 rounded-full font-medium ${badgeConfig.pill}`}
+            >
               {filteredCount} {badgeConfig.label}
             </span>
           )}

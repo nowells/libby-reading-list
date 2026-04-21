@@ -2,12 +2,38 @@ import type { Book } from "./storage";
 
 const BASE = "https://openlibrary.org";
 const CACHE_PREFIX = "shelfcheck:ol-isbn:";
+const SEARCH_CACHE_PREFIX = "shelfcheck:ol-search:";
 
 // In-flight request deduplication for OpenLibrary fetches.
 const olInflight = new Map<string, Promise<unknown>>();
-/** Cache successful lookups for 30 days; negative cache for 7 days. */
+/** Cache successful lookups for 30 days. Misses are never cached. */
 const POSITIVE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const NEGATIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// One-time migration: purge old negative-cached entries (v=null) left over
+// from before we stopped caching misses.
+const PURGE_KEY = "shelfcheck:ol-purged-misses";
+if (typeof localStorage !== "undefined" && !localStorage.getItem(PURGE_KEY)) {
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || (!key.startsWith(CACHE_PREFIX) && !key.startsWith(SEARCH_CACHE_PREFIX))) continue;
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const entry = JSON.parse(raw);
+          if (entry.v === null) toRemove.push(key);
+        }
+      } catch {
+        // skip unparseable entries
+      }
+    }
+    for (const key of toRemove) localStorage.removeItem(key);
+    localStorage.setItem(PURGE_KEY, "1");
+  } catch {
+    // non-fatal
+  }
+}
 
 interface OpenLibraryEnrichment {
   workId: string;
@@ -53,9 +79,10 @@ function readCache(isbn: string): OpenLibraryEnrichment | null | undefined {
 }
 
 function writeCache(isbn: string, value: OpenLibraryEnrichment | null) {
+  // Don't cache misses — OpenLibrary data grows over time.
+  if (!value) return;
   try {
-    const ttl = value ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS;
-    const entry: CacheEntry = { v: value, t: Date.now() + ttl };
+    const entry: CacheEntry = { v: value, t: Date.now() + POSITIVE_TTL_MS };
     localStorage.setItem(CACHE_PREFIX + isbn, JSON.stringify(entry));
   } catch {
     // Quota or other storage errors are non-fatal.
@@ -89,7 +116,6 @@ async function lookupIsbn(
         headers: { Accept: "application/json" },
       });
       if (res.status === 404) {
-        writeCache(clean, null);
         return null;
       }
       if (!res.ok) return null;
@@ -108,10 +134,173 @@ async function lookupIsbn(
   return promise;
 }
 
+interface SearchEnrichment extends OpenLibraryEnrichment {
+  isbn13?: string;
+}
+
+interface SearchCacheEntry {
+  v: SearchEnrichment | null;
+  t: number;
+}
+
+function searchCacheKey(title: string, author: string): string {
+  return `${title.toLowerCase().trim()}|${author.toLowerCase().trim()}`;
+}
+
+function readSearchCache(key: string): SearchEnrichment | null | undefined {
+  try {
+    const raw = localStorage.getItem(SEARCH_CACHE_PREFIX + key);
+    if (!raw) return undefined;
+    const entry = JSON.parse(raw) as SearchCacheEntry;
+    if (Date.now() > entry.t) return undefined;
+    return entry.v;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeSearchCache(key: string, value: SearchEnrichment | null) {
+  // Don't cache misses — OpenLibrary data grows over time and a miss today
+  // may become a hit tomorrow.
+  if (!value) return;
+  try {
+    const entry: SearchCacheEntry = { v: value, t: Date.now() + POSITIVE_TTL_MS };
+    localStorage.setItem(SEARCH_CACHE_PREFIX + key, JSON.stringify(entry));
+  } catch {
+    // Quota or other storage errors are non-fatal.
+  }
+}
+
+/** Normalize a string for fuzzy comparison: lowercase, strip punctuation, collapse whitespace. */
+function normalize(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Search Open Library by title + author to find a work ID and ISBN.
+ * Uses the general `q` parameter instead of strict `title`/`author` fields,
+ * since the strict fields fail on punctuation differences (e.g. "S.A." vs "S. A.").
+ * Validates results by checking both title and author name similarity.
+ */
+async function searchByTitleAuthor(
+  title: string,
+  author: string,
+  signal?: AbortSignal,
+): Promise<SearchEnrichment | null> {
+  if (!title.trim() || !author.trim()) return null;
+
+  const cacheKey = searchCacheKey(title, author);
+  const cached = readSearchCache(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const inflightKey = `search:${cacheKey}`;
+  const existing = olInflight.get(inflightKey);
+  if (existing) return existing as Promise<SearchEnrichment | null>;
+
+  const promise = (async () => {
+    try {
+      // Use general `q` search — more forgiving with punctuation and name variants
+      const authorParts = author.trim().split(/\s+/);
+      const lastName = authorParts[authorParts.length - 1];
+      const query = `${title.trim()} ${lastName}`;
+      const params = new URLSearchParams({
+        q: query,
+        limit: "5",
+        fields: "key,title,author_name,isbn",
+      });
+      const res = await fetch(`${BASE}/search.json?${params}`, {
+        signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as {
+        docs?: {
+          key?: string;
+          title?: string;
+          author_name?: string[];
+          isbn?: string[];
+        }[];
+      };
+      const docs = json.docs ?? [];
+      if (docs.length === 0) {
+        return null;
+      }
+
+      // Validate results against both title and author
+      const normalizedTitle = normalize(title);
+      const lastNameLower = lastName.toLowerCase();
+
+      for (const doc of docs) {
+        // Check author match: at least last name must appear
+        const docAuthors = doc.author_name ?? [];
+        const authorMatch = docAuthors.some((a) => {
+          const aLower = a.toLowerCase();
+          return aLower.includes(lastNameLower);
+        });
+        if (!authorMatch) continue;
+
+        // Check title match: normalized titles should overlap
+        const docTitle = normalize(doc.title ?? "");
+        if (
+          !docTitle ||
+          (!docTitle.includes(normalizedTitle) && !normalizedTitle.includes(docTitle))
+        ) {
+          // Looser check: compare significant words
+          const titleWords = normalizedTitle.split(/\s+/).filter((w) => w.length > 2);
+          const matchCount = titleWords.filter((w) => docTitle.includes(w)).length;
+          if (titleWords.length === 0 || matchCount < titleWords.length * 0.5) continue;
+        }
+
+        const workKey = doc.key;
+        if (!workKey) continue;
+        const match = workKey.match(/^\/works\/(OL[A-Z0-9]+W)$/);
+        if (!match) continue;
+
+        // Extract first valid ISBN-13 if available
+        let isbn13: string | undefined;
+        for (const raw of doc.isbn ?? []) {
+          const clean = raw.replace(/\D/g, "");
+          if (clean.length === 13) {
+            isbn13 = clean;
+            break;
+          }
+          if (clean.length === 10) {
+            isbn13 = isbn10to13(raw) ?? undefined;
+            if (isbn13) break;
+          }
+        }
+
+        const result: SearchEnrichment = {
+          workId: match[1],
+          canonicalTitle: doc.title?.trim() || undefined,
+          isbn13,
+        };
+        writeSearchCache(cacheKey, result);
+        return result;
+      }
+
+      writeSearchCache(cacheKey, null);
+      return null;
+    } catch {
+      return null;
+    }
+  })().finally(() => {
+    olInflight.delete(inflightKey);
+  });
+
+  olInflight.set(inflightKey, promise);
+  return promise;
+}
+
 /**
  * Enrich a list of books by resolving their ISBNs to Open Library works.
  * Concurrent up to `concurrency` in-flight lookups. Books without an ISBN
- * (or that already have a workId) are passed through untouched.
+ * are searched by title+author. Books that already have a workId are passed
+ * through untouched.
  *
  * `onProgress` is fired once with `(0, total)` before any lookups, then
  * after every completed lookup with the cumulative count, so UIs can
@@ -127,7 +316,10 @@ export async function enrichBooksWithWorkId(
 ): Promise<Book[]> {
   const concurrency = opts.concurrency ?? 6;
   const out = books.slice();
-  const pending = out.map((b, i) => ({ i, b })).filter(({ b }) => !b.workId && b.isbn13);
+  // Include books without ISBNs (but with title+author) for title-based search
+  const pending = out
+    .map((b, i) => ({ i, b }))
+    .filter(({ b }) => !b.workId && (b.isbn13 || (b.title && b.author)));
   const total = pending.length;
   opts.onProgress?.(0, total);
   if (total === 0) return out;
@@ -138,12 +330,28 @@ export async function enrichBooksWithWorkId(
     while (cursor < pending.length) {
       const mine = pending[cursor++];
       if (!mine) return;
-      const enrichment = await lookupIsbn(mine.b.isbn13!, opts.signal);
+
+      let enrichment: OpenLibraryEnrichment | null = null;
+      let foundIsbn: string | undefined;
+
+      if (mine.b.isbn13) {
+        // ISBN lookup (fast, precise)
+        enrichment = await lookupIsbn(mine.b.isbn13, opts.signal);
+      } else if (mine.b.title && mine.b.author) {
+        // Title+author search (slower, fuzzy)
+        const searchResult = await searchByTitleAuthor(mine.b.title, mine.b.author, opts.signal);
+        if (searchResult) {
+          enrichment = searchResult;
+          foundIsbn = searchResult.isbn13;
+        }
+      }
+
       if (enrichment) {
         out[mine.i] = {
           ...mine.b,
           workId: enrichment.workId,
           canonicalTitle: enrichment.canonicalTitle ?? mine.b.canonicalTitle,
+          isbn13: mine.b.isbn13 ?? foundIsbn,
         };
       }
       done += 1;

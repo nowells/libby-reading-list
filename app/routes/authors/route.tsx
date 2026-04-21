@@ -109,12 +109,14 @@ export default function Authors() {
     return filtered.sort((a, b) => {
       const aState = stateMap[a.id];
       const bState = stateMap[b.id];
-      const aCat = aState?.status === "done"
-        ? CATEGORY_ORDER[bestAuthorCategory(aState.works, formatFilter as AuthorFormatFilter)]
-        : 999;
-      const bCat = bState?.status === "done"
-        ? CATEGORY_ORDER[bestAuthorCategory(bState.works, formatFilter as AuthorFormatFilter)]
-        : 999;
+      const aCat =
+        aState?.status === "done"
+          ? CATEGORY_ORDER[bestAuthorCategory(aState.works, formatFilter as AuthorFormatFilter)]
+          : 999;
+      const bCat =
+        bState?.status === "done"
+          ? CATEGORY_ORDER[bestAuthorCategory(bState.works, formatFilter as AuthorFormatFilter)]
+          : 999;
       if (aCat !== bCat) return aCat - bCat;
 
       // Sort by last name, then first name
