@@ -177,11 +177,11 @@ export function BookCard({
 
   const borderColor =
     category === "available"
-      ? "border-green-500"
+      ? "border-emerald-500"
       : category === "soon"
         ? "border-blue-400"
         : category === "waiting"
-          ? "border-yellow-400"
+          ? "border-amber-400"
           : category === "pending"
             ? "border-blue-300 dark:border-blue-700"
             : "border-gray-200 dark:border-gray-700";
@@ -239,7 +239,7 @@ export function BookCard({
             </span>
           )}
           {isDone && category === "available" && (
-            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full font-medium">
+            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full font-medium">
               {availableCount} ready
             </span>
           )}
@@ -249,12 +249,12 @@ export function BookCard({
             </span>
           )}
           {isDone && category === "waiting" && (
-            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 rounded-full font-medium">
+            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded-full font-medium">
               Waitlist
             </span>
           )}
           {isDone && category === "not_found" && (
-            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full">
+            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 rounded-full">
               Not found
             </span>
           )}
@@ -340,7 +340,7 @@ export function BookCard({
                   className={`text-right text-sm tabular-nums ${r.availability.numberOfHolds > 100 ? "text-red-500 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}
                 >
                   {r.availability.isAvailable ? (
-                    <span className="text-green-600 dark:text-green-400 font-medium">0</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">0</span>
                   ) : (
                     r.availability.numberOfHolds
                   )}
@@ -350,7 +350,7 @@ export function BookCard({
                 </span>
                 <span className="text-right text-sm">
                   {r.availability.isAvailable ? (
-                    <span className="text-green-600 dark:text-green-400 font-medium">Now</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">Now</span>
                   ) : (
                     <EtaBadge days={r.availability.estimatedWaitDays} />
                   )}

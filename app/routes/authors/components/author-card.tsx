@@ -93,7 +93,7 @@ function WorkRow({
               {/* ETA */}
               <span className="text-sm">
                 {isAvailable ? (
-                  <span className="text-green-600 dark:text-green-400 font-medium text-xs px-2 py-0.5 bg-green-50 dark:bg-green-900/30 rounded-full">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium text-xs px-2 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 rounded-full">
                     Now
                   </span>
                 ) : bestEta != null && bestEta < Infinity ? (
@@ -153,7 +153,7 @@ function WorkRow({
                   className={`text-right tabular-nums text-xs ${r.availability.numberOfHolds > 100 ? "text-red-500" : "text-gray-600 dark:text-gray-400"}`}
                 >
                   {r.availability.isAvailable ? (
-                    <span className="text-green-600 dark:text-green-400">0 holds</span>
+                    <span className="text-emerald-600 dark:text-emerald-400">0 holds</span>
                   ) : (
                     `${r.availability.numberOfHolds} holds`
                   )}
@@ -163,7 +163,7 @@ function WorkRow({
                 </span>
                 <span className="text-right text-xs">
                   {r.availability.isAvailable ? (
-                    <span className="text-green-600 dark:text-green-400 font-medium">Now</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">Now</span>
                   ) : (
                     <EtaBadge days={r.availability.estimatedWaitDays} />
                   )}
@@ -284,19 +284,19 @@ export function AuthorCard({
       case "waiting":
         return {
           label: "waiting",
-          pill: "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300",
+          pill: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
 
         };
       case "not_found":
         return {
           label: "not found",
-          pill: "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300",
+          pill: "bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300",
 
         };
       default:
         return {
           label: "available",
-          pill: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300",
+          pill: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300",
 
         };
     }
