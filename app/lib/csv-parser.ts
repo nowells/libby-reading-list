@@ -1,11 +1,11 @@
-import type { Book } from "./storage";
+import type { Book, AuthorEntry } from "./storage";
 
 interface ParsedCSV {
   headers: string[];
   rows: Record<string, string>[];
 }
 
-function parseCSV(text: string): ParsedCSV {
+function parseRawRows(text: string): string[][] {
   const rows: string[][] = [];
   let current: string[] = [];
   let field = "";
@@ -50,6 +50,12 @@ function parseCSV(text: string): ParsedCSV {
     rows.push(current);
   }
 
+  return rows;
+}
+
+function parseCSV(text: string): ParsedCSV {
+  const rows = parseRawRows(text);
+
   if (rows.length === 0) {
     return { headers: [], rows: [] };
   }
@@ -66,7 +72,41 @@ function parseCSV(text: string): ParsedCSV {
   return { headers, rows: dataRows };
 }
 
-type Format = "goodreads" | "hardcover" | "storygraph" | "unknown";
+/**
+ * Flexible CSV parser that scans rows to find the header row.
+ * Skips extraneous rows at the top (e.g. "Books to Read") until it finds a
+ * row whose first two non-empty cells look like "title" and "author"
+ * (case-insensitive). Everything after that row is treated as data.
+ */
+function parseCSVFlexible(text: string): ParsedCSV {
+  const rows = parseRawRows(text);
+  if (rows.length === 0) return { headers: [], rows: [] };
+
+  // Find the header row: first row that contains both "title" and "author"
+  let headerIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const lower = new Set(rows[i].map((c) => c.trim().toLowerCase()));
+    if (lower.has("title") && lower.has("author")) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) return { headers: [], rows: [] };
+
+  const headers = rows[headerIdx].map((h) => h.trim());
+  const dataRows = rows.slice(headerIdx + 1).map((row) => {
+    const obj: Record<string, string> = {};
+    headers.forEach((h, i) => {
+      obj[h] = (row[i] ?? "").trim();
+    });
+    return obj;
+  });
+
+  return { headers, rows: dataRows };
+}
+
+type Format = "goodreads" | "hardcover" | "storygraph" | "lyndi" | "unknown";
 
 function detectFormat(headers: string[]): Format {
   const lower = new Set(headers.map((h) => h.toLowerCase()));
@@ -191,8 +231,87 @@ function parseStorygraphRows(rows: Record<string, string>[]): Book[] {
   return books;
 }
 
+/** A row that could not be imported as a book (missing title, etc.) */
+export interface SkippedRow {
+  /** The raw text that was available (author name, notes, etc.) */
+  author: string;
+  note: string;
+}
+
+/**
+ * Parse a "Lyndi"-style CSV: flexible header detection, extracts both books
+ * (rows with title + author) and standalone authors (rows with author only,
+ * optionally with notes listing specific book recommendations).
+ */
+function parseLyndiRows(rows: Record<string, string>[]): {
+  books: Book[];
+  authors: AuthorEntry[];
+  skipped: SkippedRow[];
+} {
+  const books: Book[] = [];
+  const authors: AuthorEntry[] = [];
+  const skipped: SkippedRow[] = [];
+  let bookId = 0;
+
+  for (const row of rows) {
+    const title = findColumn(row, "Title");
+    const author = findColumn(row, "Author", "Authors");
+
+    if (!author) continue;
+
+    if (title) {
+      // Regular book row
+      books.push({
+        id: `ly-${bookId++}`,
+        title,
+        author,
+        source: "lyndi",
+      });
+    } else {
+      // Author-only row: check for notes with specific book recommendations
+      const allValues = Object.values(row).filter((v) => v && v !== author);
+      const noteText = allValues.join(" ");
+      const match = noteText.match(/\(([^)]+)\)/);
+      let extractedBooks = false;
+
+      if (match) {
+        const noteContent = match[1];
+        // Check for multiple books separated by "&"
+        const titles = noteContent.split(" & ").map((t) => t.trim());
+        const hasBookTitles = titles.some(
+          (t) => !t.toLowerCase().includes("was great") && t.length > 0,
+        );
+
+        if (hasBookTitles) {
+          extractedBooks = true;
+          // Extract individual books from the notes
+          for (const t of titles) {
+            if (t.toLowerCase().includes("was great") || !t) continue;
+            books.push({
+              id: `ly-${bookId++}`,
+              title: t,
+              author,
+              source: "lyndi",
+            });
+          }
+        }
+      }
+
+      // Always add as a followed author
+      authors.push({
+        id: `ly-author-${authors.length}`,
+        name: author,
+      });
+    }
+  }
+
+  return { books, authors, skipped };
+}
+
 interface ImportResult {
   books: Book[];
+  authors: AuthorEntry[];
+  skipped: SkippedRow[];
   format: Format;
   totalRows: number;
   error?: string;
@@ -202,24 +321,47 @@ export function importBooks(fileContent: string): ImportResult {
   const { headers, rows } = parseCSV(fileContent);
 
   if (rows.length === 0) {
-    return { books: [], format: "unknown", totalRows: 0, error: "CSV file appears to be empty." };
+    // Try flexible parsing (Lyndi format) — scans for header row
+    const flexible = parseCSVFlexible(fileContent);
+    if (flexible.rows.length > 0) {
+      const result = parseLyndiRows(flexible.rows);
+      return { ...result, format: "lyndi", totalRows: flexible.rows.length };
+    }
+    return {
+      books: [],
+      authors: [],
+      skipped: [],
+      format: "unknown",
+      totalRows: 0,
+      error: "CSV file appears to be empty.",
+    };
   }
 
   const format = detectFormat(headers);
 
   if (format === "goodreads") {
     const books = parseGoodreadsRows(rows);
-    return { books, format, totalRows: rows.length };
+    return { books, authors: [], skipped: [], format, totalRows: rows.length };
   }
 
   if (format === "hardcover") {
     const books = parseHardcoverRows(rows);
-    return { books, format, totalRows: rows.length };
+    return { books, authors: [], skipped: [], format, totalRows: rows.length };
   }
 
   if (format === "storygraph") {
     const books = parseStorygraphRows(rows);
-    return { books, format, totalRows: rows.length };
+    return { books, authors: [], skipped: [], format, totalRows: rows.length };
+  }
+
+  // Try flexible parsing: maybe the first row isn't the header
+  const flexible = parseCSVFlexible(fileContent);
+  if (flexible.rows.length > 0) {
+    const flexLower = new Set(flexible.headers.map((h) => h.toLowerCase()));
+    if (flexLower.has("title") && flexLower.has("author")) {
+      const result = parseLyndiRows(flexible.rows);
+      return { ...result, format: "lyndi", totalRows: flexible.rows.length };
+    }
   }
 
   // Unknown format — try to extract books generically
@@ -227,6 +369,8 @@ export function importBooks(fileContent: string): ImportResult {
   if (!hasTitle) {
     return {
       books: [],
+      authors: [],
+      skipped: [],
       format: "unknown",
       totalRows: rows.length,
       error: `Unrecognized CSV format. Expected a Goodreads or Hardcover export. Found columns: ${headers.slice(0, 5).join(", ")}${headers.length > 5 ? "..." : ""}`,
@@ -248,5 +392,5 @@ export function importBooks(fileContent: string): ImportResult {
     });
   }
 
-  return { books, format, totalRows: rows.length };
+  return { books, authors: [], skipped: [], format, totalRows: rows.length };
 }

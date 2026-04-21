@@ -9,13 +9,21 @@ export interface LibraryConfig {
   logoUrl?: string;
 }
 
+export interface AuthorEntry {
+  id: string;
+  name: string;
+  /** Open Library author key (e.g. "OL23919A"). */
+  olKey?: string;
+  imageUrl?: string;
+}
+
 export interface Book {
   id: string;
   title: string;
   author: string;
   isbn13?: string;
   imageUrl?: string;
-  source: "goodreads" | "hardcover" | "storygraph" | "bookhive" | "unknown";
+  source: "goodreads" | "hardcover" | "storygraph" | "bookhive" | "lyndi" | "unknown";
   sourceUrl?: string;
   manual?: boolean;
   /** Open Library Work ID (e.g. "OL45883W"); edition-independent. */
@@ -104,6 +112,7 @@ const SOURCE_PRIORITY: Record<Book["source"], number> = {
   hardcover: 1,
   storygraph: 1,
   unknown: 2,
+  lyndi: 3,
 };
 
 /**
@@ -176,9 +185,58 @@ export function clearBookhiveLastSync() {
   remove("bookhive-last-sync");
 }
 
+// --- Skipped Rows (persisted so they survive page navigations) ---
+
+import type { SkippedRow } from "./csv-parser";
+
+export function getSkippedRows(): SkippedRow[] {
+  return get<SkippedRow[]>("skipped-rows") ?? [];
+}
+
+export function setSkippedRows(rows: SkippedRow[]) {
+  set("skipped-rows", rows);
+}
+
+export function clearSkippedRows() {
+  remove("skipped-rows");
+}
+
+// --- Authors ---
+
+export function getAuthors(): AuthorEntry[] {
+  return get<AuthorEntry[]>("authors") ?? [];
+}
+
+function setAuthors(authors: AuthorEntry[]) {
+  set("authors", authors);
+}
+
+export function addAuthor(author: Omit<AuthorEntry, "id">) {
+  const authors = getAuthors();
+  // Dedupe by name (case-insensitive)
+  if (authors.some((a) => a.name.toLowerCase() === author.name.toLowerCase())) return;
+  const id = `author-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  authors.push({ ...author, id });
+  set("authors", authors);
+}
+
+export function removeAuthor(id: string) {
+  set(
+    "authors",
+    getAuthors().filter((a) => a.id !== id),
+  );
+}
+
+export function clearAuthors() {
+  remove("authors");
+}
+
 export function clearAll() {
   clearLibraries();
   clearBooks();
+  clearSkippedRows();
+  clearAuthors();
   clearBookhiveLastSync();
   remove("availability");
+  remove("author-availability");
 }
