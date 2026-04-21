@@ -31,15 +31,15 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
         // Search across all libraries and merge results
         const allResults = await Promise.all(
           libraries.map((lib) =>
-            findBookInLibrary(lib.key, book.title, book.author, {
+            findBookInLibrary(lib.key, book.canonicalTitle ?? book.title, book.canonicalAuthor ?? book.author, {
               primaryIsbn: book.isbn13,
               getAlternateIsbns,
               liveAvailability: opts.liveAvailability,
             }).catch(
               () =>
                 ({
-                  bookTitle: book.title,
-                  bookAuthor: book.author,
+                  bookTitle: book.canonicalTitle ?? book.title,
+                  bookAuthor: book.canonicalAuthor ?? book.author,
                   results: [],
                 }) as BookAvailability,
             ),
@@ -47,8 +47,8 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
         );
 
         const merged: BookAvailability = {
-          bookTitle: book.title,
-          bookAuthor: book.author,
+          bookTitle: book.canonicalTitle ?? book.title,
+          bookAuthor: book.canonicalAuthor ?? book.author,
           results: [],
         };
 
@@ -76,8 +76,8 @@ export function useAvailabilityChecker(books: Book[], libraries: LibraryConfig[]
         return { status: "done", data: merged, fetchedAt: Date.now() };
       } catch {
         const fallback: BookAvailability = {
-          bookTitle: book.title,
-          bookAuthor: book.author,
+          bookTitle: book.canonicalTitle ?? book.title,
+          bookAuthor: book.canonicalAuthor ?? book.author,
           results: [],
         };
         return { status: "done", data: fallback, fetchedAt: Date.now() };

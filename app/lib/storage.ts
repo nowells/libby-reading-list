@@ -30,6 +30,8 @@ export interface Book {
   workId?: string;
   /** Canonical title from Open Library, if different from the source title. */
   canonicalTitle?: string;
+  /** Canonical author from Open Library, if different from the source author. */
+  canonicalAuthor?: string;
 }
 
 function get<T>(key: string): T | null {

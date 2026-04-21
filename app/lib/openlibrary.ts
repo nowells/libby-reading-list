@@ -38,6 +38,7 @@ if (typeof localStorage !== "undefined" && !localStorage.getItem(PURGE_KEY)) {
 interface OpenLibraryEnrichment {
   workId: string;
   canonicalTitle?: string;
+  canonicalAuthor?: string;
 }
 
 interface OpenLibraryEditionResponse {
@@ -204,7 +205,9 @@ async function searchByTitleAuthor(
   const promise = (async () => {
     try {
       // Use general `q` search — more forgiving with punctuation and name variants
-      const authorParts = author.trim().split(/\s+/);
+      // Normalize author to strip stray punctuation (e.g. trailing backslash)
+      const normalizedAuthor = normalize(author);
+      const authorParts = normalizedAuthor.split(/\s+/);
       const lastName = authorParts[authorParts.length - 1];
       const query = `${title.trim()} ${lastName}`;
       const params = new URLSearchParams({
@@ -277,6 +280,7 @@ async function searchByTitleAuthor(
         const result: SearchEnrichment = {
           workId: match[1],
           canonicalTitle: doc.title?.trim() || undefined,
+          canonicalAuthor: docAuthors[0]?.trim() || undefined,
           isbn13,
         };
         writeSearchCache(cacheKey, result);
@@ -351,6 +355,7 @@ export async function enrichBooksWithWorkId(
           ...mine.b,
           workId: enrichment.workId,
           canonicalTitle: enrichment.canonicalTitle ?? mine.b.canonicalTitle,
+          canonicalAuthor: enrichment.canonicalAuthor ?? mine.b.canonicalAuthor,
           isbn13: mine.b.isbn13 ?? foundIsbn,
         };
       }

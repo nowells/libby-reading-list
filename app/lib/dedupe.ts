@@ -25,6 +25,7 @@ export function mergeBooks(primary: Book, secondary: Book): Book {
     sourceUrl: primary.sourceUrl ?? secondary.sourceUrl,
     workId: primary.workId ?? secondary.workId,
     canonicalTitle: primary.canonicalTitle ?? secondary.canonicalTitle,
+    canonicalAuthor: primary.canonicalAuthor ?? secondary.canonicalAuthor,
     // Preserve manual: if either is manual, the merged record is manual so
     // it doesn't get wiped by a future CSV/Bookhive import.
     manual: primary.manual || secondary.manual ? true : undefined,

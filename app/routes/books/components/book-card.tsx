@@ -211,10 +211,10 @@ export function BookCard({
         )}
         <div className="flex-1 min-w-0">
           <span className="font-semibold text-gray-900 dark:text-white line-clamp-1">
-            {book.title}
+            {book.canonicalTitle ?? book.title}
           </span>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {book.author || "Unknown Author"}
+            {book.canonicalAuthor ?? book.author ?? "Unknown Author"}
           </p>
           {state.data?.seriesInfo && (
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
