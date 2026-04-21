@@ -1,7 +1,7 @@
 import { usePostHog } from "@posthog/react";
 import { Link } from "react-router";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { importBooks } from "~/lib/csv-parser";
+import { importBooks, type SkippedRow } from "~/lib/csv-parser";
 import { enrichBooksWithWorkId } from "~/lib/openlibrary";
 import { Logo } from "~/components/logo";
 import {
@@ -18,6 +18,8 @@ import {
   clearBookhiveLastSync,
   addAuthor,
   getAuthors,
+  getSkippedRows,
+  setSkippedRows as saveSkippedRows,
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
@@ -45,6 +47,7 @@ const SOURCE_LABELS: Record<string, string> = {
   goodreads: "Goodreads",
   hardcover: "Hardcover",
   storygraph: "The StoryGraph",
+  lyndi: "Lyndi CSV",
   unknown: "CSV",
   manual: "manual",
 };
@@ -56,6 +59,7 @@ const SOURCE_DISPLAY_ORDER = [
   "goodreads",
   "hardcover",
   "storygraph",
+  "lyndi",
   "unknown",
   "manual",
 ];
@@ -84,6 +88,133 @@ function formatRelativeTime(iso: string): string {
   return relativeTimeFormatter.format(Math.round(diffSeconds / 86400), "day");
 }
 
+function SkippedRowsPanel({
+  skippedRows,
+  libraries,
+  onBookAdded,
+  onDismiss,
+}: {
+  skippedRows: SkippedRow[];
+  libraries: LibraryConfig[];
+  onBookAdded: () => void;
+  onDismiss: (idx: number) => void;
+}) {
+  const [activeSearch, setActiveSearch] = useState<number | null>(null);
+  const hasLibrary = libraries.length > 0;
+
+  const handleSelect = (item: LibbyMediaItem) => {
+    const author = item.creators?.find((c) => c.role === "Author")?.name ?? "";
+    addBook({
+      title: item.title,
+      author,
+      imageUrl: item.covers?.cover150Wide?.href,
+      source: "lyndi",
+    });
+    onBookAdded();
+    if (activeSearch !== null) {
+      onDismiss(activeSearch);
+      setActiveSearch(null);
+    }
+  };
+
+  return (
+    <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <svg
+          className="w-4 h-4 text-yellow-600 dark:text-yellow-400 flex-shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+          />
+        </svg>
+        <h3 className="font-semibold text-sm text-yellow-800 dark:text-yellow-200">
+          {skippedRows.length} row{skippedRows.length === 1 ? "" : "s"} could not be
+          auto-imported
+        </h3>
+      </div>
+      <p className="text-xs text-yellow-700/80 dark:text-yellow-300/70 mb-3">
+        These rows had an author but no title. Search your library to add them manually.
+      </p>
+      <div className="space-y-2">
+        {skippedRows.map((row, idx) => (
+          <div
+            key={idx}
+            className="bg-white dark:bg-gray-800 rounded-lg border border-yellow-100 dark:border-yellow-900/50 overflow-hidden"
+          >
+            <div className="flex items-center justify-between px-3 py-2">
+              <div className="min-w-0">
+                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                  {row.author}
+                </span>
+                {row.note && (
+                  <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                    {row.note}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {hasLibrary && (
+                  <button
+                    onClick={() => setActiveSearch(activeSearch === idx ? null : idx)}
+                    className="text-xs px-2.5 py-1 rounded bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:hover:bg-amber-900/60 transition-colors"
+                  >
+                    {activeSearch === idx ? "Close" : "Search"}
+                  </button>
+                )}
+                <button
+                  onClick={() => onDismiss(idx)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  title="Dismiss"
+                >
+                  <svg
+                    className="w-3.5 h-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {activeSearch === idx && hasLibrary && (
+              <div className="px-3 pb-3 border-t border-gray-100 dark:border-gray-700">
+                <BookSearchPicker
+                  libraryKey={libraries[0].preferredKey}
+                  onSelect={handleSelect}
+                  onCancel={() => setActiveSearch(null)}
+                  placeholder={`Search for books by ${row.author}...`}
+                  initialQuery={`${row.author}${row.note ? ` ${row.note}` : ""}`}
+                  existingBooks={[]}
+                />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={() => {
+          for (let i = skippedRows.length - 1; i >= 0; i--) onDismiss(i);
+        }}
+        className="mt-3 text-xs text-yellow-600 hover:text-yellow-700 dark:text-yellow-400 dark:hover:text-yellow-300"
+      >
+        Dismiss all
+      </button>
+    </div>
+  );
+}
+
 export default function Setup() {
   const posthog = usePostHog();
   const [books, setBooksState] = useState<Book[]>([]);
@@ -93,6 +224,16 @@ export default function Setup() {
 
   const [clearManualOnImport, setClearManualOnImport] = useState(false);
   const manualBookCount = books.filter((b) => b.manual).length;
+  const [skippedRows, setSkippedRowsState] = useState<SkippedRow[]>([]);
+
+  // Wrapper that persists skipped rows to localStorage
+  function setSkippedRows(rows: SkippedRow[] | ((prev: SkippedRow[]) => SkippedRow[])) {
+    setSkippedRowsState((prev) => {
+      const next = typeof rows === "function" ? rows(prev) : rows;
+      saveSkippedRows(next);
+      return next;
+    });
+  }
 
   // Library search state
   const [libraryQuery, setLibraryQuery] = useState("");
@@ -134,6 +275,7 @@ export default function Setup() {
     setBooksState(getBooks());
     setLibrariesState(getLibraries());
     setBskyLastSync(getBookhiveLastSync());
+    setSkippedRowsState(getSkippedRows());
   }, []);
 
   useEffect(() => {
@@ -236,10 +378,14 @@ export default function Setup() {
           }
         }
 
+        // Track skipped rows so the user can manually search for them
+        setSkippedRows(result.skipped);
+
         posthog?.capture("csv_uploaded", {
           format: result.format,
           book_count: result.books.length,
           author_count: result.authors.length,
+          skipped_count: result.skipped.length,
           total_rows: result.totalRows,
           manual_cleared: clearManualOnImport,
         });
@@ -252,13 +398,15 @@ export default function Setup() {
               : result.format === "storygraph"
                 ? "The StoryGraph"
                 : result.format === "lyndi"
-                  ? "Lyndi"
+                  ? "Lyndi CSV"
                   : "CSV";
         const keptManual = clearManualOnImport ? 0 : manualBookCount;
         const authorInfo =
           result.authors.length > 0 ? ` Also added ${result.authors.length} author${result.authors.length === 1 ? "" : "s"} to follow.` : "";
+        const skippedInfo =
+          result.skipped.length > 0 ? ` ${result.skipped.length} row${result.skipped.length === 1 ? "" : "s"} could not be imported (see below).` : "";
         setImportInfo(
-          `Imported ${result.books.length} want-to-read books from ${formatName} (${result.totalRows} total rows in file).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}${authorInfo}`,
+          `Imported ${result.books.length} books from ${formatName} (${result.totalRows} total rows in file).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}${authorInfo}${skippedInfo}`,
         );
         if (fileInputRef.current) fileInputRef.current.value = "";
       } finally {
@@ -719,8 +867,8 @@ export default function Setup() {
                   </h3>
                 </div>
                 <p className="text-xs text-amber-800/80 dark:text-amber-200/70">
-                  Export your reading list from Goodreads, Hardcover, or The StoryGraph. One-time
-                  import — re-upload to refresh.
+                  Export your reading list from Goodreads, Hardcover, The StoryGraph, or use
+                  a simple Lyndi CSV. One-time import — re-upload to refresh.
                 </p>
                 {!booksDone && (
                   <div className="space-y-1">
@@ -783,6 +931,47 @@ export default function Setup() {
                         <li>Scroll to the "Manage Your Data" section</li>
                         <li>Click "Export StoryGraph Library" and download the CSV</li>
                       </ol>
+                    </details>
+                    <details className="text-xs text-gray-600 dark:text-gray-400">
+                      <summary className="cursor-pointer hover:text-gray-800 dark:hover:text-gray-200">
+                        How to structure a Lyndi CSV
+                      </summary>
+                      <div className="mt-2 space-y-2 pl-2">
+                        <p>
+                          Create a CSV file with <strong>Title</strong> and{" "}
+                          <strong>Author</strong> columns. Extra rows at the top (like a
+                          heading) are fine — we'll auto-detect the header row.
+                        </p>
+                        <div className="bg-gray-100 dark:bg-gray-700 rounded p-2 font-mono text-[11px] leading-relaxed">
+                          Books to Read
+                          <br />
+                          Title,Author
+                          <br />
+                          The Great Gatsby,F. Scott Fitzgerald
+                          <br />
+                          ,Tana French
+                          <br />
+                          In the Woods,Tana French
+                        </div>
+                        <ul className="list-disc list-inside space-y-1">
+                          <li>
+                            Rows with both <strong>Title</strong> and <strong>Author</strong>{" "}
+                            are imported as books
+                          </li>
+                          <li>
+                            Rows with only an <strong>Author</strong> (no title) are added as
+                            followed authors on the Authors page
+                          </li>
+                          <li>
+                            Lyndi books have the lowest merge priority — they'll be replaced by
+                            matches from Goodreads, Hardcover, or StoryGraph imports
+                          </li>
+                          <li>
+                            Re-uploading a Lyndi CSV replaces only Lyndi-sourced books, leaving
+                            other sources untouched
+                          </li>
+                        </ul>
+                      </div>
                     </details>
                   </div>
                 )}
@@ -1052,6 +1241,18 @@ export default function Setup() {
             </button>
           )}
         </div>
+
+        {/* Skipped rows from Lyndi CSV — persisted so they survive navigation */}
+        {skippedRows.length > 0 && (
+          <SkippedRowsPanel
+            skippedRows={skippedRows}
+            libraries={libraries}
+            onBookAdded={() => setBooksState(getBooks())}
+            onDismiss={(idx) =>
+              setSkippedRows((prev) => prev.filter((_, i) => i !== idx))
+            }
+          />
+        )}
       </div>
     </main>
   );

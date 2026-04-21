@@ -23,7 +23,7 @@ export interface Book {
   author: string;
   isbn13?: string;
   imageUrl?: string;
-  source: "goodreads" | "hardcover" | "storygraph" | "bookhive" | "unknown";
+  source: "goodreads" | "hardcover" | "storygraph" | "bookhive" | "lyndi" | "unknown";
   sourceUrl?: string;
   manual?: boolean;
   /** Open Library Work ID (e.g. "OL45883W"); edition-independent. */
@@ -112,6 +112,7 @@ const SOURCE_PRIORITY: Record<Book["source"], number> = {
   hardcover: 1,
   storygraph: 1,
   unknown: 2,
+  lyndi: 3,
 };
 
 /**
@@ -184,6 +185,22 @@ export function clearBookhiveLastSync() {
   remove("bookhive-last-sync");
 }
 
+// --- Skipped Rows (persisted so they survive page navigations) ---
+
+import type { SkippedRow } from "./csv-parser";
+
+export function getSkippedRows(): SkippedRow[] {
+  return get<SkippedRow[]>("skipped-rows") ?? [];
+}
+
+export function setSkippedRows(rows: SkippedRow[]) {
+  set("skipped-rows", rows);
+}
+
+export function clearSkippedRows() {
+  remove("skipped-rows");
+}
+
 // --- Authors ---
 
 export function getAuthors(): AuthorEntry[] {
@@ -217,6 +234,7 @@ export function clearAuthors() {
 export function clearAll() {
   clearLibraries();
   clearBooks();
+  clearSkippedRows();
   clearAuthors();
   clearBookhiveLastSync();
   remove("availability");

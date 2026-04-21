@@ -34,6 +34,17 @@ function PrimarySourceLink({ book }: { book: Book }) {
     );
   }
 
+  if (book.source === "lyndi") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-gray-400">
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h5v7h7v9H6z" />
+        </svg>
+        Lyndi CSV
+      </span>
+    );
+  }
+
   if (book.source === "bookhive") {
     return (
       <a
@@ -360,7 +371,7 @@ export function BookCard({
           <div className="flex items-center justify-between px-4 py-2 border-t border-gray-50 dark:border-gray-700/50">
             <div className="flex items-center gap-3">
               <SourceLinks book={book} />
-              {book.manual && onRemove && (
+              {(book.manual || book.source === "lyndi") && onRemove && (
                 <button
                   onClick={onRemove}
                   className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
@@ -407,7 +418,7 @@ export function BookCard({
         <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100 dark:border-gray-700">
           <div className="flex items-center gap-3">
             <SourceLinks book={book} />
-            {book.manual && onRemove && (
+            {(book.manual || book.source === "lyndi") && onRemove && (
               <button
                 onClick={onRemove}
                 className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"

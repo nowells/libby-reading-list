@@ -36,6 +36,8 @@ interface BookSearchPickerProps {
   onSelect: (item: LibbyMediaItem) => void;
   onCancel?: () => void;
   placeholder?: string;
+  /** Pre-fill the search box and trigger an initial search on mount. */
+  initialQuery?: string;
   existingBooks?: ExistingBook[];
 }
 
@@ -44,6 +46,7 @@ export function BookSearchPicker({
   onSelect,
   onCancel,
   placeholder = "Search for a book...",
+  initialQuery,
   existingBooks = [],
 }: BookSearchPickerProps) {
   const existingSet = useMemo(() => {
@@ -60,16 +63,22 @@ export function BookSearchPicker({
     return existingSet.has(`${title}\0${author}`);
   }
 
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [results, setResults] = useState<LibbyMediaItem[]>([]);
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const didInitialSearch = useRef(false);
 
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+    // Auto-search on mount if initialQuery is provided
+    if (initialQuery && initialQuery.trim().length >= 2 && !didInitialSearch.current) {
+      didInitialSearch.current = true;
+      handleQueryChange(initialQuery);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleQueryChange(value: string) {
     setQuery(value);
