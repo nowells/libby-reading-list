@@ -8,7 +8,7 @@ export function meta() {
     {
       name: "description",
       content:
-        "Upload your Goodreads, Hardcover, or StoryGraph reading list — or sign in with Bluesky to live-sync your Bookhive library — and instantly see which books are available to borrow for free at your local library through Libby.",
+        "Upload your Goodreads, Hardcover, StoryGraph, or Lyndi CSV reading list — or sign in with Bluesky to live-sync your Bookhive library — and instantly see which books are available to borrow for free at your local library through Libby.",
     },
   ];
 }
@@ -89,6 +89,11 @@ export default function Home() {
                   >
                     The StoryGraph
                   </a>
+                </li>
+                <li>
+                  Or create a simple{" "}
+                  <span className="font-medium text-amber-700 dark:text-amber-400">Lyndi CSV</span>{" "}
+                  with Title and Author columns — great for custom lists
                 </li>
               </ol>
             </li>
