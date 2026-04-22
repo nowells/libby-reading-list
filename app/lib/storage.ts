@@ -32,6 +32,12 @@ export interface Book {
   canonicalTitle?: string;
   /** Canonical author from Open Library, if different from the source author. */
   canonicalAuthor?: string;
+  /** Subject tags / genres from Open Library. */
+  subjects?: string[];
+  /** Median page count from Open Library. */
+  pageCount?: number;
+  /** Year the work was first published. */
+  firstPublishYear?: number;
 }
 
 function get<T>(key: string): T | null {

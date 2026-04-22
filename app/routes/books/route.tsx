@@ -73,6 +73,7 @@ export default function Books() {
     refreshBook,
     refreshAll,
     oldestFetchedAt,
+    enrichmentProgress,
   } = useAvailabilityChecker(books, libraries, { onBookEnriched: handleBookEnriched });
 
   const categoryCounts = useMemo(() => {
@@ -221,6 +222,25 @@ export default function Books() {
                 <span className="hidden sm:inline">Authors</span>
               </Link>
               <Link
+                to="/stats"
+                className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Stats</span>
+              </Link>
+              <Link
                 to="/setup"
                 className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               >
@@ -257,12 +277,12 @@ export default function Books() {
                 <button
                   type="button"
                   onClick={handleRefreshAll}
-                  disabled={loadingCount > 0}
+                  disabled={loadingCount > 0 || enrichmentProgress !== null}
                   title="Refresh Libby availability"
                   className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-70 whitespace-nowrap"
                 >
                   <svg
-                    className={`w-3 h-3 ${loadingCount > 0 ? "animate-spin" : ""}`}
+                    className={`w-3 h-3 ${loadingCount > 0 || enrichmentProgress ? "animate-spin" : ""}`}
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -275,9 +295,11 @@ export default function Books() {
                     />
                   </svg>
                   <span>
-                    {loadingCount > 0
-                      ? `Syncing Libby... ${checkedCount}/${totalBooks}`
-                      : `Synced from Libby ${timeAgo(oldestFetchedAt)}`}
+                    {enrichmentProgress
+                      ? `Enriching from Open Library... ${enrichmentProgress.done}/${enrichmentProgress.total}`
+                      : loadingCount > 0
+                        ? `Syncing Libby... ${checkedCount}/${totalBooks}`
+                        : `Synced from Libby ${timeAgo(oldestFetchedAt)}`}
                   </span>
                 </button>
               )}
@@ -311,13 +333,14 @@ export default function Books() {
           </div>
         )}
 
-        {books.length > 0 && checkedCount < totalBooks && (
+        {books.length > 0 && (checkedCount < totalBooks || enrichmentProgress) && (
           <ProgressBar
             checked={checkedCount}
             total={totalBooks}
             loading={loadingCount}
             oldestFetchedAt={oldestFetchedAt}
             onRefreshAll={handleRefreshAll}
+            enrichmentProgress={enrichmentProgress}
           />
         )}
 

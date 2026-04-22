@@ -352,12 +352,24 @@ export async function enrichBooksWithWorkId(
       }
 
       if (enrichment) {
+        // Fetch work metadata (subjects, publish year) if not already present
+        let { subjects, firstPublishYear } = mine.b;
+        if (!subjects || !firstPublishYear) {
+          const meta = await getWorkMetadata(enrichment.workId, opts.signal);
+          if (meta) {
+            subjects = subjects ?? (meta.subjects.length > 0 ? meta.subjects : undefined);
+            firstPublishYear = firstPublishYear ?? meta.firstPublishYear;
+          }
+        }
+
         out[mine.i] = {
           ...mine.b,
           workId: enrichment.workId,
           canonicalTitle: enrichment.canonicalTitle ?? mine.b.canonicalTitle,
           canonicalAuthor: enrichment.canonicalAuthor ?? mine.b.canonicalAuthor,
           isbn13: mine.b.isbn13 ?? foundIsbn,
+          subjects,
+          firstPublishYear,
         };
       }
       done += 1;
@@ -471,5 +483,85 @@ export async function getWorkEditionIsbns(workId: string, signal?: AbortSignal):
   });
 
   olInflight.set(cacheKey, promise);
+  return promise;
+}
+
+// --- Work Metadata (subjects, publish year) ---
+
+const WORK_META_CACHE_PREFIX = "shelfcheck:ol-work-meta:";
+
+interface WorkMetadata {
+  subjects: string[];
+  firstPublishYear?: number;
+}
+
+interface WorkMetaCacheEntry {
+  v: WorkMetadata;
+  t: number;
+}
+
+/**
+ * Fetch work-level metadata (subjects, first publish year) from Open Library,
+ * with localStorage caching and in-flight deduplication.
+ */
+export async function getWorkMetadata(
+  workId: string,
+  signal?: AbortSignal,
+): Promise<WorkMetadata | null> {
+  if (!/^OL[A-Z0-9]+W$/.test(workId)) return null;
+
+  try {
+    const raw = localStorage.getItem(WORK_META_CACHE_PREFIX + workId);
+    if (raw) {
+      const entry = JSON.parse(raw) as WorkMetaCacheEntry;
+      if (Date.now() <= entry.t) return entry.v;
+    }
+  } catch {
+    // ignore
+  }
+
+  const inflightKey = `work-meta:${workId}`;
+  const existing = olInflight.get(inflightKey);
+  if (existing) return existing as Promise<WorkMetadata | null>;
+
+  const promise = (async () => {
+    try {
+      const res = await fetch(`${BASE}/works/${workId}.json`, {
+        signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as {
+        subjects?: string[];
+        first_publish_date?: string;
+      };
+
+      const subjects = (json.subjects ?? [])
+        .filter((s): s is string => typeof s === "string")
+        .slice(0, 20);
+
+      let firstPublishYear: number | undefined;
+      if (json.first_publish_date) {
+        const yearMatch = json.first_publish_date.match(/\d{4}/);
+        if (yearMatch) firstPublishYear = parseInt(yearMatch[0], 10);
+      }
+
+      const meta: WorkMetadata = { subjects, firstPublishYear };
+
+      try {
+        const entry: WorkMetaCacheEntry = { v: meta, t: Date.now() + POSITIVE_TTL_MS };
+        localStorage.setItem(WORK_META_CACHE_PREFIX + workId, JSON.stringify(entry));
+      } catch {
+        // ignore
+      }
+      return meta;
+    } catch {
+      return null;
+    }
+  })().finally(() => {
+    olInflight.delete(inflightKey);
+  });
+
+  olInflight.set(inflightKey, promise);
   return promise;
 }
