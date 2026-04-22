@@ -61,14 +61,9 @@ export default function Books() {
   const [formatFilter, setFormatFilter] = useState<FormatFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const handleBookEnriched = useCallback(
-    (bookId: string, updates: Partial<Book>) => {
-      setBooksState((prev) =>
-        prev.map((b) => (b.id === bookId ? { ...b, ...updates } : b)),
-      );
-    },
-    [],
-  );
+  const handleBookEnriched = useCallback((bookId: string, updates: Partial<Book>) => {
+    setBooksState((prev) => prev.map((b) => (b.id === bookId ? { ...b, ...updates } : b)));
+  }, []);
 
   const {
     availMap,

@@ -16,6 +16,7 @@ export function useAvailabilityChecker(
   availMapRef.current = availMap;
   const [refreshToken, setRefreshToken] = useState(0);
   const refreshingRef = useRef(false);
+  const onBookEnriched = opts?.onBookEnriched;
 
   const totalBooks = books.length;
   const checkedCount = Object.values(availMap).filter(
@@ -24,7 +25,7 @@ export function useAvailabilityChecker(
   const loadingCount = Object.values(availMap).filter((s) => s.status === "loading").length;
 
   const fetchAndCache = useCallback(
-    async (book: Book, opts: { liveAvailability?: boolean } = {}): Promise<BookAvailState> => {
+    async (book: Book, fetchOpts: { liveAvailability?: boolean } = {}): Promise<BookAvailState> => {
       try {
         // The primary ISBN is tried first; alternate-edition ISBNs from
         // Open Library are resolved lazily and only fetched when the
@@ -36,11 +37,16 @@ export function useAvailabilityChecker(
         // Search across all libraries and merge results
         const allResults = await Promise.all(
           libraries.map((lib) =>
-            findBookInLibrary(lib.key, book.canonicalTitle ?? book.title, book.canonicalAuthor ?? book.author, {
-              primaryIsbn: book.isbn13,
-              getAlternateIsbns,
-              liveAvailability: opts.liveAvailability,
-            }).catch(
+            findBookInLibrary(
+              lib.key,
+              book.canonicalTitle ?? book.title,
+              book.canonicalAuthor ?? book.author,
+              {
+                primaryIsbn: book.isbn13,
+                getAlternateIsbns,
+                liveAvailability: fetchOpts.liveAvailability,
+              },
+            ).catch(
               () =>
                 ({
                   bookTitle: book.canonicalTitle ?? book.title,
@@ -111,7 +117,7 @@ export function useAvailabilityChecker(
             isbn13: result.isbn13,
           };
           updateBook(book.id, updates);
-          opts?.onBookEnriched?.(book.id, updates);
+          onBookEnriched?.(book.id, updates);
         }
       }
 
@@ -122,7 +128,7 @@ export function useAvailabilityChecker(
       const result = await fetchAndCache(enrichedBook, { liveAvailability: true });
       setAvailMap((prev) => ({ ...prev, [book.id]: result }));
     },
-    [fetchAndCache, opts?.onBookEnriched],
+    [fetchAndCache, onBookEnriched],
   );
 
   const refreshAll = useCallback(() => {
@@ -132,7 +138,7 @@ export function useAvailabilityChecker(
 
   useEffect(() => {
     refreshingRef.current = true;
-    let cancelled = false;
+    const cancelledRef = { current: false };
 
     const forceRefresh = refreshToken > 0;
 
@@ -169,43 +175,42 @@ export function useAvailabilityChecker(
     }
 
     // Re-enrich books missing workId from OpenLibrary before availability check
-    const needsEnrichment = toFetch.filter(
-      (b) => !b.workId && (b.isbn13 || (b.title && b.author)),
-    );
+    const needsEnrichment = toFetch.filter((b) => !b.workId && (b.isbn13 || (b.title && b.author)));
 
-    const enrichmentDone = needsEnrichment.length > 0
-      ? enrichBooksWithWorkId(needsEnrichment).then((enriched) => {
-          if (cancelled) return;
-          const enrichedMap = new Map<string, Book>();
-          for (let i = 0; i < needsEnrichment.length; i++) {
-            const orig = needsEnrichment[i];
-            const result = enriched[i];
-            if (result.workId && result.workId !== orig.workId) {
-              enrichedMap.set(orig.id, result);
-              const updates: Partial<Book> = {
-                workId: result.workId,
-                canonicalTitle: result.canonicalTitle,
-                canonicalAuthor: result.canonicalAuthor,
-                isbn13: result.isbn13,
-              };
-              updateBook(orig.id, updates);
-              opts?.onBookEnriched?.(orig.id, updates);
+    const enrichmentDone =
+      needsEnrichment.length > 0
+        ? enrichBooksWithWorkId(needsEnrichment).then((enrichedBooks) => {
+            if (cancelledRef.current) return;
+            const enrichedMap = new Map<string, Book>();
+            for (let i = 0; i < needsEnrichment.length; i++) {
+              const orig = needsEnrichment[i];
+              const result = enrichedBooks[i];
+              if (result.workId && result.workId !== orig.workId) {
+                enrichedMap.set(orig.id, result);
+                const updates: Partial<Book> = {
+                  workId: result.workId,
+                  canonicalTitle: result.canonicalTitle,
+                  canonicalAuthor: result.canonicalAuthor,
+                  isbn13: result.isbn13,
+                };
+                updateBook(orig.id, updates);
+                onBookEnriched?.(orig.id, updates);
+              }
             }
-          }
-          // Update toFetch entries in-place with enriched data
-          for (let i = 0; i < toFetch.length; i++) {
-            const enriched = enrichedMap.get(toFetch[i].id);
-            if (enriched) toFetch[i] = enriched;
-          }
-        })
-      : Promise.resolve();
+            // Update toFetch entries in-place with enriched data
+            for (let i = 0; i < toFetch.length; i++) {
+              const updated = enrichedMap.get(toFetch[i].id);
+              if (updated) toFetch[i] = updated;
+            }
+          })
+        : Promise.resolve();
 
     const CONCURRENCY = 4;
     let idx = 0;
 
     async function processNext(): Promise<void> {
       await enrichmentDone;
-      while (idx < toFetch.length && !cancelled) {
+      while (idx < toFetch.length && !cancelledRef.current) {
         const current = idx++;
         const book = toFetch[current];
         setAvailMap((prev) => ({
@@ -213,7 +218,7 @@ export function useAvailabilityChecker(
           [book.id]: { ...prev[book.id], status: "loading" },
         }));
         const result = await fetchAndCache(book);
-        if (!cancelled) {
+        if (!cancelledRef.current) {
           setAvailMap((prev) => ({ ...prev, [book.id]: result }));
         }
       }
@@ -227,9 +232,9 @@ export function useAvailabilityChecker(
     });
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
     };
-  }, [books, fetchAndCache, refreshToken, opts?.onBookEnriched]);
+  }, [books, fetchAndCache, refreshToken, onBookEnriched]);
 
   // Background auto-refresh: check every 30 min for stale cached entries
   useEffect(() => {
