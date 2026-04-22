@@ -340,8 +340,10 @@ export async function enrichBooksWithWorkId(
       if (mine.b.isbn13) {
         // ISBN lookup (fast, precise)
         enrichment = await lookupIsbn(mine.b.isbn13, opts.signal);
-      } else if (mine.b.title && mine.b.author) {
-        // Title+author search (slower, fuzzy)
+      }
+
+      // Fall back to title+author search when ISBN lookup misses or no ISBN
+      if (!enrichment && mine.b.title && mine.b.author) {
         const searchResult = await searchByTitleAuthor(mine.b.title, mine.b.author, opts.signal);
         if (searchResult) {
           enrichment = searchResult;
