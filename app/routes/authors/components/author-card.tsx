@@ -93,7 +93,7 @@ function WorkRow({
               {/* ETA */}
               <span className="text-sm">
                 {isAvailable ? (
-                  <span className="text-green-600 dark:text-green-400 font-medium text-xs px-2 py-0.5 bg-green-50 dark:bg-green-900/30 rounded-full">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium text-xs px-2 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 rounded-full">
                     Now
                   </span>
                 ) : bestEta != null && bestEta < Infinity ? (
@@ -153,7 +153,7 @@ function WorkRow({
                   className={`text-right tabular-nums text-xs ${r.availability.numberOfHolds > 100 ? "text-red-500" : "text-gray-600 dark:text-gray-400"}`}
                 >
                   {r.availability.isAvailable ? (
-                    <span className="text-green-600 dark:text-green-400">0 holds</span>
+                    <span className="text-emerald-600 dark:text-emerald-400">0 holds</span>
                   ) : (
                     `${r.availability.numberOfHolds} holds`
                   )}
@@ -163,7 +163,7 @@ function WorkRow({
                 </span>
                 <span className="text-right text-xs">
                   {r.availability.isAvailable ? (
-                    <span className="text-green-600 dark:text-green-400 font-medium">Now</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">Now</span>
                   ) : (
                     <EtaBadge days={r.availability.estimatedWaitDays} />
                   )}
@@ -195,7 +195,21 @@ export function categorizeWork(
   return "waiting";
 }
 
-const CATEGORY_ORDER = { available: 0, soon: 1, waiting: 2, not_found: 3 };
+export const CATEGORY_ORDER = { available: 0, soon: 1, waiting: 2, not_found: 3 };
+
+/** Best availability category across all works for an author. */
+export function bestAuthorCategory(
+  works: AuthorBookResult[],
+  ff: AuthorFormatFilter,
+): "available" | "soon" | "waiting" | "not_found" {
+  let best: "available" | "soon" | "waiting" | "not_found" = "not_found";
+  for (const w of works) {
+    const cat = categorizeWork(w, ff);
+    if (CATEGORY_ORDER[cat] < CATEGORY_ORDER[best]) best = cat;
+    if (best === "available") break;
+  }
+  return best;
+}
 
 /** Best ETA across a work's libby results (0 for available, Infinity for not found). */
 function bestEtaDays(w: AuthorBookResult, ff: AuthorFormatFilter): number {
@@ -216,6 +230,7 @@ export function AuthorCard({
   libraries,
   formatFilter = "all",
   categoryFilter = null,
+  searchQuery = "",
   onRefresh,
   onRemove,
 }: {
@@ -224,6 +239,7 @@ export function AuthorCard({
   libraries: LibraryConfig[];
   formatFilter?: AuthorFormatFilter;
   categoryFilter?: AuthorCategoryFilter;
+  searchQuery?: string;
   onRefresh: () => void;
   onRemove: () => void;
 }) {
@@ -231,32 +247,64 @@ export function AuthorCard({
   const [showAll, setShowAll] = useState(false);
   const multiLibrary = libraries.length > 1;
 
-  // Sort works by availability category, then ETA within category, then title
+  // Sort works by availability category, then title
   // When a category filter is active, only show matching works
+  // When searching and the author name doesn't match, only show matching works
+  const authorNameMatches =
+    !searchQuery.trim() ||
+    (state.resolvedName ?? author.name).toLowerCase().includes(searchQuery.toLowerCase());
+
   const sortedWorks = useMemo(() => {
     let works = [...state.works];
     if (categoryFilter) {
       works = works.filter((w) => categorizeWork(w, formatFilter) === categoryFilter);
+    }
+    if (searchQuery.trim() && !authorNameMatches) {
+      const q = searchQuery.toLowerCase();
+      works = works.filter((w) => w.title.toLowerCase().includes(q));
     }
     return works.sort((a, b) => {
       const catDiff =
         CATEGORY_ORDER[categorizeWork(a, formatFilter)] -
         CATEGORY_ORDER[categorizeWork(b, formatFilter)];
       if (catDiff !== 0) return catDiff;
-      // Within same category, sort by best ETA ascending
-      const etaDiff = bestEtaDays(a, formatFilter) - bestEtaDays(b, formatFilter);
-      if (etaDiff !== 0) return etaDiff;
       return a.title.localeCompare(b.title);
     });
-  }, [state.works, formatFilter, categoryFilter]);
+  }, [state.works, formatFilter, categoryFilter, searchQuery, authorNameMatches]);
 
-  const availableCount = categoryFilter
+  const filteredCount = categoryFilter
     ? sortedWorks.length
     : sortedWorks.filter((w) => categorizeWork(w, formatFilter) === "available").length;
   const inLibraryCount = categoryFilter
     ? sortedWorks.length
     : sortedWorks.filter((w) => categorizeWork(w, formatFilter) !== "not_found").length;
   const totalWorks = categoryFilter ? sortedWorks.length : state.works.length;
+
+  // Badge text/color based on active category filter
+  const badgeConfig = (() => {
+    switch (categoryFilter) {
+      case "soon":
+        return {
+          label: "soon",
+          pill: "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300",
+        };
+      case "waiting":
+        return {
+          label: "waiting",
+          pill: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
+        };
+      case "not_found":
+        return {
+          label: "not found",
+          pill: "bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300",
+        };
+      default:
+        return {
+          label: "available",
+          pill: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300",
+        };
+    }
+  })();
 
   const MAX_VISIBLE = 10;
   const visibleWorks = showAll ? sortedWorks : sortedWorks.slice(0, MAX_VISIBLE);
@@ -295,12 +343,6 @@ export function AuthorCard({
           {state.status === "done" && (
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {totalWorks} works &middot; {inLibraryCount} in library
-              {availableCount > 0 && (
-                <span className="text-green-600 dark:text-green-400">
-                  {" "}
-                  &middot; {availableCount} available now
-                </span>
-              )}
             </p>
           )}
           {isLoading && state.progress && (
@@ -320,9 +362,11 @@ export function AuthorCard({
           {isLoading && (
             <span className="inline-block w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
           )}
-          {state.status === "done" && availableCount > 0 && (
-            <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full font-medium">
-              {availableCount} available
+          {state.status === "done" && filteredCount > 0 && (
+            <span
+              className={`hidden sm:inline-flex text-sm px-3 py-1.5 rounded-full font-medium ${badgeConfig.pill}`}
+            >
+              {filteredCount} {badgeConfig.label}
             </span>
           )}
           <svg
