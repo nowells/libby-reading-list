@@ -230,6 +230,7 @@ export function AuthorCard({
   libraries,
   formatFilter = "all",
   categoryFilter = null,
+  searchQuery = "",
   onRefresh,
   onRemove,
 }: {
@@ -238,6 +239,7 @@ export function AuthorCard({
   libraries: LibraryConfig[];
   formatFilter?: AuthorFormatFilter;
   categoryFilter?: AuthorCategoryFilter;
+  searchQuery?: string;
   onRefresh: () => void;
   onRemove: () => void;
 }) {
@@ -245,24 +247,30 @@ export function AuthorCard({
   const [showAll, setShowAll] = useState(false);
   const multiLibrary = libraries.length > 1;
 
-  // Sort works by availability category, then ETA within category, then title
+  // Sort works by availability category, then title
   // When a category filter is active, only show matching works
+  // When searching and the author name doesn't match, only show matching works
+  const authorNameMatches =
+    !searchQuery.trim() ||
+    (state.resolvedName ?? author.name).toLowerCase().includes(searchQuery.toLowerCase());
+
   const sortedWorks = useMemo(() => {
     let works = [...state.works];
     if (categoryFilter) {
       works = works.filter((w) => categorizeWork(w, formatFilter) === categoryFilter);
+    }
+    if (searchQuery.trim() && !authorNameMatches) {
+      const q = searchQuery.toLowerCase();
+      works = works.filter((w) => w.title.toLowerCase().includes(q));
     }
     return works.sort((a, b) => {
       const catDiff =
         CATEGORY_ORDER[categorizeWork(a, formatFilter)] -
         CATEGORY_ORDER[categorizeWork(b, formatFilter)];
       if (catDiff !== 0) return catDiff;
-      // Within same category, sort by best ETA ascending
-      const etaDiff = bestEtaDays(a, formatFilter) - bestEtaDays(b, formatFilter);
-      if (etaDiff !== 0) return etaDiff;
       return a.title.localeCompare(b.title);
     });
-  }, [state.works, formatFilter, categoryFilter]);
+  }, [state.works, formatFilter, categoryFilter, searchQuery, authorNameMatches]);
 
   const filteredCount = categoryFilter
     ? sortedWorks.length

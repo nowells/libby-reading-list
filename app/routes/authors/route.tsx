@@ -545,6 +545,7 @@ export default function Authors() {
                 libraries={libraries}
                 formatFilter={formatFilter as AuthorFormatFilter}
                 categoryFilter={categoryFilter as AuthorCategoryFilter}
+                searchQuery={searchQuery}
                 onRefresh={() => refreshAuthor(author)}
                 onRemove={() => handleRemoveAuthor(author.id)}
               />
