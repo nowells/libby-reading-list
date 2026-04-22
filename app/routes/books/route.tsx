@@ -73,6 +73,7 @@ export default function Books() {
     refreshBook,
     refreshAll,
     oldestFetchedAt,
+    enrichmentProgress,
   } = useAvailabilityChecker(books, libraries, { onBookEnriched: handleBookEnriched });
 
   const categoryCounts = useMemo(() => {
@@ -257,12 +258,12 @@ export default function Books() {
                 <button
                   type="button"
                   onClick={handleRefreshAll}
-                  disabled={loadingCount > 0}
+                  disabled={loadingCount > 0 || enrichmentProgress !== null}
                   title="Refresh Libby availability"
                   className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-70 whitespace-nowrap"
                 >
                   <svg
-                    className={`w-3 h-3 ${loadingCount > 0 ? "animate-spin" : ""}`}
+                    className={`w-3 h-3 ${loadingCount > 0 || enrichmentProgress ? "animate-spin" : ""}`}
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -275,9 +276,11 @@ export default function Books() {
                     />
                   </svg>
                   <span>
-                    {loadingCount > 0
-                      ? `Syncing Libby... ${checkedCount}/${totalBooks}`
-                      : `Synced from Libby ${timeAgo(oldestFetchedAt)}`}
+                    {enrichmentProgress
+                      ? `Enriching from Open Library... ${enrichmentProgress.done}/${enrichmentProgress.total}`
+                      : loadingCount > 0
+                        ? `Syncing Libby... ${checkedCount}/${totalBooks}`
+                        : `Synced from Libby ${timeAgo(oldestFetchedAt)}`}
                   </span>
                 </button>
               )}
@@ -311,13 +314,14 @@ export default function Books() {
           </div>
         )}
 
-        {books.length > 0 && checkedCount < totalBooks && (
+        {books.length > 0 && (checkedCount < totalBooks || enrichmentProgress) && (
           <ProgressBar
             checked={checkedCount}
             total={totalBooks}
             loading={loadingCount}
             oldestFetchedAt={oldestFetchedAt}
             onRefreshAll={handleRefreshAll}
+            enrichmentProgress={enrichmentProgress}
           />
         )}
 

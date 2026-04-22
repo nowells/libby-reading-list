@@ -6,16 +6,23 @@ export function ProgressBar({
   loading,
   oldestFetchedAt,
   onRefreshAll,
+  enrichmentProgress,
 }: {
   checked: number;
   total: number;
   loading: number;
   oldestFetchedAt: number | null;
   onRefreshAll: () => void;
+  enrichmentProgress?: { done: number; total: number } | null;
 }) {
   if (total === 0) return null;
-  const pct = Math.round((checked / total) * 100);
-  const done = checked === total && loading === 0;
+
+  const enriching = enrichmentProgress != null;
+  const enrichPct = enriching
+    ? Math.round((enrichmentProgress.done / enrichmentProgress.total) * 100)
+    : 0;
+  const availPct = Math.round((checked / total) * 100);
+  const done = checked === total && loading === 0 && !enriching;
 
   return (
     <div className="mb-6">
@@ -30,6 +37,8 @@ export function ProgressBar({
                 </span>
               )}
             </>
+          ) : enriching ? (
+            `Enriching from Open Library... ${enrichmentProgress.done} / ${enrichmentProgress.total}`
           ) : (
             `Checking availability... ${checked} / ${total}`
           )}
@@ -43,14 +52,16 @@ export function ProgressBar({
               Refresh All
             </button>
           )}
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{pct}%</span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {enriching ? `${enrichPct}%` : `${availPct}%`}
+          </span>
         </div>
       </div>
       {!done && (
         <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
           <div
-            className="h-full rounded-full transition-all duration-300 bg-amber-500"
-            style={{ width: `${pct}%` }}
+            className={`h-full rounded-full transition-all duration-300 ${enriching ? "bg-purple-500" : "bg-amber-500"}`}
+            style={{ width: `${enriching ? enrichPct : availPct}%` }}
           />
         </div>
       )}

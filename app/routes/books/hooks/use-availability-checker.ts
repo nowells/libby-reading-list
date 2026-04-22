@@ -17,6 +17,10 @@ export function useAvailabilityChecker(
   const [refreshToken, setRefreshToken] = useState(0);
   const refreshingRef = useRef(false);
   const onBookEnriched = opts?.onBookEnriched;
+  const [enrichmentProgress, setEnrichmentProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
   const totalBooks = books.length;
   const checkedCount = Object.values(availMap).filter(
@@ -107,7 +111,9 @@ export function useAvailabilityChecker(
       // Re-enrich from OpenLibrary if this book is missing a workId
       let enrichedBook = book;
       if (!book.workId && (book.isbn13 || (book.title && book.author))) {
+        setEnrichmentProgress({ done: 0, total: 1 });
         const [result] = await enrichBooksWithWorkId([book]);
+        setEnrichmentProgress(null);
         if (result.workId) {
           enrichedBook = result;
           const updates: Partial<Book> = {
@@ -179,7 +185,10 @@ export function useAvailabilityChecker(
 
     const enrichmentDone =
       needsEnrichment.length > 0
-        ? enrichBooksWithWorkId(needsEnrichment).then((enrichedBooks) => {
+        ? enrichBooksWithWorkId(needsEnrichment, {
+            onProgress: (done, total) => setEnrichmentProgress({ done, total }),
+          }).then((enrichedBooks) => {
+            setEnrichmentProgress(null);
             if (cancelledRef.current) return;
             const enrichedMap = new Map<string, Book>();
             for (let i = 0; i < needsEnrichment.length; i++) {
@@ -305,5 +314,6 @@ export function useAvailabilityChecker(
     refreshBook,
     refreshAll,
     oldestFetchedAt,
+    enrichmentProgress,
   };
 }
