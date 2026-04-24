@@ -43,12 +43,10 @@ describe("LibraryIcon", () => {
   });
 
   it("falls back to initial letter when logo image fails to load", async () => {
-    worker.use(
-      http.get("https://example.com/lapl-logo.png", () => {
-        return new HttpResponse(null, { status: 404 });
-      }),
-    );
     const screen = await render(<LibraryIcon libraryKey="lapl" libraries={mockLibraries} />);
+    // Manually trigger the error event on the img element to simulate a load failure
+    const img = screen.container.querySelector("img")!;
+    img.dispatchEvent(new Event("error"));
     // After the image fails, it should fall back to the initial letter
     await expect.element(screen.getByText("L")).toBeVisible();
   });
