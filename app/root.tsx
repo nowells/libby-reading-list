@@ -9,6 +9,7 @@ import {
 } from "react-router";
 
 import { ThemeSelector } from "~/components/theme-selector";
+import { Logo } from "~/components/logo";
 import type { Route } from "./+types/root";
 import "./app.css";
 
@@ -63,8 +64,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
       </head>
-      <body>
-        {children}
+      <body className="min-h-screen flex flex-col">
+        <div className="flex-1">{children}</div>
         <footer className="py-4 text-center text-sm text-gray-400 dark:text-gray-500">
           <div className="flex items-center justify-center gap-2 flex-wrap">
             <span>Made by Nowell for Carmen with ❤️</span>
@@ -95,32 +96,100 @@ export default function App() {
   return <Outlet />;
 }
 
+export function HydrateFallback() {
+  return (
+    <main className="min-h-screen flex items-center justify-center">
+      <div className="text-center">
+        <Logo className="w-16 h-16 mx-auto mb-4 animate-pulse" />
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">ShelfCheck</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+      </div>
+    </main>
+  );
+}
+
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  let message = "Oops!";
-  let details = "An unexpected error occurred.";
+  let title = "Something went wrong";
+  let details = "An unexpected error occurred. Please try refreshing the page.";
   let stack: string | undefined;
+  let statusCode: number | undefined;
 
   const posthog = usePostHog();
   posthog?.captureException(error);
 
   if (isRouteErrorResponse(error)) {
-    message = error.status === 404 ? "404" : "Error";
-    details =
-      error.status === 404 ? "The requested page could not be found." : error.statusText || details;
-  } else if (import.meta.env.DEV && error && error instanceof Error) {
-    details = error.message;
-    stack = error.stack;
+    statusCode = error.status;
+    if (error.status === 404) {
+      title = "Page not found";
+      details = "The page you're looking for doesn't exist or has been moved.";
+    } else {
+      title = `Error ${error.status}`;
+      details = error.statusText || details;
+    }
+  } else if (error instanceof Error) {
+    if (import.meta.env.DEV) {
+      details = error.message;
+      stack = error.stack;
+    }
   }
 
   return (
-    <main className="pt-16 p-4 container mx-auto">
-      <h1>{message}</h1>
-      <p>{details}</p>
-      {stack && (
-        <pre className="w-full p-4 overflow-x-auto">
-          <code>{stack}</code>
-        </pre>
-      )}
+    <main className="min-h-screen flex items-center justify-center p-4">
+      <div className="max-w-md w-full text-center">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8">
+          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+            <svg
+              className="w-7 h-7 text-red-500 dark:text-red-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+              />
+            </svg>
+          </div>
+
+          {statusCode && (
+            <p className="text-sm font-medium text-gray-400 dark:text-gray-500 mb-1">
+              {statusCode}
+            </p>
+          )}
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{title}</h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{details}</p>
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-lg transition-colors text-sm"
+            >
+              Refresh page
+            </button>
+            {statusCode === 404 && (
+              <a
+                href="/"
+                className="w-full inline-block px-4 py-2.5 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 font-medium rounded-lg transition-colors text-sm"
+              >
+                Go to homepage
+              </a>
+            )}
+          </div>
+        </div>
+
+        {stack && (
+          <details className="mt-4 text-left">
+            <summary className="text-xs text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-400">
+              Technical details
+            </summary>
+            <pre className="mt-2 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg text-xs text-gray-600 dark:text-gray-400 overflow-x-auto max-h-48">
+              <code>{stack}</code>
+            </pre>
+          </details>
+        )}
+      </div>
     </main>
   );
 }
