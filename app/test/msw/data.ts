@@ -51,7 +51,7 @@ export const mockBooks: Book[] = [
 
 // --- Authors ---
 
-export const mockAuthors: AuthorEntry[] = [
+const mockAuthors: AuthorEntry[] = [
   { id: "author-1", name: "Adrian Tchaikovsky", olKey: "OL7313085A" },
   { id: "author-2", name: "Frank Herbert" },
 ];
@@ -89,9 +89,9 @@ function makeAvailResult(overrides: Partial<BookAvailabilityResult> = {}): BookA
   };
 }
 
-export const availableResult = makeAvailResult();
+const availableResult = makeAvailResult();
 
-export const waitlistResult = makeAvailResult({
+const waitlistResult = makeAvailResult({
   mediaItem: {
     ...makeAvailResult().mediaItem,
     id: "media-2",
@@ -111,7 +111,7 @@ export const waitlistResult = makeAvailResult({
   formatType: "audiobook",
 });
 
-export const soonResult = makeAvailResult({
+const soonResult = makeAvailResult({
   mediaItem: {
     ...makeAvailResult().mediaItem,
     id: "media-3",

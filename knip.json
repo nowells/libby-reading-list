@@ -4,6 +4,7 @@
     "-lintignore"
   ],
   "ignore": [
-    "scripts/**"
+    "scripts/**",
+    ".claude/**"
   ]
 }

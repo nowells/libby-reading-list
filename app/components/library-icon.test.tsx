@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render } from "vitest-browser-react";
+import { http, HttpResponse } from "msw";
+import { worker } from "~/test/setup";
 import { componentLocator } from "~/test/screenshot";
 import { LibraryIcon, LibraryName } from "./library-icon";
 import { mockLibraries } from "~/test/msw/data";
@@ -38,6 +40,17 @@ describe("LibraryIcon", () => {
   it("library icon with initial matches screenshot", async () => {
     const screen = await render(<LibraryIcon libraryKey="nypl" libraries={mockLibraries} />);
     await expect.element(componentLocator(screen)).toMatchScreenshot("library-icon-initial");
+  });
+
+  it("falls back to initial letter when logo image fails to load", async () => {
+    worker.use(
+      http.get("https://example.com/lapl-logo.png", () => {
+        return new HttpResponse(null, { status: 404 });
+      }),
+    );
+    const screen = await render(<LibraryIcon libraryKey="lapl" libraries={mockLibraries} />);
+    // After the image fails, it should fall back to the initial letter
+    await expect.element(screen.getByText("L")).toBeVisible();
   });
 });
 

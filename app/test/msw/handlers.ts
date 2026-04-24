@@ -10,6 +10,7 @@ import {
 } from "./data";
 import coverChildrenOfTime from "../fixtures/cover-children-of-time.png";
 import coverDune from "../fixtures/cover-dune.png";
+import logoLapl from "../fixtures/logo-lapl.png";
 
 const coverMap: Record<string, string> = {
   "9780316452502": coverChildrenOfTime,
@@ -79,6 +80,6 @@ export const handlers = [
   }),
 
   http.get("https://example.com/lapl-logo.png", () => {
-    return new HttpResponse(null, { status: 404 });
+    return HttpResponse.redirect(logoLapl, 302);
   }),
 ];

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { timeAgo, libbyTitleUrl, PAGE_SIZE, formatDuration, fuzzyMatch } from "./utils";
+import {
+  timeAgo,
+  libbyTitleUrl,
+  PAGE_SIZE,
+  formatDuration,
+  fuzzyMatch,
+  formatAudiobookDuration,
+} from "./utils";
 
 describe("timeAgo", () => {
   it("returns 'just now' for recent timestamps", () => {
@@ -46,6 +53,14 @@ describe("formatDuration", () => {
   it("formats minutes only for short durations", () => {
     expect(formatDuration("0:45:00")).toBe("45m");
   });
+
+  it("formats MM:SS (2-part) as minutes", () => {
+    expect(formatDuration("45:30")).toBe("45m");
+  });
+
+  it("returns raw string for unexpected format", () => {
+    expect(formatDuration("abc")).toBe("abc");
+  });
 });
 
 describe("fuzzyMatch", () => {
@@ -76,5 +91,107 @@ describe("fuzzyMatch", () => {
 
   it("matches prefix of a word", () => {
     expect(fuzzyMatch("sand", "The Stormlight Archive", "Brandon Sanderson")).toBe(true);
+  });
+
+  it("rejects short non-matching subsequences (length < 3)", () => {
+    // 2-char term "zx" doesn't match any substring or word prefix, and is too short for subsequence
+    expect(fuzzyMatch("zx", "The Stormlight Archive", "Brandon Sanderson")).toBe(false);
+  });
+
+  it("rejects out-of-order subsequences", () => {
+    // "ndnarb" is "brandon" reversed — subsequence matching checks in-order
+    expect(fuzzyMatch("ndnarb", "The Stormlight Archive", "Brandon Sanderson")).toBe(false);
+  });
+});
+
+describe("formatAudiobookDuration", () => {
+  it("returns null for empty results", () => {
+    expect(formatAudiobookDuration([])).toBeNull();
+  });
+
+  it("returns null when no audiobook formats exist", () => {
+    const results = [
+      {
+        formatType: "ebook",
+        mediaItem: { formats: [{ duration: "10:30:00" }] },
+      },
+    ];
+    expect(formatAudiobookDuration(results)).toBeNull();
+  });
+
+  it("returns single duration for one audiobook", () => {
+    const results = [
+      {
+        formatType: "audiobook",
+        mediaItem: { formats: [{ duration: "13:11:00" }] },
+      },
+    ];
+    expect(formatAudiobookDuration(results)).toBe("13h 11m");
+  });
+
+  it("collapses range within 10 minutes to single value", () => {
+    const results = [
+      {
+        formatType: "audiobook",
+        mediaItem: { formats: [{ duration: "8:30:00" }] },
+      },
+      {
+        formatType: "audiobook",
+        mediaItem: { formats: [{ duration: "8:38:00" }] },
+      },
+    ];
+    expect(formatAudiobookDuration(results)).toBe("8h 38m");
+  });
+
+  it("shows range when difference exceeds 10 minutes", () => {
+    const results = [
+      {
+        formatType: "audiobook",
+        mediaItem: { formats: [{ duration: "8:30:00" }] },
+      },
+      {
+        formatType: "audiobook",
+        mediaItem: { formats: [{ duration: "12:15:00" }] },
+      },
+    ];
+    expect(formatAudiobookDuration(results)).toBe("8h 30m – 12h 15m");
+  });
+
+  it("skips formats without duration", () => {
+    const results = [
+      {
+        formatType: "audiobook",
+        mediaItem: { formats: [{ duration: "10:00:00" }, {}] },
+      },
+    ];
+    expect(formatAudiobookDuration(results)).toBe("10h");
+  });
+
+  it("returns null when audiobook has no durations at all", () => {
+    const results = [
+      {
+        formatType: "audiobook",
+        mediaItem: { formats: [{}] },
+      },
+    ];
+    expect(formatAudiobookDuration(results)).toBeNull();
+  });
+
+  it("collects durations across multiple results, ignoring ebooks", () => {
+    const results = [
+      {
+        formatType: "ebook",
+        mediaItem: { formats: [{ duration: "99:00:00" }] },
+      },
+      {
+        formatType: "audiobook",
+        mediaItem: { formats: [{ duration: "5:00:00" }] },
+      },
+      {
+        formatType: "audiobook",
+        mediaItem: { formats: [{ duration: "15:30:00" }] },
+      },
+    ];
+    expect(formatAudiobookDuration(results)).toBe("5h – 15h 30m");
   });
 });
