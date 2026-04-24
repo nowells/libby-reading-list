@@ -243,7 +243,7 @@ export function workDismissKey(opts: {
 // --- Read Books ---
 
 /** A book the user has marked as "read". Keyed by workId or fuzzy title+author. */
-export interface ReadBookEntry {
+interface ReadBookEntry {
   /** The key used for matching: "work:<workId>" or "fuzzy:<normalizedTitle>\0<normalizedAuthor>" */
   key: string;
   title: string;
@@ -270,14 +270,14 @@ export function removeReadBook(key: string) {
   );
 }
 
-export function isBookRead(key: string): boolean {
+function isBookRead(key: string): boolean {
   return getReadBooks().some((b) => b.key === key);
 }
 
 // --- Dismissed Works (for author page) ---
 
 /** A work dismissed from author suggestions. */
-export interface DismissedWorkEntry {
+interface DismissedWorkEntry {
   /** "work:<olWorkKey>" or "fuzzy:<normalizedTitle>\0<normalizedAuthor>" */
   key: string;
   dismissedAt: number;
@@ -294,7 +294,7 @@ export function addDismissedWork(key: string) {
   set("dismissed-works", works);
 }
 
-export function isDismissedWork(key: string): boolean {
+function isDismissedWork(key: string): boolean {
   return getDismissedWorks().some((w) => w.key === key);
 }
 
