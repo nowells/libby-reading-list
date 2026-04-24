@@ -626,7 +626,7 @@ export default function Setup() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900 py-12 px-4">
+    <main className="min-h-screen py-12 px-4">
       <div className="max-w-lg mx-auto space-y-6">
         <div className="flex items-center gap-3">
           <Logo className="w-10 h-10" />

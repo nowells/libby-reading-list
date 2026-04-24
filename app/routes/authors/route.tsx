@@ -3,13 +3,23 @@ import { useState, useMemo, useRef, useCallback } from "react";
 import {
   getAuthors,
   getLibraries,
+  getBooks,
   addAuthor,
   removeAuthor,
+  addBook,
+  addReadBook,
+  removeReadBook,
+  getReadBooks,
+  readBookKey,
+  addDismissedWork,
+  getDismissedWorks,
+  workDismissKey,
   type AuthorEntry,
   type LibraryConfig,
 } from "~/lib/storage";
 import { Logo } from "~/components/logo";
 import { searchAuthor, type AuthorSearchResult } from "~/lib/openlibrary-author";
+import type { AuthorBookResult } from "./hooks/use-author-availability";
 import { useAuthorAvailability } from "./hooks/use-author-availability";
 import {
   AuthorCard,
@@ -53,14 +63,26 @@ export default function Authors() {
   const [searchResults, setSearchResults] = useState<AuthorSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const [readBooks, setReadBooksState] = useState(() => getReadBooks());
+  const [dismissedWorks, setDismissedWorksState] = useState(() => getDismissedWorks());
+
+  const readBookKeys = useMemo(() => new Set(readBooks.map((r) => r.key)), [readBooks]);
+  const dismissedWorkKeys = useMemo(
+    () => new Set(dismissedWorks.map((d) => d.key)),
+    [dismissedWorks],
+  );
 
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<BookCategory | null>(null);
   const [formatFilter, setFormatFilter] = useState<FormatFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Compute a stable display order for authors so the hook loads visible ones first.
+  // This uses a ref so the hook can read the latest order without re-triggering the effect.
+  const displayOrderRef = useRef<string[]>(authors.map((a) => a.id));
+
   const { stateMap, refreshAuthor, refreshAll, checkedCount, loadingCount, oldestFetchedAt } =
-    useAuthorAvailability(authors, libraries);
+    useAuthorAvailability(authors, libraries, { loadOrder: displayOrderRef.current });
 
   // Check if any author data has loaded
   const anyLoaded = authors.some((a) => {
@@ -68,19 +90,26 @@ export default function Authors() {
     return s && s.status === "done" && s.works.length > 0;
   });
 
-  // Aggregate availability stats across ALL works from ALL authors
+  // Aggregate availability stats across ALL works from ALL authors (excluding dismissed)
   const categoryCounts = useMemo(() => {
     const counts = { available: 0, soon: 0, waiting: 0, not_found: 0 };
     for (const author of authors) {
       const state = stateMap[author.id];
       if (!state || state.status !== "done") continue;
+      const authorName = state.resolvedName ?? author.name;
       for (const work of state.works) {
+        const key = workDismissKey({
+          olWorkKey: work.olWorkKey,
+          title: work.title,
+          author: authorName,
+        });
+        if (dismissedWorkKeys.has(key)) continue;
         const cat = categorizeWork(work, formatFilter as AuthorFormatFilter);
         counts[cat]++;
       }
     }
     return counts;
-  }, [authors, stateMap, formatFilter]);
+  }, [authors, stateMap, formatFilter, dismissedWorkKeys]);
 
   // Filter and sort authors by best availability, then last name
   const filteredAuthors = useMemo(() => {
@@ -129,6 +158,9 @@ export default function Authors() {
     });
   }, [authors, stateMap, categoryFilter, formatFilter, searchQuery]);
 
+  // Keep the load-order ref in sync with the current display order
+  displayOrderRef.current = filteredAuthors.map((a) => a.id);
+
   const handleAddQueryChange = useCallback((value: string) => {
     setAddSearchQuery(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -171,6 +203,68 @@ export default function Authors() {
     setAuthorsState(getAuthors());
   };
 
+  const handleWantToRead = (work: AuthorBookResult, authorName: string) => {
+    // Check if already in the books list by title+author
+    const existingBooks = getBooks();
+    const alreadyExists = existingBooks.some(
+      (b) =>
+        b.title.toLowerCase() === work.title.toLowerCase() ||
+        (b.workId && work.olWorkKey && b.workId === work.olWorkKey),
+    );
+    if (!alreadyExists) {
+      addBook({
+        title: work.title,
+        author: authorName,
+        source: "unknown",
+        workId: work.olWorkKey,
+        firstPublishYear: work.firstPublishYear,
+        imageUrl: work.coverId
+          ? `https://covers.openlibrary.org/b/id/${work.coverId}-M.jpg`
+          : undefined,
+      });
+    }
+  };
+
+  const handleMarkWorkRead = (work: AuthorBookResult, authorName: string) => {
+    const key = readBookKey({ workId: work.olWorkKey, title: work.title, author: authorName });
+    if (readBookKeys.has(key)) {
+      removeReadBook(key);
+    } else {
+      addReadBook({ key, title: work.title, author: authorName, workId: work.olWorkKey });
+    }
+    setReadBooksState(getReadBooks());
+  };
+
+  const handleDismissWork = (work: AuthorBookResult, authorName: string) => {
+    const key = workDismissKey({
+      olWorkKey: work.olWorkKey,
+      title: work.title,
+      author: authorName,
+    });
+    addDismissedWork(key);
+    setDismissedWorksState(getDismissedWorks());
+  };
+
+  const isWorkRead = useCallback(
+    (work: AuthorBookResult, authorName: string) => {
+      const key = readBookKey({ workId: work.olWorkKey, title: work.title, author: authorName });
+      return readBookKeys.has(key);
+    },
+    [readBookKeys],
+  );
+
+  const isWorkDismissedFn = useCallback(
+    (work: AuthorBookResult, authorName: string) => {
+      const key = workDismissKey({
+        olWorkKey: work.olWorkKey,
+        title: work.title,
+        author: authorName,
+      });
+      return dismissedWorkKeys.has(key);
+    },
+    [dismissedWorkKeys],
+  );
+
   const handleToggleCategory = (cat: BookCategory) => {
     setCategoryFilter(categoryFilter === cat ? null : cat);
   };
@@ -180,7 +274,7 @@ export default function Authors() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900 py-8 px-4">
+    <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="mb-6">
@@ -556,6 +650,7 @@ export default function Authors() {
         <div className="space-y-4">
           {filteredAuthors.map((author) => {
             const state = stateMap[author.id] ?? { status: "idle" as const, works: [] };
+            const authorName = state.resolvedName ?? author.name;
             return (
               <AuthorCard
                 key={author.id}
@@ -567,6 +662,11 @@ export default function Authors() {
                 searchQuery={searchQuery}
                 onRefresh={() => refreshAuthor(author)}
                 onRemove={() => handleRemoveAuthor(author.id)}
+                onWantToRead={(work) => handleWantToRead(work, authorName)}
+                onMarkRead={(work) => handleMarkWorkRead(work, authorName)}
+                onDismissWork={(work) => handleDismissWork(work, authorName)}
+                isWorkRead={(work) => isWorkRead(work, authorName)}
+                isWorkDismissed={(work) => isWorkDismissedFn(work, authorName)}
               />
             );
           })}

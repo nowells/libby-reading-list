@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import type { Book, LibraryConfig } from "~/lib/storage";
 import { FormatIcon } from "~/components/format-icon";
 import { LibraryIcon, LibraryName } from "~/components/library-icon";
@@ -127,6 +127,113 @@ function SourceLinks({ book }: { book: Book }) {
   );
 }
 
+function ActionMenu({
+  onMarkRead,
+  onRemove,
+  onFollowAuthor,
+  isRead,
+  isAuthorFollowed,
+}: {
+  onMarkRead: () => void;
+  onRemove: () => void;
+  onFollowAuthor?: () => void;
+  isRead: boolean;
+  isAuthorFollowed: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+      >
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="12" cy="5" r="1.5" />
+          <circle cx="12" cy="12" r="1.5" />
+          <circle cx="12" cy="19" r="1.5" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-700 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 py-1 z-50">
+          <button
+            onClick={() => {
+              onMarkRead();
+              setOpen(false);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-gray-700 dark:text-gray-200"
+          >
+            <svg
+              className="w-4 h-4 flex-shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            {isRead ? "Mark as Unread" : "Mark as Read"}
+          </button>
+          {onFollowAuthor && !isAuthorFollowed && (
+            <button
+              onClick={() => {
+                onFollowAuthor();
+                setOpen(false);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-gray-700 dark:text-gray-200"
+            >
+              <svg
+                className="w-4 h-4 flex-shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
+                />
+              </svg>
+              Follow Author
+            </button>
+          )}
+          <button
+            onClick={() => {
+              onRemove();
+              setOpen(false);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-red-600 dark:text-red-400"
+          >
+            <svg
+              className="w-4 h-4 flex-shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            Remove
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function BookCard({
   book,
   state,
@@ -135,6 +242,10 @@ export function BookCard({
   onRefresh,
   onLibbyClick,
   onRemove,
+  onMarkRead,
+  onFollowAuthor,
+  isRead,
+  isAuthorFollowed,
 }: {
   book: Book;
   state: BookAvailState;
@@ -142,9 +253,12 @@ export function BookCard({
   formatFilter: FormatFilter;
   onRefresh: () => void;
   onLibbyClick: (bookTitle: string, formatType: string, isAvailable: boolean) => void;
-  onRemove?: () => void;
+  onRemove: () => void;
+  onMarkRead: () => void;
+  onFollowAuthor?: () => void;
+  isRead: boolean;
+  isAuthorFollowed: boolean;
 }) {
-  const [expanded, setExpanded] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const multiLibrary = libraries.length > 1;
   const hasData = !!state.data;
@@ -175,8 +289,9 @@ export function BookCard({
   const hasMore = results.length > MAX_VISIBLE;
   const visibleResults = showAll ? results : results.slice(0, MAX_VISIBLE);
 
-  const borderColor =
-    category === "available"
+  const borderColor = isRead
+    ? "border-gray-300 dark:border-gray-600"
+    : category === "available"
       ? "border-emerald-500"
       : category === "soon"
         ? "border-blue-400"
@@ -191,13 +306,10 @@ export function BookCard({
 
   return (
     <div
-      className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 transition-colors duration-300 overflow-hidden ${borderColor}`}
+      className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 transition-colors duration-300 overflow-hidden ${borderColor} ${isRead ? "opacity-60" : ""}`}
     >
       {/* Book header */}
-      <button
-        onClick={() => setExpanded((e) => !e)}
-        className="w-full flex items-center gap-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-      >
+      <div className="flex items-center gap-4 p-4">
         {(state.data?.coverUrl || book.imageUrl || book.isbn13) && (
           <img
             src={
@@ -232,46 +344,58 @@ export function BookCard({
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {isLoading && (
+          {isRead && (
+            <span className="inline-flex items-center gap-1 text-sm px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full">
+              <svg
+                className="w-3.5 h-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+              Read
+            </span>
+          )}
+          {!isRead && isLoading && (
             <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">
               <span className="inline-block w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
               Checking
             </span>
           )}
-          {isDone && category === "available" && (
+          {!isRead && isDone && category === "available" && (
             <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full font-medium">
               {availableCount} ready
             </span>
           )}
-          {isDone && category === "soon" && (
+          {!isRead && isDone && category === "soon" && (
             <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full font-medium">
               Soon
             </span>
           )}
-          {isDone && category === "waiting" && (
+          {!isRead && isDone && category === "waiting" && (
             <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded-full font-medium">
               Waitlist
             </span>
           )}
-          {isDone && category === "not_found" && (
+          {!isRead && isDone && category === "not_found" && (
             <span className="hidden sm:inline-flex text-sm px-3 py-1.5 bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 rounded-full">
               Not found
             </span>
           )}
-          <svg
-            className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
+          <ActionMenu
+            onMarkRead={onMarkRead}
+            onRemove={onRemove}
+            onFollowAuthor={onFollowAuthor}
+            isRead={isRead}
+            isAuthorFollowed={isAuthorFollowed}
+          />
         </div>
-      </button>
+      </div>
 
-      {/* Expanded detail table */}
-      {expanded && isDone && results.length > 0 && (
+      {/* Detail table */}
+      {isDone && results.length > 0 && (
         <div className="border-t border-gray-100 dark:border-gray-700">
           {/* Table header */}
           <div
@@ -371,23 +495,6 @@ export function BookCard({
           <div className="flex items-center justify-between px-4 py-2 border-t border-gray-50 dark:border-gray-700/50">
             <div className="flex items-center gap-3">
               <SourceLinks book={book} />
-              {(book.manual || book.source === "lyndi") && onRemove && (
-                <button
-                  onClick={onRemove}
-                  className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                >
-                  <svg
-                    className="w-3 h-3"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  Remove
-                </button>
-              )}
             </div>
             <button
               onClick={onRefresh}
@@ -413,28 +520,11 @@ export function BookCard({
         </div>
       )}
 
-      {/* Not found - show refresh */}
-      {expanded && isDone && results.length === 0 && (
+      {/* Not found - show footer */}
+      {isDone && results.length === 0 && (
         <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100 dark:border-gray-700">
           <div className="flex items-center gap-3">
             <SourceLinks book={book} />
-            {(book.manual || book.source === "lyndi") && onRemove && (
-              <button
-                onClick={onRemove}
-                className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-              >
-                <svg
-                  className="w-3 h-3"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Remove
-              </button>
-            )}
           </div>
           <button
             onClick={onRefresh}

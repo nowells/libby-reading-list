@@ -24,7 +24,7 @@ export function clientLoader() {
 
 export default function Home() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900">
+    <main className="min-h-screen flex items-center justify-center">
       <div className="max-w-xl w-full mx-4 text-center">
         <div className="flex items-center justify-center gap-3 mb-4">
           <Logo className="w-14 h-14" />
