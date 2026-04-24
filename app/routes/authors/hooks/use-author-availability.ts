@@ -3,6 +3,7 @@ import type { AuthorEntry, LibraryConfig } from "~/lib/storage";
 import { resolveAuthorKey, getAuthorWorks } from "~/lib/openlibrary-author";
 import { searchLibrary, type LibbyMediaItem, type AvailabilityInfo } from "~/lib/libby";
 import { getCachedAuthor, setCachedAuthor, readAuthorCache, authorCacheMaxAge } from "../lib/cache";
+import { extractAvailability, getFormatType, dedupeWorks, dedupeLibbyResults } from "../lib/utils";
 
 export interface AuthorBookResult {
   title: string;
@@ -29,55 +30,6 @@ export interface AuthorAvailState {
   progress?: { done: number; total: number };
   error?: string;
   fetchedAt?: number;
-}
-
-function extractAvailability(item: LibbyMediaItem): AvailabilityInfo {
-  return {
-    id: item.id,
-    copiesOwned: item.ownedCopies ?? 0,
-    copiesAvailable: item.availableCopies ?? 0,
-    numberOfHolds: item.holdsCount ?? 0,
-    isAvailable: item.isAvailable ?? (item.availableCopies ?? 0) > 0,
-    estimatedWaitDays: item.estimatedWaitDays,
-  };
-}
-
-function getFormatType(item: LibbyMediaItem): string {
-  const typeId = item.type?.id ?? "";
-  if (typeId.includes("audiobook")) return "audiobook";
-  return "ebook";
-}
-
-/** Normalize title for dedup comparison. */
-function normalizeTitle(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Deduplicate works by normalized title, keeping the one with more libby results or earlier publish year. */
-function dedupeWorks(works: AuthorBookResult[]): AuthorBookResult[] {
-  const map = new Map<string, AuthorBookResult>();
-  for (const w of works) {
-    const key = normalizeTitle(w.title);
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, w);
-    } else {
-      // Prefer the one with more libby results; tie-break by earlier publish year, then cover
-      if (
-        w.libbyResults.length > existing.libbyResults.length ||
-        (w.libbyResults.length === existing.libbyResults.length &&
-          (w.firstPublishYear ?? Infinity) < (existing.firstPublishYear ?? Infinity)) ||
-        (w.libbyResults.length === existing.libbyResults.length && !existing.coverId && w.coverId)
-      ) {
-        map.set(key, w);
-      }
-    }
-  }
-  return [...map.values()];
 }
 
 export function useAuthorAvailability(
@@ -211,13 +163,7 @@ export function useAuthorAvailability(
             }
 
             // Dedupe by library+mediaItem
-            const seen = new Set<string>();
-            const deduped = libbyResults.filter((r) => {
-              const key = `${r.libraryKey}:${r.mediaItem.id}`;
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            });
+            const deduped = dedupeLibbyResults(libbyResults);
 
             results[idx] = {
               title: work.title,

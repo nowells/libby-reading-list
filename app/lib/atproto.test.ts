@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { isBookhiveSyncStale, searchHandleSuggestions } from "./atproto";
 import { setBookhiveLastSync } from "./storage";
 import { worker } from "~/test/setup";
@@ -87,6 +87,78 @@ describe("atproto", () => {
       const controller = new AbortController();
       controller.abort();
       await expect(searchHandleSuggestions("test", controller.signal)).rejects.toThrow();
+    });
+
+    it("handles missing actors field in response", async () => {
+      worker.use(
+        http.get("https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead", () => {
+          return HttpResponse.json({});
+        }),
+      );
+
+      const results = await searchHandleSuggestions("test");
+      expect(results).toEqual([]);
+    });
+
+    it("encodes special characters in query", async () => {
+      let capturedUrl = "";
+      worker.use(
+        http.get(
+          "https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead",
+          ({ request }) => {
+            capturedUrl = request.url;
+            return HttpResponse.json({ actors: [] });
+          },
+        ),
+      );
+
+      await searchHandleSuggestions("user@example.com");
+      expect(capturedUrl).toContain("q=user%40example.com");
+    });
+
+    it("trims whitespace from query", async () => {
+      let capturedUrl = "";
+      worker.use(
+        http.get(
+          "https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead",
+          ({ request }) => {
+            capturedUrl = request.url;
+            return HttpResponse.json({ actors: [] });
+          },
+        ),
+      );
+
+      await searchHandleSuggestions("  alice  ");
+      expect(capturedUrl).toContain("q=alice");
+    });
+
+    it("returns actors without optional fields", async () => {
+      worker.use(
+        http.get("https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead", () => {
+          return HttpResponse.json({
+            actors: [{ did: "did:plc:xyz", handle: "minimal.bsky.social" }],
+          });
+        }),
+      );
+
+      const results = await searchHandleSuggestions("min");
+      expect(results).toHaveLength(1);
+      expect(results[0].displayName).toBeUndefined();
+      expect(results[0].avatar).toBeUndefined();
+    });
+  });
+
+  describe("isBookhiveSyncStale edge cases", () => {
+    it("returns true at exactly 24 hours boundary", () => {
+      const exactBoundary = new Date(Date.now() - 24 * 60 * 60 * 1000 - 1).toISOString();
+      setBookhiveLastSync(exactBoundary);
+      expect(isBookhiveSyncStale()).toBe(true);
+    });
+
+    it("returns false just before 24 hours", () => {
+      const justBefore = new Date(Date.now() - 23 * 60 * 60 * 1000).toISOString();
+      setBookhiveLastSync(justBefore);
+      expect(isBookhiveSyncStale()).toBe(false);
     });
   });
 });

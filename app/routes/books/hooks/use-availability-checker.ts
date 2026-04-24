@@ -5,6 +5,7 @@ import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
 import { getWorkEditionIsbns, enrichBooksWithWorkId } from "~/lib/openlibrary";
 import { readCache, cacheMaxAge, getCached, setCached } from "../lib/cache";
 import type { BookAvailState } from "../lib/categorize";
+import { mergeAvailabilityResults } from "../lib/merge-results";
 
 export function useAvailabilityChecker(
   books: Book[],
@@ -61,32 +62,11 @@ export function useAvailabilityChecker(
           ),
         );
 
-        const merged: BookAvailability = {
-          bookTitle: book.canonicalTitle ?? book.title,
-          bookAuthor: book.canonicalAuthor ?? book.author,
-          results: [],
-        };
-
-        for (const result of allResults) {
-          merged.results.push(...result.results);
-          if (!merged.coverUrl && result.coverUrl) {
-            merged.coverUrl = result.coverUrl;
-          }
-          if (!merged.seriesInfo && result.seriesInfo) {
-            merged.seriesInfo = result.seriesInfo;
-          }
-        }
-
-        // Deduplicate by library+mediaItem (keep unique per library)
-        const seen = new Set<string>();
-        merged.results = merged.results.filter((r) => {
-          const key = `${r.libraryKey}:${r.mediaItem.id}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-
-        merged.results.sort((a, b) => b.matchScore - a.matchScore);
+        const merged = mergeAvailabilityResults(
+          allResults,
+          book.canonicalTitle ?? book.title,
+          book.canonicalAuthor ?? book.author,
+        );
         setCached(book.id, merged);
         return { status: "done", data: merged, fetchedAt: Date.now() };
       } catch {
