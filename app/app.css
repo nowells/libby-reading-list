@@ -8,11 +8,14 @@
     "Segoe UI Symbol", "Noto Color Emoji";
 }
 
-html,
-body {
-  @apply bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900;
+html {
+  @apply min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+body {
+  @apply min-h-screen;
 }
 
 html.dark {

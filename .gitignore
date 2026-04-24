@@ -6,3 +6,7 @@
 /.react-router/
 /build/
 *.tar
+.vitest-attachments/
+data/
+**/*-darwin.png
+coverage/
