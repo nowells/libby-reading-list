@@ -212,7 +212,7 @@ export default function Books() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900 py-8 px-4">
+    <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
         <div className="mb-6">
           <div className="flex items-center gap-3">
@@ -453,7 +453,11 @@ export default function Books() {
         <div className="space-y-3">
           {paginatedBooks.map((book) => {
             const state = availMap[book.id] ?? { status: "pending" as const };
-            const bookKey = readBookKey({ workId: book.workId, title: book.title, author: book.author });
+            const bookKey = readBookKey({
+              workId: book.workId,
+              title: book.title,
+              author: book.author,
+            });
             const authorName = (book.canonicalAuthor ?? book.author ?? "").toLowerCase();
             return (
               <BookCard

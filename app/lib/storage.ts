@@ -231,7 +231,11 @@ export function readBookKey(opts: { workId?: string; title: string; author: stri
 }
 
 /** Build a stable key for author-page works. Uses olWorkKey when available. */
-export function workDismissKey(opts: { olWorkKey?: string; title: string; author: string }): string {
+export function workDismissKey(opts: {
+  olWorkKey?: string;
+  title: string;
+  author: string;
+}): string {
   if (opts.olWorkKey) return `work:${opts.olWorkKey}`;
   return `fuzzy:${normalizeForKey(opts.title)}\0${normalizeForKey(opts.author)}`;
 }

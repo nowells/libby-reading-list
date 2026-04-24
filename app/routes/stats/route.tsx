@@ -500,7 +500,7 @@ export default function Stats() {
   }, [currentBooks, availCache]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900 py-8 px-4">
+    <main className="min-h-screen py-8 px-4">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-6">

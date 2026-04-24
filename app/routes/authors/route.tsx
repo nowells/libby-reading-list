@@ -67,7 +67,10 @@ export default function Authors() {
   const [dismissedWorks, setDismissedWorksState] = useState(() => getDismissedWorks());
 
   const readBookKeys = useMemo(() => new Set(readBooks.map((r) => r.key)), [readBooks]);
-  const dismissedWorkKeys = useMemo(() => new Set(dismissedWorks.map((d) => d.key)), [dismissedWorks]);
+  const dismissedWorkKeys = useMemo(
+    () => new Set(dismissedWorks.map((d) => d.key)),
+    [dismissedWorks],
+  );
 
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<BookCategory | null>(null);
@@ -95,7 +98,11 @@ export default function Authors() {
       if (!state || state.status !== "done") continue;
       const authorName = state.resolvedName ?? author.name;
       for (const work of state.works) {
-        const key = workDismissKey({ olWorkKey: work.olWorkKey, title: work.title, author: authorName });
+        const key = workDismissKey({
+          olWorkKey: work.olWorkKey,
+          title: work.title,
+          author: authorName,
+        });
         if (dismissedWorkKeys.has(key)) continue;
         const cat = categorizeWork(work, formatFilter as AuthorFormatFilter);
         counts[cat]++;
@@ -229,7 +236,11 @@ export default function Authors() {
   };
 
   const handleDismissWork = (work: AuthorBookResult, authorName: string) => {
-    const key = workDismissKey({ olWorkKey: work.olWorkKey, title: work.title, author: authorName });
+    const key = workDismissKey({
+      olWorkKey: work.olWorkKey,
+      title: work.title,
+      author: authorName,
+    });
     addDismissedWork(key);
     setDismissedWorksState(getDismissedWorks());
   };
@@ -244,7 +255,11 @@ export default function Authors() {
 
   const isWorkDismissedFn = useCallback(
     (work: AuthorBookResult, authorName: string) => {
-      const key = workDismissKey({ olWorkKey: work.olWorkKey, title: work.title, author: authorName });
+      const key = workDismissKey({
+        olWorkKey: work.olWorkKey,
+        title: work.title,
+        author: authorName,
+      });
       return dismissedWorkKeys.has(key);
     },
     [dismissedWorkKeys],
@@ -259,7 +274,7 @@ export default function Authors() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-950 dark:to-gray-900 py-8 px-4">
+    <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="mb-6">

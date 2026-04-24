@@ -56,8 +56,18 @@ function WorkActionMenu({
             }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-gray-700 dark:text-gray-200"
           >
-            <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+            <svg
+              className="w-4 h-4 flex-shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+              />
             </svg>
             Want to Read
           </button>
@@ -69,7 +79,13 @@ function WorkActionMenu({
             }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-gray-700 dark:text-gray-200"
           >
-            <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className="w-4 h-4 flex-shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
             </svg>
             {isRead ? "Mark as Unread" : "Mark as Read"}
@@ -82,7 +98,13 @@ function WorkActionMenu({
             }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-red-600 dark:text-red-400"
           >
-            <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className="w-4 h-4 flex-shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
             Dismiss
@@ -128,7 +150,9 @@ function WorkRow({
     : undefined;
 
   return (
-    <div className={`border-t border-gray-100 dark:border-gray-700/50 ${isRead ? "opacity-50" : ""}`}>
+    <div
+      className={`border-t border-gray-100 dark:border-gray-700/50 ${isRead ? "opacity-50" : ""}`}
+    >
       <div className="flex items-center">
         <button
           onClick={() => hasResults && setExpanded((e) => !e)}
@@ -173,7 +197,13 @@ function WorkRow({
           <div className="flex items-center gap-2 flex-shrink-0">
             {isRead && (
               <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
-                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <svg
+                  className="w-3 h-3"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                 </svg>
                 Read
@@ -405,7 +435,15 @@ export function AuthorCard({
       if (etaDiff !== 0) return etaDiff;
       return a.title.localeCompare(b.title);
     });
-  }, [state.works, formatFilter, categoryFilter, searchQuery, authorNameMatches, isWorkRead, isWorkDismissed]);
+  }, [
+    state.works,
+    formatFilter,
+    categoryFilter,
+    searchQuery,
+    authorNameMatches,
+    isWorkRead,
+    isWorkDismissed,
+  ]);
 
   const filteredCount = categoryFilter
     ? sortedWorks.length
@@ -413,7 +451,9 @@ export function AuthorCard({
   const inLibraryCount = categoryFilter
     ? sortedWorks.length
     : sortedWorks.filter((w) => categorizeWork(w, formatFilter) !== "not_found").length;
-  const totalWorks = categoryFilter ? sortedWorks.length : state.works.filter((w) => !isWorkDismissed(w)).length;
+  const totalWorks = categoryFilter
+    ? sortedWorks.length
+    : state.works.filter((w) => !isWorkDismissed(w)).length;
 
   // Badge text/color based on active category filter
   const badgeConfig = (() => {
