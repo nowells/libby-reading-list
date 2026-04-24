@@ -218,6 +218,82 @@ export function clearSkippedRows() {
   remove("skipped-rows");
 }
 
+// --- Read / Dismissed key helpers ---
+
+function normalizeForKey(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** Build a stable key for matching books across pages. Uses workId when available. */
+export function readBookKey(opts: { workId?: string; title: string; author: string }): string {
+  if (opts.workId) return `work:${opts.workId}`;
+  return `fuzzy:${normalizeForKey(opts.title)}\0${normalizeForKey(opts.author)}`;
+}
+
+/** Build a stable key for author-page works. Uses olWorkKey when available. */
+export function workDismissKey(opts: { olWorkKey?: string; title: string; author: string }): string {
+  if (opts.olWorkKey) return `work:${opts.olWorkKey}`;
+  return `fuzzy:${normalizeForKey(opts.title)}\0${normalizeForKey(opts.author)}`;
+}
+
+// --- Read Books ---
+
+/** A book the user has marked as "read". Keyed by workId or fuzzy title+author. */
+export interface ReadBookEntry {
+  /** The key used for matching: "work:<workId>" or "fuzzy:<normalizedTitle>\0<normalizedAuthor>" */
+  key: string;
+  title: string;
+  author: string;
+  workId?: string;
+  markedAt: number;
+}
+
+export function getReadBooks(): ReadBookEntry[] {
+  return get<ReadBookEntry[]>("read-books") ?? [];
+}
+
+export function addReadBook(entry: Omit<ReadBookEntry, "markedAt">) {
+  const books = getReadBooks();
+  if (books.some((b) => b.key === entry.key)) return;
+  books.push({ ...entry, markedAt: Date.now() });
+  set("read-books", books);
+}
+
+export function removeReadBook(key: string) {
+  set(
+    "read-books",
+    getReadBooks().filter((b) => b.key !== key),
+  );
+}
+
+export function isBookRead(key: string): boolean {
+  return getReadBooks().some((b) => b.key === key);
+}
+
+// --- Dismissed Works (for author page) ---
+
+/** A work dismissed from author suggestions. */
+export interface DismissedWorkEntry {
+  /** "work:<olWorkKey>" or "fuzzy:<normalizedTitle>\0<normalizedAuthor>" */
+  key: string;
+  dismissedAt: number;
+}
+
+export function getDismissedWorks(): DismissedWorkEntry[] {
+  return get<DismissedWorkEntry[]>("dismissed-works") ?? [];
+}
+
+export function addDismissedWork(key: string) {
+  const works = getDismissedWorks();
+  if (works.some((w) => w.key === key)) return;
+  works.push({ key, dismissedAt: Date.now() });
+  set("dismissed-works", works);
+}
+
+export function isDismissedWork(key: string): boolean {
+  return getDismissedWorks().some((w) => w.key === key);
+}
+
 // --- Authors ---
 
 export function getAuthors(): AuthorEntry[] {
@@ -256,4 +332,6 @@ export function clearAll() {
   clearBookhiveLastSync();
   remove("availability");
   remove("author-availability");
+  remove("read-books");
+  remove("dismissed-works");
 }

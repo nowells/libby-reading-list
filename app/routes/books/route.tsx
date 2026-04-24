@@ -4,8 +4,14 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   getBooks,
   getLibraries,
+  getAuthors,
   addBook,
   removeBook,
+  addReadBook,
+  removeReadBook,
+  getReadBooks,
+  readBookKey,
+  addAuthor,
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
@@ -44,6 +50,14 @@ export default function Books() {
   const [books, setBooksState] = useState<Book[]>(() => getBooks());
   const [libraries] = useState<LibraryConfig[]>(() => getLibraries());
   const [showAddBook, setShowAddBook] = useState(false);
+  const [readBooks, setReadBooks] = useState(() => getReadBooks());
+  const [followedAuthors, setFollowedAuthors] = useState(() => getAuthors());
+
+  const readBookKeys = useMemo(() => new Set(readBooks.map((r) => r.key)), [readBooks]);
+  const followedAuthorNames = useMemo(
+    () => new Set(followedAuthors.map((a) => a.name.toLowerCase())),
+    [followedAuthors],
+  );
 
   useEffect(() => {
     posthog?.capture("books_page_viewed", {
@@ -175,6 +189,26 @@ export default function Books() {
     removeBook(id);
     setBooksState(getBooks());
     posthog?.capture("book_removed", { book_id: id });
+  };
+
+  const handleMarkRead = (book: Book) => {
+    const key = readBookKey({ workId: book.workId, title: book.title, author: book.author });
+    if (readBookKeys.has(key)) {
+      removeReadBook(key);
+      posthog?.capture("book_unmarked_read", { book_id: book.id });
+    } else {
+      addReadBook({ key, title: book.title, author: book.author, workId: book.workId });
+      posthog?.capture("book_marked_read", { book_id: book.id });
+    }
+    setReadBooks(getReadBooks());
+  };
+
+  const handleFollowAuthor = (book: Book) => {
+    const authorName = book.canonicalAuthor ?? book.author;
+    if (!authorName) return;
+    addAuthor({ name: authorName });
+    setFollowedAuthors(getAuthors());
+    posthog?.capture("author_followed_from_book", { author: authorName, book_id: book.id });
   };
 
   return (
@@ -419,6 +453,8 @@ export default function Books() {
         <div className="space-y-3">
           {paginatedBooks.map((book) => {
             const state = availMap[book.id] ?? { status: "pending" as const };
+            const bookKey = readBookKey({ workId: book.workId, title: book.title, author: book.author });
+            const authorName = (book.canonicalAuthor ?? book.author ?? "").toLowerCase();
             return (
               <BookCard
                 key={book.id}
@@ -428,11 +464,11 @@ export default function Books() {
                 formatFilter={formatFilter}
                 onRefresh={() => refreshBook(book)}
                 onLibbyClick={handleLibbyClick}
-                onRemove={
-                  book.manual || book.source === "lyndi"
-                    ? () => handleRemoveBook(book.id)
-                    : undefined
-                }
+                onRemove={() => handleRemoveBook(book.id)}
+                onMarkRead={() => handleMarkRead(book)}
+                onFollowAuthor={authorName ? () => handleFollowAuthor(book) : undefined}
+                isRead={readBookKeys.has(bookKey)}
+                isAuthorFollowed={followedAuthorNames.has(authorName)}
               />
             );
           })}

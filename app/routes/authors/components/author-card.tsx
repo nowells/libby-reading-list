@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import type { AuthorEntry, LibraryConfig } from "~/lib/storage";
 import { FormatIcon } from "~/components/format-icon";
 import { LibraryIcon, LibraryName } from "~/components/library-icon";
@@ -6,16 +6,111 @@ import { EtaBadge } from "~/routes/books/components/eta-badge";
 import { libbyTitleUrl } from "~/routes/books/lib/utils";
 import type { AuthorAvailState, AuthorBookResult } from "../hooks/use-author-availability";
 
+function WorkActionMenu({
+  onWantToRead,
+  onMarkRead,
+  onDismiss,
+  isRead,
+}: {
+  onWantToRead: () => void;
+  onMarkRead: () => void;
+  onDismiss: () => void;
+  isRead: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+      >
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="12" cy="5" r="1.5" />
+          <circle cx="12" cy="12" r="1.5" />
+          <circle cx="12" cy="19" r="1.5" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 bottom-full mb-1 w-44 bg-white dark:bg-gray-700 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 py-1 z-50">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onWantToRead();
+              setOpen(false);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-gray-700 dark:text-gray-200"
+          >
+            <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+            </svg>
+            Want to Read
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onMarkRead();
+              setOpen(false);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-gray-700 dark:text-gray-200"
+          >
+            <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            {isRead ? "Mark as Unread" : "Mark as Read"}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDismiss();
+              setOpen(false);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-red-600 dark:text-red-400"
+          >
+            <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            Dismiss
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WorkRow({
   work,
   libraries,
   multiLibrary,
   formatFilter = "all",
+  onWantToRead,
+  onMarkRead,
+  onDismiss,
+  isRead,
 }: {
   work: AuthorBookResult;
   libraries: LibraryConfig[];
   multiLibrary: boolean;
   formatFilter?: "all" | "ebook" | "audiobook";
+  onWantToRead: () => void;
+  onMarkRead: () => void;
+  onDismiss: () => void;
+  isRead: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const filteredResults =
@@ -33,91 +128,109 @@ function WorkRow({
     : undefined;
 
   return (
-    <div className="border-t border-gray-100 dark:border-gray-700/50">
-      <button
-        onClick={() => hasResults && setExpanded((e) => !e)}
-        className={`w-full flex items-center gap-3 px-4 py-2.5 text-left ${hasResults ? "hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" : "cursor-default"} transition-colors`}
-      >
-        {/* Cover thumbnail */}
-        {work.coverId ? (
-          <img
-            src={`https://covers.openlibrary.org/b/id/${work.coverId}-S.jpg`}
-            alt=""
-            className="w-8 h-12 object-cover rounded flex-shrink-0"
-          />
-        ) : (
-          <div className="w-8 h-12 bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0 flex items-center justify-center">
-            <svg
-              className="w-4 h-4 text-gray-400"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-              />
-            </svg>
-          </div>
-        )}
+    <div className={`border-t border-gray-100 dark:border-gray-700/50 ${isRead ? "opacity-50" : ""}`}>
+      <div className="flex items-center">
+        <button
+          onClick={() => hasResults && setExpanded((e) => !e)}
+          className={`flex-1 flex items-center gap-3 px-4 py-2.5 text-left ${hasResults ? "hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" : "cursor-default"} transition-colors`}
+        >
+          {/* Cover thumbnail */}
+          {work.coverId ? (
+            <img
+              src={`https://covers.openlibrary.org/b/id/${work.coverId}-S.jpg`}
+              alt=""
+              className="w-8 h-12 object-cover rounded flex-shrink-0"
+            />
+          ) : (
+            <div className="w-8 h-12 bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0 flex items-center justify-center">
+              <svg
+                className="w-4 h-4 text-gray-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+                />
+              </svg>
+            </div>
+          )}
 
-        <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1">
-            {work.title}
-          </span>
-          {work.firstPublishYear && (
-            <span className="text-xs text-gray-400 dark:text-gray-500">
-              {work.firstPublishYear}
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1">
+              {work.title}
             </span>
-          )}
-        </div>
+            {work.firstPublishYear && (
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                {work.firstPublishYear}
+              </span>
+            )}
+          </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {hasResults && (
-            <>
-              {/* Format icons */}
-              <span className="flex gap-1 text-gray-400 dark:text-gray-500">
-                {filteredResults.some((r) => r.formatType === "ebook") && (
-                  <span className="[&_svg]:w-4 [&_svg]:h-4">
-                    <FormatIcon type="ebook" />
-                  </span>
-                )}
-                {filteredResults.some((r) => r.formatType === "audiobook") && (
-                  <span className="[&_svg]:w-4 [&_svg]:h-4">
-                    <FormatIcon type="audiobook" />
-                  </span>
-                )}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {isRead && (
+              <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+                Read
               </span>
-              {/* ETA */}
-              <span className="text-sm">
-                {isAvailable ? (
-                  <span className="text-emerald-600 dark:text-emerald-400 font-medium text-xs px-2 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 rounded-full">
-                    Now
-                  </span>
-                ) : bestEta != null && bestEta < Infinity ? (
-                  <EtaBadge days={bestEta} />
-                ) : null}
-              </span>
-            </>
-          )}
-          {!hasResults && (
-            <span className="text-xs text-gray-400 dark:text-gray-500">Not in library</span>
-          )}
-          {hasResults && (
-            <svg
-              className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          )}
+            )}
+            {!isRead && hasResults && (
+              <>
+                {/* Format icons */}
+                <span className="flex gap-1 text-gray-400 dark:text-gray-500">
+                  {filteredResults.some((r) => r.formatType === "ebook") && (
+                    <span className="[&_svg]:w-4 [&_svg]:h-4">
+                      <FormatIcon type="ebook" />
+                    </span>
+                  )}
+                  {filteredResults.some((r) => r.formatType === "audiobook") && (
+                    <span className="[&_svg]:w-4 [&_svg]:h-4">
+                      <FormatIcon type="audiobook" />
+                    </span>
+                  )}
+                </span>
+                {/* ETA */}
+                <span className="text-sm">
+                  {isAvailable ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium text-xs px-2 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 rounded-full">
+                      Now
+                    </span>
+                  ) : bestEta != null && bestEta < Infinity ? (
+                    <EtaBadge days={bestEta} />
+                  ) : null}
+                </span>
+              </>
+            )}
+            {!isRead && !hasResults && (
+              <span className="text-xs text-gray-400 dark:text-gray-500">Not in library</span>
+            )}
+            {hasResults && (
+              <svg
+                className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            )}
+          </div>
+        </button>
+        <div className="pr-2 flex-shrink-0">
+          <WorkActionMenu
+            onWantToRead={onWantToRead}
+            onMarkRead={onMarkRead}
+            onDismiss={onDismiss}
+            isRead={isRead}
+          />
         </div>
-      </button>
+      </div>
 
       {/* Expanded: show individual Libby results */}
       {expanded && hasResults && (
@@ -233,6 +346,11 @@ export function AuthorCard({
   searchQuery = "",
   onRefresh,
   onRemove,
+  onWantToRead,
+  onMarkRead,
+  onDismissWork,
+  isWorkRead,
+  isWorkDismissed,
 }: {
   author: AuthorEntry;
   state: AuthorAvailState;
@@ -242,6 +360,11 @@ export function AuthorCard({
   searchQuery?: string;
   onRefresh: () => void;
   onRemove: () => void;
+  onWantToRead: (work: AuthorBookResult) => void;
+  onMarkRead: (work: AuthorBookResult) => void;
+  onDismissWork: (work: AuthorBookResult) => void;
+  isWorkRead: (work: AuthorBookResult) => boolean;
+  isWorkDismissed: (work: AuthorBookResult) => boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [showAll, setShowAll] = useState(false);
@@ -256,6 +379,10 @@ export function AuthorCard({
 
   const sortedWorks = useMemo(() => {
     let works = [...state.works];
+
+    // Filter out dismissed works
+    works = works.filter((w) => !isWorkDismissed(w));
+
     if (categoryFilter) {
       works = works.filter((w) => categorizeWork(w, formatFilter) === categoryFilter);
     }
@@ -264,13 +391,21 @@ export function AuthorCard({
       works = works.filter((w) => w.title.toLowerCase().includes(q));
     }
     return works.sort((a, b) => {
+      // Read books sort to the bottom
+      const aRead = isWorkRead(a) ? 1 : 0;
+      const bRead = isWorkRead(b) ? 1 : 0;
+      if (aRead !== bRead) return aRead - bRead;
+
       const catDiff =
         CATEGORY_ORDER[categorizeWork(a, formatFilter)] -
         CATEGORY_ORDER[categorizeWork(b, formatFilter)];
       if (catDiff !== 0) return catDiff;
+      // Within same category, sort by best ETA ascending
+      const etaDiff = bestEtaDays(a, formatFilter) - bestEtaDays(b, formatFilter);
+      if (etaDiff !== 0) return etaDiff;
       return a.title.localeCompare(b.title);
     });
-  }, [state.works, formatFilter, categoryFilter, searchQuery, authorNameMatches]);
+  }, [state.works, formatFilter, categoryFilter, searchQuery, authorNameMatches, isWorkRead, isWorkDismissed]);
 
   const filteredCount = categoryFilter
     ? sortedWorks.length
@@ -278,7 +413,7 @@ export function AuthorCard({
   const inLibraryCount = categoryFilter
     ? sortedWorks.length
     : sortedWorks.filter((w) => categorizeWork(w, formatFilter) !== "not_found").length;
-  const totalWorks = categoryFilter ? sortedWorks.length : state.works.length;
+  const totalWorks = categoryFilter ? sortedWorks.length : state.works.filter((w) => !isWorkDismissed(w)).length;
 
   // Badge text/color based on active category filter
   const badgeConfig = (() => {
@@ -403,6 +538,10 @@ export function AuthorCard({
               libraries={libraries}
               multiLibrary={multiLibrary}
               formatFilter={formatFilter}
+              onWantToRead={() => onWantToRead(work)}
+              onMarkRead={() => onMarkRead(work)}
+              onDismiss={() => onDismissWork(work)}
+              isRead={isWorkRead(work)}
             />
           ))}
           {hasMore && (

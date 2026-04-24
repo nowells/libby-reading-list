@@ -80,11 +80,17 @@ function dedupeWorks(works: AuthorBookResult[]): AuthorBookResult[] {
   return [...map.values()];
 }
 
-export function useAuthorAvailability(authors: AuthorEntry[], libraries: LibraryConfig[]) {
+export function useAuthorAvailability(
+  authors: AuthorEntry[],
+  libraries: LibraryConfig[],
+  opts?: { loadOrder?: string[] },
+) {
   const [stateMap, setStateMap] = useState<Record<string, AuthorAvailState>>({});
   const activeRef = useRef(true);
   const [refreshToken, setRefreshToken] = useState(0);
   const refreshingRef = useRef(false);
+  const loadOrderRef = useRef<string[] | undefined>(opts?.loadOrder);
+  loadOrderRef.current = opts?.loadOrder;
 
   const loadAuthor = useCallback(
     async (author: AuthorEntry, opts: { skipCache?: boolean } = {}) => {
@@ -288,7 +294,16 @@ export function useAuthorAvailability(authors: AuthorEntry[], libraries: Library
     const forceRefresh = refreshToken > 0;
 
     async function loadAll() {
-      for (const author of authors) {
+      // Sort authors by preferred load order (e.g. visible-first) when available
+      const ordered = loadOrderRef.current
+        ? [...authors].sort((a, b) => {
+            const ai = loadOrderRef.current!.indexOf(a.id);
+            const bi = loadOrderRef.current!.indexOf(b.id);
+            // Authors not in the load order go last
+            return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
+          })
+        : authors;
+      for (const author of ordered) {
         if (cancelled) break;
         // Skip if already loaded (unless force refresh)
         if (!forceRefresh && stateMap[author.id]?.status === "done") continue;
