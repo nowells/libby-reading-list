@@ -7,8 +7,24 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
+          ref: ${{ github.head_ref }}
+          fetch-depth: 2
+
+      - name: Check if last commit was VRT update
+        id: check-vrt
+        run: |
+          LAST_MSG=$(git log -1 --pretty=%s)
+          if [[ "$LAST_MSG" == "chore: update VRT screenshots" ]]; then
+            echo "is_vrt_commit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_vrt_commit=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -31,4 +47,22 @@ jobs:
       - name: Install Playwright system dependencies
         run: npx playwright install-deps chromium
 
-      - run: npm test
+      - name: Run tests with coverage
+        run: npx vitest run --coverage
+
+      - name: Update VRT screenshots on mismatch
+        if: failure() && steps.check-vrt.outputs.is_vrt_commit != 'true'
+        run: npx vitest run --update || true
+
+      - name: Commit updated VRT screenshots
+        if: failure() && steps.check-vrt.outputs.is_vrt_commit != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add '**/__screenshots__/**/*.png'
+          if git diff --cached --quiet; then
+            echo "No screenshot changes to commit"
+          else
+            git commit -m "chore: update VRT screenshots"
+            git push
+          fi

@@ -10,6 +10,39 @@ import {
 } from "../lib/categorize";
 import { timeAgo, libbyTitleUrl, formatAudiobookDuration } from "../lib/utils";
 
+function CoverImage({ src, alt }: { src?: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return (
+      <div className="w-12 h-[4.5rem] rounded-md flex-shrink-0 bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+        <svg
+          className="w-6 h-6 text-gray-400 dark:text-gray-500"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.5}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+          />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="w-12 h-[4.5rem] object-cover rounded-md flex-shrink-0"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 const EXTERNAL_LINK_CLASS =
   "inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors";
 
@@ -79,7 +112,7 @@ function PrimarySourceLink({ book }: { book: Book }) {
           title="View on Goodreads"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M11.43 23.995c-3.608-.208-6.274-2.077-6.448-5.078.695.007 1.375-.013 2.07-.006.224 1.342 1.065 2.43 2.683 3.026 1.583.496 3.737.46 5.082-.174 1.726-.816 2.35-2.201 2.622-3.868.064-.397.076-4.89.076-4.89h-.062c-.565.852-1.256 1.534-2.078 2.05-.823.515-1.777.772-2.86.772-1.4 0-2.56-.33-3.48-.99-.92-.66-1.6-1.59-2.04-2.79-.44-1.2-.66-2.6-.66-4.19 0-1.63.24-3.08.72-4.34.48-1.26 1.2-2.25 2.16-2.97.96-.72 2.14-1.08 3.54-1.08 1.08 0 2.04.27 2.88.81.84.54 1.5 1.21 1.98 2.01h.06l.24-2.4h1.8c-.06.6-.12 1.2-.18 2.1-.06.9-.06 1.84-.06 2.82v8.14c0 1.5-.06 2.78-.18 3.84s-.42 2.02-.9 2.88c-.48.86-1.22 1.52-2.22 1.98-1 .46-2.32.69-3.96.69zm.12-7.8c1.2 0 2.19-.36 2.97-1.08.78-.72 1.35-1.68 1.71-2.88.36-1.2.54-2.5.54-3.9 0-2.28-.42-4.08-1.26-5.4-.84-1.32-2.1-1.98-3.78-1.98-1.68 0-2.94.72-3.78 2.16-.84 1.44-1.26 3.3-1.26 5.58 0 2.16.42 3.84 1.26 5.04.84 1.2 2.1 1.8 3.78 1.8z" />
+            <path d="M19.525 15.977V.49h-2.059v2.906h-.064c-.211-.455-.481-.891-.842-1.307-.36-.412-.767-.761-1.243-1.043C14.837.763 14.275.63 13.634.63c-1.17 0-2.137.369-2.91 1.107-.773.738-1.353 1.708-1.737 2.91-.385 1.198-.58 2.498-.58 3.905 0 1.387.2 2.682.586 3.876.39 1.199.966 2.16 1.731 2.904.77.738 1.737 1.109 2.91 1.109.596 0 1.148-.127 1.66-.381.51-.254.942-.58 1.296-.984.352-.398.616-.818.79-1.26h.064v2.197c0 1.553-.32 2.742-.96 3.56-.641.822-1.566 1.23-2.773 1.23-.682 0-1.27-.14-1.77-.424a3.013 3.013 0 01-1.178-1.107 3.368 3.368 0 01-.497-1.473h-2.165c.08.941.365 1.775.854 2.504.49.729 1.133 1.299 1.93 1.713.8.418 1.717.625 2.747.625 1.322 0 2.398-.287 3.223-.863.828-.576 1.436-1.373 1.826-2.391.39-1.018.588-2.191.588-3.525zM13.737 14.41c-.86 0-1.563-.26-2.107-.781-.547-.52-.95-1.209-1.213-2.07-.264-.858-.394-1.79-.394-2.791 0-.988.13-1.916.394-2.783.268-.87.671-1.57 1.213-2.1.544-.533 1.247-.798 2.107-.798.88 0 1.59.27 2.133.81.547.537.95 1.24 1.213 2.107.264.862.396 1.79.396 2.783 0 .983-.13 1.9-.39 2.756-.26.861-.664 1.555-1.213 2.084-.548.525-1.26.783-2.14.783z" />
           </svg>
           Goodreads
         </a>
@@ -310,17 +343,14 @@ export function BookCard({
     >
       {/* Book header */}
       <div className="flex items-center gap-4 p-4">
-        {(state.data?.coverUrl || book.imageUrl || book.isbn13) && (
-          <img
-            src={
-              state.data?.coverUrl ??
-              book.imageUrl ??
-              `https://covers.openlibrary.org/b/isbn/${book.isbn13}-M.jpg`
-            }
-            alt={book.title}
-            className="w-12 h-[4.5rem] object-cover rounded-md flex-shrink-0"
-          />
-        )}
+        <CoverImage
+          src={
+            state.data?.coverUrl ??
+            book.imageUrl ??
+            (book.isbn13 ? `https://covers.openlibrary.org/b/isbn/${book.isbn13}-M.jpg` : undefined)
+          }
+          alt={book.title}
+        />
         <div className="flex-1 min-w-0">
           <span className="font-semibold text-gray-900 dark:text-white line-clamp-1">
             {book.canonicalTitle ?? book.title}
