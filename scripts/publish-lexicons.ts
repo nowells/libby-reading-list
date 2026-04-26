@@ -60,5 +60,5 @@ for (const doc of lexicons) {
 }
 
 console.log("Done.");
-console.log("\nNext: ensure the DNS TXT record at _lexicon.<authority> resolves to this DID.");
+console.log("\nNext: add this DNS TXT record at the shelfcheck.org registrar.");
 console.log(`  _lexicon.shelfcheck.org  TXT  "did=${did}"`);
