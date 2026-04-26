@@ -68,6 +68,9 @@ export function useAvailabilityChecker(
           book.canonicalAuthor ?? book.author,
         );
         setCached(book.id, merged);
+        if (merged.coverUrl && !book.imageUrl) {
+          updateBook(book.id, { imageUrl: merged.coverUrl });
+        }
         return { status: "done", data: merged, fetchedAt: Date.now() };
       } catch {
         const fallback: BookAvailability = {
