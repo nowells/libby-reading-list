@@ -120,7 +120,6 @@ describe("sync", () => {
         title: "Dismissed Book",
         authors: [{ name: "D Author" }],
         ids: { olWorkId: "OL999W" },
-        dismissedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
       };
 
