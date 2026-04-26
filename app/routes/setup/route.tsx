@@ -493,7 +493,7 @@ export default function Setup() {
       if (imported.length === 0) {
         if (!opts.silent) {
           setError(
-            'No "want to read" books found in your BookHive shelf. Make sure you have books marked as "wantToRead" in BookHive.',
+            'No "want to read" books found in your BookHive shelf. Make sure you have books marked as "wantToRead" on BookHive before importing.',
           );
         }
         posthog?.capture("bookhive_import_failed", { reason: "no_want_to_read" });
@@ -502,14 +502,15 @@ export default function Setup() {
       setBooksState(getBooks());
       const keptManual = clearManualOnImport ? 0 : manualBookCount;
       setImportInfo(
-        `Imported ${imported.length} want-to-read books from BookHive into your ShelfCheck records.${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
+        `Imported ${imported.length} want-to-read book${imported.length === 1 ? "" : "s"} from your BookHive shelf into ShelfCheck.${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
       );
       posthog?.capture("bookhive_imported", {
         book_count: imported.length,
         trigger: opts.silent ? "auto" : "manual",
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to import from BookHive.";
+      const message =
+        err instanceof Error ? err.message : "Failed to import from your BookHive shelf.";
       setError(message);
       posthog?.capture("bookhive_import_failed", { reason: "fetch_error", error: message });
     } finally {
@@ -732,7 +733,7 @@ export default function Setup() {
 
           {!step1Collapsed && (
             <div className="space-y-4">
-              {/* Option 1: Bluesky / Bookhive (live sync) */}
+              {/* Option 1: Bluesky / ATproto (live sync) */}
               <div className="rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50/60 dark:bg-sky-900/15 p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <svg
@@ -753,7 +754,8 @@ export default function Setup() {
                   Sign in with Bluesky to store your reading list on the AT Protocol. ShelfCheck
                   publishes <code className="font-mono">org.shelfcheck.*</code> records to your PDS,
                   so your books, followed authors, and dismissed works follow you across devices and
-                  other compatible clients. Coming from BookHive? Import once below.
+                  other compatible clients. Previously used BookHive? You can do a one-time import
+                  of your existing shelf below.
                 </p>
                 {bskyInitializing ? (
                   <p className="text-sm text-gray-400">Checking Bluesky session...</p>
