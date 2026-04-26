@@ -10,7 +10,7 @@ import {
   shelfRecordToReadEntry,
   statusFromToken,
 } from "./mappers";
-import { STATUS, type ShelfEntryRecord } from "./lexicon";
+import { STATUS, type ShelfEntryRecord, type ShelfStatusToken } from "./lexicon";
 import type { Book, AuthorEntry, ReadBookEntry, DismissedWorkEntry } from "../storage";
 
 const NOW = new Date("2026-04-26T12:00:00.000Z");

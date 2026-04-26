@@ -590,7 +590,7 @@ describe("PDS rkey helpers", () => {
 
   it("_setReadPdsRkey sets rkey on a read book entry", () => {
     clearAll();
-    addReadBook({ workId: "OL1W", title: "Test", author: "Auth" });
+    addReadBook({ key: readBookKey({ workId: "OL1W", title: "Test", author: "Auth" }), workId: "OL1W", title: "Test", author: "Auth" });
     const entry = getReadBooks()[0];
     _setReadPdsRkey(entry.key, "rk_read");
     expect(getReadBooks()[0].pdsRkey).toBe("rk_read");
@@ -604,7 +604,7 @@ describe("PDS rkey helpers", () => {
 
   it("_setDismissedPdsRkey sets rkey on a dismissed entry", () => {
     clearAll();
-    addDismissedWork({ workId: "OL1W" });
+    addDismissedWork({ key: "work:OL1W", workId: "OL1W" });
     const entry = getDismissedWorks()[0];
     _setDismissedPdsRkey(entry.key, "rk_dis");
     expect(getDismissedWorks()[0].pdsRkey).toBe("rk_dis");
@@ -641,8 +641,8 @@ describe("PDS bulk-replace helpers", () => {
 
   it("_replaceDismissedFromPds overwrites local dismissed works", () => {
     clearAll();
-    addDismissedWork({ workId: "OL1W" });
-    _replaceDismissedFromPds([{ key: "k1", workId: "OL2W" }]);
+    addDismissedWork({ key: "work:OL1W", workId: "OL1W" });
+    _replaceDismissedFromPds([{ key: "k1", workId: "OL2W", dismissedAt: Date.now() }]);
     const dismissed = getDismissedWorks();
     expect(dismissed).toHaveLength(1);
     expect(dismissed[0].workId).toBe("OL2W");
