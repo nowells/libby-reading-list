@@ -161,12 +161,14 @@ function SourceLinks({ book }: { book: Book }) {
 }
 
 function ActionMenu({
+  onEdit,
   onMarkRead,
   onRemove,
   onFollowAuthor,
   isRead,
   isAuthorFollowed,
 }: {
+  onEdit?: () => void;
   onMarkRead: () => void;
   onRemove: () => void;
   onFollowAuthor?: () => void;
@@ -201,6 +203,30 @@ function ActionMenu({
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-700 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 py-1 z-50">
+          {onEdit && (
+            <button
+              onClick={() => {
+                onEdit();
+                setOpen(false);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-gray-700 dark:text-gray-200"
+            >
+              <svg
+                className="w-4 h-4 flex-shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"
+                />
+              </svg>
+              Edit details
+            </button>
+          )}
           <button
             onClick={() => {
               onMarkRead();
@@ -274,6 +300,7 @@ export function BookCard({
   formatFilter,
   onRefresh,
   onLibbyClick,
+  onEdit,
   onRemove,
   onMarkRead,
   onFollowAuthor,
@@ -286,6 +313,7 @@ export function BookCard({
   formatFilter: FormatFilter;
   onRefresh: () => void;
   onLibbyClick: (bookTitle: string, formatType: string, isAvailable: boolean) => void;
+  onEdit?: () => void;
   onRemove: () => void;
   onMarkRead: () => void;
   onFollowAuthor?: () => void;
@@ -415,6 +443,7 @@ export function BookCard({
             </span>
           )}
           <ActionMenu
+            onEdit={onEdit}
             onMarkRead={onMarkRead}
             onRemove={onRemove}
             onFollowAuthor={onFollowAuthor}

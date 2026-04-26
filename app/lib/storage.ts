@@ -19,6 +19,8 @@ export interface AuthorEntry {
   pdsRkey?: string;
 }
 
+export type ShelfStatus = "wantToRead" | "reading" | "finished" | "abandoned";
+
 export interface Book {
   id: string;
   title: string;
@@ -42,6 +44,19 @@ export interface Book {
   firstPublishYear?: number;
   /** rkey of the corresponding org.shelfcheck.shelf.entry record, when synced to a PDS. */
   pdsRkey?: string;
+  /**
+   * Reading status. Absent (or "wantToRead") means the book is on the
+   * want-to-read shelf, which is what the primary /books view filters on.
+   */
+  status?: ShelfStatus;
+  /** User rating, 0-100 (10-step half-star resolution; 100 == 5★). */
+  rating?: number;
+  /** Free-form private notes / public review for this book. */
+  note?: string;
+  /** ISO 8601 timestamp when the user started reading. */
+  startedAt?: string;
+  /** ISO 8601 timestamp when the user finished reading. */
+  finishedAt?: string;
 }
 
 function get<T>(key: string): T | null {
@@ -107,6 +122,17 @@ export function clearLibraries() {
 
 export function getBooks(): Book[] {
   return get<Book[]>("books") ?? [];
+}
+
+/**
+ * Predicate for the primary "books I want to borrow" view: a book counts
+ * as want-to-read when its status is unset (legacy entries / fresh imports
+ * land here) or explicitly `wantToRead`. `reading` does NOT include here —
+ * the user has already started reading it, so library availability is
+ * less interesting for it on the primary view.
+ */
+export function isWantToRead(book: Book): boolean {
+  return book.status === undefined || book.status === "wantToRead";
 }
 
 function writeBooks(books: Book[]) {
@@ -475,10 +501,6 @@ export function _replaceBooksFromPds(books: Book[]) {
 
 export function _replaceAuthorsFromPds(authors: AuthorEntry[]) {
   writeAuthors(authors);
-}
-
-export function _replaceReadBooksFromPds(entries: ReadBookEntry[]) {
-  writeReadBooks(entries);
 }
 
 export function _replaceDismissedFromPds(entries: DismissedWorkEntry[]) {

@@ -45,17 +45,19 @@ function sourceOrUndefined(source: Book["source"]): string | undefined {
 }
 
 /**
- * Convert a local Book (which represents a "want to read" entry in the
- * current model) into a ShelfEntryRecord. Status is supplied by the caller
- * because the same Book shape is used for any non-finished status.
+ * Convert a local Book into a ShelfEntryRecord. The book's `status` field
+ * (when set) takes priority over the explicit status argument so a book
+ * already marked as `finished` doesn't get pushed up as `wantToRead` during
+ * a generic reconcile sweep.
  */
 export function bookToShelfRecord(
   book: Book,
   status: ShelfStatusToken,
   now: Date = new Date(),
 ): ShelfEntryRecord {
+  const effectiveStatus = bookStatusToToken(book.status) ?? status;
   return {
-    status,
+    status: effectiveStatus,
     title: book.canonicalTitle ?? book.title,
     authors: authorsForBook(book),
     ids: bookIdsForBook(book),
@@ -65,9 +67,28 @@ export function bookToShelfRecord(
     subjects: book.subjects,
     pageCount: book.pageCount,
     firstPublishYear: book.firstPublishYear,
+    rating: book.rating,
+    note: book.note,
+    startedAt: book.startedAt,
+    finishedAt: book.finishedAt,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
+}
+
+function bookStatusToToken(status: Book["status"]): ShelfStatusToken | undefined {
+  switch (status) {
+    case "wantToRead":
+      return STATUS.wantToRead;
+    case "reading":
+      return STATUS.reading;
+    case "finished":
+      return STATUS.finished;
+    case "abandoned":
+      return STATUS.abandoned;
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -114,7 +135,27 @@ export function shelfRecordToBook(
     pageCount: record.pageCount,
     firstPublishYear: record.firstPublishYear,
     manual: record.source === "manual" ? true : undefined,
+    status: tokenToBookStatus(record.status),
+    rating: record.rating,
+    note: record.note,
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
   };
+}
+
+function tokenToBookStatus(token: string | undefined): Book["status"] {
+  switch (statusTokenName(token)) {
+    case "wantToRead":
+      return "wantToRead";
+    case "reading":
+      return "reading";
+    case "finished":
+      return "finished";
+    case "abandoned":
+      return "abandoned";
+    default:
+      return undefined;
+  }
 }
 
 export function shelfRecordToReadEntry(record: ShelfEntryRecord): ReadBookEntry {

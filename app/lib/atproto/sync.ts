@@ -3,7 +3,6 @@ import {
   _replaceAuthorsFromPds,
   _replaceBooksFromPds,
   _replaceDismissedFromPds,
-  _replaceReadBooksFromPds,
   _setAuthorPdsRkey,
   _setBookPdsRkey,
   _setDismissedPdsRkey,
@@ -28,7 +27,6 @@ import {
   dismissedToRecord,
   readEntryToShelfRecord,
   shelfRecordToBook,
-  shelfRecordToReadEntry,
   statusFromToken,
 } from "./mappers";
 import {
@@ -140,39 +138,43 @@ async function reconcileShelfEntries(
   }
 
   // Pull-down: PDS records that local doesn't have.
-  const localBookKeysWantToRead = new Set(localBooks.map((b) => bookKey(b)));
+  const localBooksByKey = new Map(localBooks.map((b) => [bookKey(b), b]));
   const localReadKeys = new Set(localReads.map((r) => r.key));
 
   const newBooks: Book[] = [];
-  const newReads: ReadBookEntry[] = [];
 
   for (const rec of indexed) {
-    if (rec.status === STATUS.wantToRead || rec.status === STATUS.reading) {
-      if (!localBookKeysWantToRead.has(rec.contentKey)) {
-        const book = shelfRecordToBook(rec.value, "bookhive");
-        book.pdsRkey = rec.rkey;
-        newBooks.push(book);
-      } else {
-        // Found a match: assign the rkey to the matching local book so
-        // future updates target this record.
-        assignRkeyToLocalBook(rec.contentKey, rec.rkey);
-      }
-    } else if (rec.status === STATUS.finished || rec.status === STATUS.abandoned) {
-      if (!localReadKeys.has(rec.contentKey)) {
-        const entry = shelfRecordToReadEntry(rec.value);
-        entry.pdsRkey = rec.rkey;
-        newReads.push(entry);
-      } else {
-        assignRkeyToLocalRead(rec.contentKey, rec.rkey);
-      }
+    // If a Book in our local cache matches this PDS record (by content
+    // key), the PDS record represents the same shelf entry regardless of
+    // status. Just sync the rkey so subsequent edits target this record;
+    // don't fan out to ReadBookEntry. This keeps local state in exactly
+    // one place when the user changes a book's status.
+    const localBook = localBooksByKey.get(rec.contentKey);
+    if (localBook) {
+      assignRkeyToLocalBook(rec.contentKey, rec.rkey);
+      continue;
     }
+
+    // Legacy: a ReadBookEntry already represents this work. Keep using
+    // that cache slot rather than creating a parallel Book.
+    if (
+      (rec.status === STATUS.finished || rec.status === STATUS.abandoned) &&
+      localReadKeys.has(rec.contentKey)
+    ) {
+      assignRkeyToLocalRead(rec.contentKey, rec.rkey);
+      continue;
+    }
+
+    // New content from the PDS — land everything in the Book collection
+    // with its status preserved. /books filters down to want-to-read for
+    // its primary view; /shelf shows the full set.
+    const book = shelfRecordToBook(rec.value, "bookhive");
+    book.pdsRkey = rec.rkey;
+    newBooks.push(book);
   }
 
   if (newBooks.length) {
     _replaceBooksFromPds([...getBooks(), ...newBooks]);
-  }
-  if (newReads.length) {
-    _replaceReadBooksFromPds([...getReadBooks(), ...newReads]);
   }
 
   // Push-up: local entities that aren't on the PDS yet.

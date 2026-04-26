@@ -16,6 +16,58 @@ import type { Book, AuthorEntry, ReadBookEntry, DismissedWorkEntry } from "../st
 const NOW = new Date("2026-04-26T12:00:00.000Z");
 
 describe("mappers", () => {
+  describe("status / rating / note round-trip", () => {
+    it("emits the book's own status when set, otherwise the fallback", () => {
+      const finished = bookToShelfRecord(
+        {
+          id: "x",
+          title: "T",
+          author: "A",
+          source: "unknown",
+          manual: true,
+          status: "finished",
+          rating: 80,
+          note: "loved it",
+          startedAt: "2025-01-01T00:00:00.000Z",
+          finishedAt: "2025-02-01T00:00:00.000Z",
+        },
+        STATUS.wantToRead,
+        NOW,
+      );
+      expect(finished.status).toBe(STATUS.finished);
+      expect(finished.rating).toBe(80);
+      expect(finished.note).toBe("loved it");
+      expect(finished.startedAt).toBe("2025-01-01T00:00:00.000Z");
+      expect(finished.finishedAt).toBe("2025-02-01T00:00:00.000Z");
+
+      const fallback = bookToShelfRecord(
+        { id: "x", title: "T", author: "A", source: "unknown", manual: true },
+        STATUS.reading,
+        NOW,
+      );
+      expect(fallback.status).toBe(STATUS.reading);
+    });
+
+    it("propagates new fields from the record back into a Book", () => {
+      const restored = shelfRecordToBook({
+        status: STATUS.finished,
+        title: "T",
+        authors: [{ name: "A" }],
+        ids: { olWorkId: "OL1W" },
+        rating: 90,
+        note: "great",
+        startedAt: "2025-03-01T00:00:00.000Z",
+        finishedAt: "2025-04-01T00:00:00.000Z",
+        createdAt: NOW.toISOString(),
+      });
+      expect(restored.status).toBe("finished");
+      expect(restored.rating).toBe(90);
+      expect(restored.note).toBe("great");
+      expect(restored.startedAt).toBe("2025-03-01T00:00:00.000Z");
+      expect(restored.finishedAt).toBe("2025-04-01T00:00:00.000Z");
+    });
+  });
+
   describe("bookToShelfRecord", () => {
     it("emits a record with required fields and Open Library work id", () => {
       const book: Book = {

@@ -7,11 +7,13 @@ import {
   getAuthors,
   addBook,
   removeBook,
+  updateBook,
   addReadBook,
   removeReadBook,
   getReadBooks,
   readBookKey,
   addAuthor,
+  isWantToRead,
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
@@ -31,13 +33,14 @@ import { FormatFilterBar } from "./components/format-filter-bar";
 import { BookCard } from "./components/book-card";
 import { ProgressBar } from "./components/progress-bar";
 import { BookhiveSyncStatus } from "./components/bookhive-sync-status";
+import { BookEditor, type BookEditorPatch } from "~/components/book-editor";
 
 export function meta() {
   return [{ title: "Your Books | ShelfCheck" }];
 }
 
 export function clientLoader() {
-  const books = getBooks();
+  const books = getBooks().filter(isWantToRead);
   const libraries = getLibraries();
   if (books.length === 0 || libraries.length === 0) {
     throw redirect("/setup");
@@ -47,11 +50,12 @@ export function clientLoader() {
 
 export default function Books() {
   const posthog = usePostHog();
-  const [books, setBooksState] = useState<Book[]>(() => getBooks());
+  const [books, setBooksState] = useState<Book[]>(() => getBooks().filter(isWantToRead));
   const [libraries] = useState<LibraryConfig[]>(() => getLibraries());
   const [showAddBook, setShowAddBook] = useState(false);
   const [readBooks, setReadBooks] = useState(() => getReadBooks());
   const [followedAuthors, setFollowedAuthors] = useState(() => getAuthors());
+  const [editing, setEditing] = useState<Book | null>(null);
 
   const readBookKeys = useMemo(() => new Set(readBooks.map((r) => r.key)), [readBooks]);
   const followedAuthorNames = useMemo(
@@ -180,14 +184,14 @@ export default function Books() {
       imageUrl: item.covers?.cover150Wide?.href,
       source: "unknown",
     });
-    setBooksState(getBooks());
+    setBooksState(getBooks().filter(isWantToRead));
     setShowAddBook(false);
     posthog?.capture("book_added_from_search", { title: item.title });
   };
 
   const handleRemoveBook = (id: string) => {
     removeBook(id);
-    setBooksState(getBooks());
+    setBooksState(getBooks().filter(isWantToRead));
     posthog?.capture("book_removed", { book_id: id });
   };
 
@@ -201,6 +205,18 @@ export default function Books() {
       posthog?.capture("book_marked_read", { book_id: book.id });
     }
     setReadBooks(getReadBooks());
+  };
+
+  const handleEditSave = (patch: BookEditorPatch) => {
+    if (!editing) return;
+    updateBook(editing.id, patch);
+    setEditing(null);
+    setBooksState(getBooks().filter(isWantToRead));
+    posthog?.capture("book_edited", {
+      book_id: editing.id,
+      status: patch.status,
+      has_rating: patch.rating !== undefined,
+    });
   };
 
   const handleFollowAuthor = (book: Book) => {
@@ -236,6 +252,25 @@ export default function Books() {
                 </svg>
                 <span className="hidden sm:inline">Add</span>
               </button>
+              <Link
+                to="/shelf"
+                className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3.75 19.5h16.5M4.5 6.75h15M5.25 4.5v15M18.75 4.5v15M9 4.5v15M15 4.5v15"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Shelf</span>
+              </Link>
               <Link
                 to="/authors"
                 className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -306,7 +341,9 @@ export default function Books() {
               {libraries.length === 1 ? "library" : "libraries"}
             </p>
             <div className="flex flex-wrap items-center gap-2 mt-1">
-              <BookhiveSyncStatus onBooksChanged={() => setBooksState(getBooks())} />
+              <BookhiveSyncStatus
+                onBooksChanged={() => setBooksState(getBooks().filter(isWantToRead))}
+              />
               {oldestFetchedAt && checkedCount > 0 && (
                 <button
                   type="button"
@@ -468,6 +505,7 @@ export default function Books() {
                 formatFilter={formatFilter}
                 onRefresh={() => refreshBook(book)}
                 onLibbyClick={handleLibbyClick}
+                onEdit={() => setEditing(book)}
                 onRemove={() => handleRemoveBook(book.id)}
                 onMarkRead={() => handleMarkRead(book)}
                 onFollowAuthor={authorName ? () => handleFollowAuthor(book) : undefined}
@@ -563,6 +601,9 @@ export default function Books() {
           </div>
         )}
       </div>
+      {editing && (
+        <BookEditor book={editing} onSave={handleEditSave} onClose={() => setEditing(null)} />
+      )}
     </main>
   );
 }
