@@ -199,7 +199,7 @@ export default function Friends() {
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {friends.length} {friends.length === 1 ? "friend" : "friends"} on ShelfCheck
             </span>
-            {status === "done" && friends.length > 0 && (
+            {status === "done" && (
               <button
                 type="button"
                 onClick={refresh}
