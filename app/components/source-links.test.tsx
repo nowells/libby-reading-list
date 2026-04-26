@@ -47,9 +47,7 @@ describe("SourceLinks", () => {
   });
 
   it("renders Open Library link when workId is present", async () => {
-    const screen = await render(
-      <SourceLinks book={makeBook({ workId: "OL12345W" })} />,
-    );
+    const screen = await render(<SourceLinks book={makeBook({ workId: "OL12345W" })} />);
     const link = screen.getByRole("link", { name: /Open Library/i });
     await expect.element(link).toBeVisible();
     expect(link.element().getAttribute("href")).toBe("https://openlibrary.org/works/OL12345W");

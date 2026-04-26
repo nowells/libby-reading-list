@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { attachSession, detachSession, resync } from "./sync";
 import * as records from "./records";
 import * as storage from "../storage";
-import { NSID, STATUS, type ShelfEntryRecord, type AuthorFollowRecord, type BookDismissedRecord } from "./lexicon";
+import {
+  NSID,
+  STATUS,
+  type ShelfEntryRecord,
+  type AuthorFollowRecord,
+  type BookDismissedRecord,
+} from "./lexicon";
 
 // Mock records module
 vi.mock("./records", () => ({
@@ -133,7 +139,12 @@ describe("sync", () => {
 
     it("does not duplicate existing local books that match PDS records", async () => {
       // Add a local book
-      storage.addBook({ title: "Shared Book", author: "Shared Author", source: "goodreads", workId: "OL555W" });
+      storage.addBook({
+        title: "Shared Book",
+        author: "Shared Author",
+        source: "goodreads",
+        workId: "OL555W",
+      });
       const initialCount = storage.getBooks().length;
 
       const pdsRecord = makeShelfPdsRecord({
@@ -156,7 +167,12 @@ describe("sync", () => {
     });
 
     it("assigns rkey to existing local book that matches PDS", async () => {
-      storage.addBook({ title: "Match Book", author: "Match Author", source: "goodreads", workId: "OL777W" });
+      storage.addBook({
+        title: "Match Book",
+        author: "Match Author",
+        source: "goodreads",
+        workId: "OL777W",
+      });
 
       const pdsRecord = makeShelfPdsRecord({
         title: "Match Book",
