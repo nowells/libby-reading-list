@@ -17,6 +17,8 @@ import {
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
+import { enrichBooksWithWorkId } from "~/lib/openlibrary";
+import { getAuthor } from "~/components/book-search-utils";
 import { Logo } from "~/components/logo";
 import { BookSearchPicker } from "~/components/book-search-picker";
 import type { LibbyMediaItem } from "~/lib/libby";
@@ -56,6 +58,17 @@ export default function Books() {
   const [readBooks, setReadBooks] = useState(() => getReadBooks());
   const [followedAuthors, setFollowedAuthors] = useState(() => getAuthors());
   const [editing, setEditing] = useState<Book | null>(null);
+  const [finding, setFinding] = useState<Book | null>(null);
+  const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
+  const [toasts, setToasts] = useState<
+    { id: number; message: string; type: "success" | "error" }[]
+  >([]);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  };
 
   const readBookKeys = useMemo(() => new Set(readBooks.map((r) => r.key)), [readBooks]);
   const followedAuthorNames = useMemo(
@@ -217,6 +230,62 @@ export default function Books() {
       status: patch.status,
       has_rating: patch.rating !== undefined,
     });
+  };
+
+  const handleFindSelect = (book: Book, item: LibbyMediaItem) => {
+    const author = getAuthor(item);
+    const imageUrl = item.covers?.cover150Wide?.href;
+    updateBook(book.id, {
+      title: item.title,
+      author,
+      ...(imageUrl ? { imageUrl } : {}),
+      source: book.source,
+    });
+
+    setFinding(null);
+    setEnrichingIds((prev) => new Set(prev).add(book.id));
+    setBooksState(getBooks().filter(isWantToRead));
+    posthog?.capture("book_find_selected", { book_id: book.id, selected_title: item.title });
+
+    const updated = { ...book, title: item.title, author };
+    enrichBooksWithWorkId([updated])
+      .then((enriched) => {
+        if (enriched[0]?.workId) {
+          const {
+            workId,
+            isbn13,
+            canonicalTitle,
+            canonicalAuthor,
+            subjects,
+            pageCount,
+            firstPublishYear,
+          } = enriched[0];
+          updateBook(book.id, {
+            workId,
+            isbn13,
+            imageUrl: enriched[0].imageUrl ?? imageUrl,
+            canonicalTitle,
+            canonicalAuthor,
+            subjects,
+            pageCount,
+            firstPublishYear,
+          });
+          setBooksState(getBooks().filter(isWantToRead));
+          showToast(`Matched "${item.title}" with Open Library`);
+        } else {
+          showToast(`Could not find "${item.title}" on Open Library`, "error");
+        }
+      })
+      .catch(() => {
+        showToast(`Failed to enrich "${item.title}"`, "error");
+      })
+      .finally(() => {
+        setEnrichingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(book.id);
+          return next;
+        });
+      });
   };
 
   const handleFollowAuthor = (book: Book) => {
@@ -487,6 +556,49 @@ export default function Books() {
           </div>
         )}
 
+        {/* Toasts */}
+        {toasts.length > 0 && (
+          <div className="space-y-1.5 mb-3">
+            {toasts.map((t) => (
+              <div
+                key={t.id}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+                  t.type === "success"
+                    ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
+                    : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
+                }`}
+              >
+                {t.type === "success" ? (
+                  <svg
+                    className="w-3.5 h-3.5 flex-shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                ) : (
+                  <svg
+                    className="w-3.5 h-3.5 flex-shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                    />
+                  </svg>
+                )}
+                {t.message}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="space-y-3">
           {paginatedBooks.map((book) => {
             const state = availMap[book.id] ?? { status: "pending" as const };
@@ -506,6 +618,7 @@ export default function Books() {
                 onRefresh={() => refreshBook(book)}
                 onLibbyClick={handleLibbyClick}
                 onEdit={() => setEditing(book)}
+                onFind={!book.workId ? () => setFinding(book) : undefined}
                 onRemove={() => handleRemoveBook(book.id)}
                 onMarkRead={() => handleMarkRead(book)}
                 onFollowAuthor={authorName ? () => handleFollowAuthor(book) : undefined}
@@ -603,6 +716,34 @@ export default function Books() {
       </div>
       {editing && (
         <BookEditor book={editing} onSave={handleEditSave} onClose={() => setEditing(null)} />
+      )}
+
+      {finding && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+          <div className="absolute inset-0 bg-black/40" onClick={() => setFinding(null)} />
+          <div
+            role="dialog"
+            aria-label="Find book match"
+            className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
+          >
+            <div className="mb-3">
+              <h3 className="text-sm font-medium text-gray-900 dark:text-white">
+                Find match for &ldquo;{finding.title}&rdquo;
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Search and select the correct book to associate metadata.
+              </p>
+            </div>
+            <BookSearchPicker
+              libraryKey={libraries[0]?.preferredKey}
+              initialQuery={finding.title}
+              onSelect={(item) => handleFindSelect(finding, item)}
+              onCancel={() => setFinding(null)}
+              placeholder="Search by title or author..."
+            />
+          </div>
+        </div>
       )}
     </main>
   );

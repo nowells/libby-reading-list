@@ -488,7 +488,7 @@ export function AuthorCard({
   const isLoading = state.status === "loading-works" || state.status === "loading-availability";
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 border-purple-400 dark:border-purple-500 overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 border-purple-400 dark:border-purple-500">
       {/* Author header */}
       <button
         onClick={() => setExpanded((e) => !e)}

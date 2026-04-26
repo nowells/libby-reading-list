@@ -590,7 +590,12 @@ describe("PDS rkey helpers", () => {
 
   it("_setReadPdsRkey sets rkey on a read book entry", () => {
     clearAll();
-    addReadBook({ key: readBookKey({ workId: "OL1W", title: "Test", author: "Auth" }), workId: "OL1W", title: "Test", author: "Auth" });
+    addReadBook({
+      key: readBookKey({ workId: "OL1W", title: "Test", author: "Auth" }),
+      workId: "OL1W",
+      title: "Test",
+      author: "Auth",
+    });
     const entry = getReadBooks()[0];
     _setReadPdsRkey(entry.key, "rk_read");
     expect(getReadBooks()[0].pdsRkey).toBe("rk_read");

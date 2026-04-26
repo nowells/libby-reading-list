@@ -14,6 +14,7 @@ import { timeAgo, libbyTitleUrl, formatAudiobookDuration } from "../lib/utils";
 
 function ActionMenu({
   onEdit,
+  onFind,
   onMarkRead,
   onRemove,
   onFollowAuthor,
@@ -21,6 +22,7 @@ function ActionMenu({
   isAuthorFollowed,
 }: {
   onEdit?: () => void;
+  onFind?: () => void;
   onMarkRead: () => void;
   onRemove: () => void;
   onFollowAuthor?: () => void;
@@ -77,6 +79,30 @@ function ActionMenu({
                 />
               </svg>
               Edit details
+            </button>
+          )}
+          {onFind && (
+            <button
+              onClick={() => {
+                onFind();
+                setOpen(false);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-amber-600 dark:text-amber-400"
+            >
+              <svg
+                className="w-4 h-4 flex-shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+                />
+              </svg>
+              Find match
             </button>
           )}
           <button
@@ -153,6 +179,7 @@ export function BookCard({
   onRefresh,
   onLibbyClick,
   onEdit,
+  onFind,
   onRemove,
   onMarkRead,
   onFollowAuthor,
@@ -166,6 +193,7 @@ export function BookCard({
   onRefresh: () => void;
   onLibbyClick: (bookTitle: string, formatType: string, isAvailable: boolean) => void;
   onEdit?: () => void;
+  onFind?: () => void;
   onRemove: () => void;
   onMarkRead: () => void;
   onFollowAuthor?: () => void;
@@ -219,7 +247,7 @@ export function BookCard({
 
   return (
     <div
-      className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 transition-colors duration-300 overflow-hidden ${borderColor} ${isRead ? "opacity-60" : ""}`}
+      className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 transition-colors duration-300 ${borderColor} ${isRead ? "opacity-60" : ""}`}
     >
       {/* Book header */}
       <div className="flex items-center gap-4 p-4">
@@ -296,6 +324,7 @@ export function BookCard({
           )}
           <ActionMenu
             onEdit={onEdit}
+            onFind={onFind}
             onMarkRead={onMarkRead}
             onRemove={onRemove}
             onFollowAuthor={onFollowAuthor}
