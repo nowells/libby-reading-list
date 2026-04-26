@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePostHog } from "@posthog/react";
 import { CoverImage } from "~/components/cover-image";
 import { SourceLinks } from "~/components/source-links";
@@ -620,7 +620,14 @@ export default function Shelf() {
                           {entry.canonicalAuthor ?? entry.author}
                         </p>
                       </div>
-                      <StatusPill status={effectiveStatus(entry)} />
+                      {!entry.__readEntryKey ? (
+                        <StatusDropdown
+                          status={effectiveStatus(entry)}
+                          onSelect={(s) => handleQuickStatus(entry, s)}
+                        />
+                      ) : (
+                        <StatusPill status={effectiveStatus(entry)} />
+                      )}
                     </div>
                     <div className="mt-1.5 flex items-center gap-3 text-xs text-gray-600 dark:text-gray-300">
                       {entry.rating !== undefined && (
@@ -637,7 +644,35 @@ export default function Shelf() {
                       </p>
                     )}
                   </div>
-                  <div className="flex flex-col gap-1 flex-shrink-0">
+                </div>
+                {/* Card footer: source links + actions */}
+                {enrichingIds.has(entry.id) && (
+                  <div className="px-3 pt-1.5 border-t border-gray-100 dark:border-gray-700">
+                    <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+                      <svg
+                        className="w-3.5 h-3.5 animate-spin"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      Matching with Open Library...
+                    </div>
+                  </div>
+                )}
+                <div
+                  className={`flex items-center justify-between px-3 py-1.5 ${enrichingIds.has(entry.id) ? "" : "border-t border-gray-100 dark:border-gray-700"}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <SourceLinks book={entry} />
+                  </div>
+                  <div className="flex items-center gap-1">
                     {entry.workId ? (
                       <button
                         type="button"
@@ -667,53 +702,6 @@ export default function Shelf() {
                       Remove
                     </button>
                   </div>
-                </div>
-                {/* Card footer: source links + quick status */}
-                {enrichingIds.has(entry.id) && (
-                  <div className="px-3 pt-1.5 border-t border-gray-100 dark:border-gray-700">
-                    <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
-                      <svg
-                        className="w-3.5 h-3.5 animate-spin"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
-                      Matching with Open Library...
-                    </div>
-                  </div>
-                )}
-                <div
-                  className={`flex items-center justify-between px-3 py-1.5 ${enrichingIds.has(entry.id) ? "" : "border-t border-gray-100 dark:border-gray-700"}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <SourceLinks book={entry} />
-                  </div>
-                  {!entry.__readEntryKey && (
-                    <div className="flex items-center gap-1">
-                      {SHELF_STATUSES.map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => handleQuickStatus(entry, s)}
-                          className={`px-1.5 py-0.5 text-[10px] rounded-full border transition-colors ${
-                            effectiveStatus(entry) === s
-                              ? "bg-amber-600 border-amber-600 text-white"
-                              : "border-gray-200 dark:border-gray-600 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                          }`}
-                          title={statusLabel(s)}
-                        >
-                          {statusLabel(s)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </li>
             ))}
@@ -807,6 +795,60 @@ export default function Shelf() {
         </div>
       )}
     </main>
+  );
+}
+
+function StatusDropdown({
+  status,
+  onSelect,
+}: {
+  status: ShelfStatus;
+  onSelect: (s: ShelfStatus) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div className="relative flex-shrink-0" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Change status"
+        aria-expanded={open}
+      >
+        <StatusPill status={status} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-20 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg py-1 min-w-[140px]">
+          {SHELF_STATUSES.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => {
+                onSelect(s);
+                setOpen(false);
+              }}
+              className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                s === status
+                  ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 font-medium"
+                  : "text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600"
+              }`}
+            >
+              {statusLabel(s)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
