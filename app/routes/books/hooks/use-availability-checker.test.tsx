@@ -45,8 +45,8 @@ function TestHarness({
   books?: Book[];
   libraries?: LibraryConfig[];
 }) {
-  const books = useMemo(() => booksProp ?? mockBooks.slice(0, 1), []);
-  const libraries = useMemo(() => librariesProp ?? mockLibraries.slice(0, 1), []);
+  const books = useMemo(() => booksProp ?? mockBooks.slice(0, 1), [booksProp]);
+  const libraries = useMemo(() => librariesProp ?? mockLibraries.slice(0, 1), [librariesProp]);
   const result = useAvailabilityChecker(books, libraries);
   return (
     <div>

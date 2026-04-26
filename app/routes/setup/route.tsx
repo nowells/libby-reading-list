@@ -146,7 +146,7 @@ function SkippedRowsPanel({
       <div className="space-y-2">
         {skippedRows.map((row, idx) => (
           <div
-            key={idx}
+            key={`${row.author}-${row.note}`}
             className="bg-white dark:bg-gray-800 rounded-lg border border-yellow-100 dark:border-yellow-900/50 overflow-hidden"
           >
             <div className="flex items-center justify-between px-3 py-2">

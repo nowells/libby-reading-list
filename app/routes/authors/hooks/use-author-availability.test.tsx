@@ -54,8 +54,8 @@ function TestHarness({
   authors?: AuthorEntry[];
   libraries?: LibraryConfig[];
 }) {
-  const authors = useMemo(() => authorsProp ?? [testAuthor], []);
-  const libraries = useMemo(() => librariesProp ?? mockLibraries.slice(0, 1), []);
+  const authors = useMemo(() => authorsProp ?? [testAuthor], [authorsProp]);
+  const libraries = useMemo(() => librariesProp ?? mockLibraries.slice(0, 1), [librariesProp]);
   const result = useAuthorAvailability(authors, libraries);
   return (
     <div>

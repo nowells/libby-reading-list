@@ -255,18 +255,18 @@ describe("getWorkEditionIsbns", () => {
 // ---------------------------------------------------------------------------
 // enrichBooksWithWorkId
 // ---------------------------------------------------------------------------
-describe("enrichBooksWithWorkId", () => {
-  function makeBook(overrides: Partial<Book> = {}): Book {
-    return {
-      id: "b1",
-      title: "Children of Time",
-      author: "Adrian Tchaikovsky",
-      isbn13: "9780316452502",
-      source: "goodreads",
-      ...overrides,
-    };
-  }
+function makeBook(overrides: Partial<Book> = {}): Book {
+  return {
+    id: "b1",
+    title: "Children of Time",
+    author: "Adrian Tchaikovsky",
+    isbn13: "9780316452502",
+    source: "goodreads",
+    ...overrides,
+  };
+}
 
+describe("enrichBooksWithWorkId", () => {
   it("enriches a book with ISBN via OpenLibrary", async () => {
     const books = [makeBook()];
     const result = await enrichBooksWithWorkId(books);

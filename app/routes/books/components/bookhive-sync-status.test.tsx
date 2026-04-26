@@ -5,8 +5,8 @@ import { BookhiveSyncStatus } from "./bookhive-sync-status";
 // Mock atproto module - initSession returns null by default (no session)
 vi.mock("~/lib/atproto", () => ({
   initSession: vi.fn().mockResolvedValue(null),
-  syncBookhive: vi.fn().mockResolvedValue([]),
-  isBookhiveSyncStale: vi.fn().mockReturnValue(false),
+  refreshPdsSync: vi.fn().mockResolvedValue(undefined),
+  getLastPdsSync: vi.fn().mockReturnValue(null),
 }));
 
 describe("BookhiveSyncStatus", () => {
@@ -27,7 +27,7 @@ describe("BookhiveSyncStatus", () => {
 
     const screen = await render(<BookhiveSyncStatus onBooksChanged={vi.fn()} />);
 
-    await expect.element(screen.getByText("Synced from ATmosphere")).toBeVisible();
+    await expect.element(screen.getByText("Synced via ATproto")).toBeVisible();
   });
 
   it("shows handle in title attribute", async () => {
@@ -40,21 +40,21 @@ describe("BookhiveSyncStatus", () => {
     });
 
     const screen = await render(<BookhiveSyncStatus onBooksChanged={vi.fn()} />);
-    await expect.element(screen.getByText("Synced from ATmosphere")).toBeVisible();
+    await expect.element(screen.getByText("Synced via ATproto")).toBeVisible();
 
     const button = screen.getByRole("button");
     await expect.element(button).toHaveAttribute("title", "Signed in as @alice.bsky.social");
   });
 
   it("triggers sync on click", async () => {
-    const { initSession, syncBookhive } = await import("~/lib/atproto");
+    const { initSession, refreshPdsSync } = await import("~/lib/atproto");
     const mockSession = { did: "did:plc:abc123" };
     vi.mocked(initSession).mockResolvedValue({
       session: mockSession as any,
       info: { did: "did:plc:abc123", handle: "alice.bsky.social" },
       fresh: false,
     });
-    vi.mocked(syncBookhive).mockResolvedValue([]);
+    vi.mocked(refreshPdsSync).mockResolvedValue(undefined);
 
     const onBooksChanged = vi.fn();
     const screen = await render(<BookhiveSyncStatus onBooksChanged={onBooksChanged} />);
@@ -62,48 +62,35 @@ describe("BookhiveSyncStatus", () => {
     await expect.element(screen.getByRole("button")).toBeVisible();
     await screen.getByRole("button").click();
 
-    expect(syncBookhive).toHaveBeenCalledWith(mockSession);
+    await vi.waitFor(() => {
+      expect(refreshPdsSync).toHaveBeenCalledWith("did:plc:abc123");
+    });
   });
 
-  it("calls onBooksChanged when sync imports books", async () => {
-    const { initSession, syncBookhive } = await import("~/lib/atproto");
+  it("calls onBooksChanged when sync completes", async () => {
+    const { initSession, refreshPdsSync } = await import("~/lib/atproto");
     const mockSession = { did: "did:plc:abc123" };
     vi.mocked(initSession).mockResolvedValue({
       session: mockSession as any,
       info: { did: "did:plc:abc123", handle: "alice.bsky.social" },
       fresh: false,
     });
-    vi.mocked(syncBookhive).mockResolvedValue([
-      { id: "b1", title: "Book", author: "Auth", source: "bookhive" },
-    ]);
+    vi.mocked(refreshPdsSync).mockResolvedValue(undefined);
 
     const onBooksChanged = vi.fn();
     const screen = await render(<BookhiveSyncStatus onBooksChanged={onBooksChanged} />);
 
-    await expect.element(screen.getByRole("button")).toBeVisible();
+    // onBooksChanged is called once after initSession resolves
+    await vi.waitFor(() => {
+      expect(onBooksChanged).toHaveBeenCalledTimes(1);
+    });
+
+    // Click to trigger manual resync
     await screen.getByRole("button").click();
 
-    // Wait for async sync to complete
     await vi.waitFor(() => {
-      expect(onBooksChanged).toHaveBeenCalled();
-    });
-  });
-
-  it("auto-syncs when session is stale", async () => {
-    const { initSession, syncBookhive, isBookhiveSyncStale } = await import("~/lib/atproto");
-    const mockSession = { did: "did:plc:abc123" };
-    vi.mocked(initSession).mockResolvedValue({
-      session: mockSession as any,
-      info: { did: "did:plc:abc123", handle: "alice.bsky.social" },
-      fresh: false,
-    });
-    vi.mocked(isBookhiveSyncStale).mockReturnValue(true);
-    vi.mocked(syncBookhive).mockResolvedValue([]);
-
-    await render(<BookhiveSyncStatus onBooksChanged={vi.fn()} />);
-
-    await vi.waitFor(() => {
-      expect(syncBookhive).toHaveBeenCalled();
+      // Called again after manual sync
+      expect(onBooksChanged).toHaveBeenCalledTimes(2);
     });
   });
 });
