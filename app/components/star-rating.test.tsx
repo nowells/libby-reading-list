@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { StarRating } from "./star-rating";
+import { componentLocator } from "~/test/screenshot";
 
 describe("StarRating", () => {
   it("renders five star slots", async () => {
@@ -50,5 +51,18 @@ describe("StarRating", () => {
   it("does not show clear button when value is undefined", async () => {
     const screen = await render(<StarRating value={undefined} onChange={vi.fn()} />);
     expect(screen.container.querySelector('[aria-label="Clear rating"]')).toBeNull();
+  });
+
+  it("star rating variants match screenshot", async () => {
+    const screen = await render(
+      <div className="flex flex-col gap-3 p-4 bg-white">
+        <StarRating value={undefined} readOnly size={18} />
+        <StarRating value={30} readOnly size={18} />
+        <StarRating value={60} readOnly size={18} />
+        <StarRating value={100} readOnly size={18} />
+        <StarRating value={50} onChange={vi.fn()} size={24} />
+      </div>,
+    );
+    await expect.element(componentLocator(screen)).toMatchScreenshot("star-rating-variants");
   });
 });

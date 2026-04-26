@@ -2,8 +2,11 @@ import { Link } from "react-router";
 import { useEffect, useMemo, useState } from "react";
 import { usePostHog } from "@posthog/react";
 import { CoverImage } from "~/components/cover-image";
+import { SourceLinks } from "~/components/source-links";
 import {
+  addBook,
   getBooks,
+  getLibraries,
   getReadBooks,
   removeBook,
   removeReadBook,
@@ -12,6 +15,10 @@ import {
   type ReadBookEntry,
   type ShelfStatus,
 } from "~/lib/storage";
+import { enrichBooksWithWorkId } from "~/lib/openlibrary";
+import { BookSearchPicker } from "~/components/book-search-picker";
+import { getAuthor } from "~/components/book-search-utils";
+import type { LibbyMediaItem } from "~/lib/libby";
 import { Logo } from "~/components/logo";
 import {
   StatusPill,
@@ -23,6 +30,7 @@ import { StarRating } from "~/components/star-rating";
 import { BookEditor, type BookEditorPatch } from "~/components/book-editor";
 import { bookKey } from "~/lib/dedupe";
 import { fuzzyMatch, PAGE_SIZE } from "~/routes/books/lib/utils";
+import { BookhiveSyncStatus } from "~/routes/books/components/bookhive-sync-status";
 
 export function meta() {
   return [{ title: "Shelf | ShelfCheck" }];
@@ -73,9 +81,15 @@ export default function Shelf() {
   const posthog = usePostHog();
   const [entries, setEntries] = useState<PseudoBook[]>(() => loadAllShelfEntries());
   const [statusFilter, setStatusFilter] = useState<Set<ShelfStatus>>(new Set());
+  const [unmatchedOnly, setUnmatchedOnly] = useState(false);
   const [minRating, setMinRating] = useState<number>(0);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<PseudoBook | null>(null);
+  const [finding, setFinding] = useState<PseudoBook | null>(null);
+  const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
+  const [toasts, setToasts] = useState<
+    { id: number; message: string; type: "success" | "error" }[]
+  >([]);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -84,6 +98,12 @@ export default function Shelf() {
 
   const refresh = () => setEntries(loadAllShelfEntries());
 
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  };
+
   const counts = useMemo(() => {
     const c: Record<ShelfStatus, number> = {
       wantToRead: 0,
@@ -91,14 +111,19 @@ export default function Shelf() {
       finished: 0,
       abandoned: 0,
     };
-    for (const e of entries) c[effectiveStatus(e)]++;
-    return c;
+    let unmatched = 0;
+    for (const e of entries) {
+      c[effectiveStatus(e)]++;
+      if (!e.workId) unmatched++;
+    }
+    return { ...c, unmatched };
   }, [entries]);
 
   const filtered = useMemo(() => {
     const sf = statusFilter;
     return entries
       .filter((e) => sf.size === 0 || sf.has(effectiveStatus(e)))
+      .filter((e) => !unmatchedOnly || !e.workId)
       .filter((e) => (e.rating ?? 0) >= minRating)
       .filter((e) => fuzzyMatch(search, e.title, e.author))
       .sort((a, b) => {
@@ -108,7 +133,7 @@ export default function Shelf() {
         if (aT !== bT) return bT - aT;
         return a.title.localeCompare(b.title);
       });
-  }, [entries, statusFilter, minRating, search]);
+  }, [entries, statusFilter, unmatchedOnly, minRating, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -125,23 +150,114 @@ export default function Shelf() {
   };
 
   const handleSave = (book: PseudoBook, patch: BookEditorPatch) => {
+    let bookId: string;
+
     if (book.__readEntryKey) {
-      // ReadBookEntries don't carry rating/note. Skip the upgrade flow for
-      // now — surface a hint in the editor copy and only persist the
-      // status if it changed away from finished.
-      // (The vast majority of users will only see real Books here.)
-      setEditing(null);
-      return;
+      // Promote ReadBookEntry to a real Book so we can persist rating/note/status
+      const { __readEntryKey, id: _pseudoId, ...bookData } = book;
+      addBook({ ...bookData, ...patch });
+      removeReadBook(__readEntryKey);
+      const allBooks = getBooks();
+      bookId = allBooks[allBooks.length - 1].id;
+    } else {
+      bookId = book.id;
+      updateBook(bookId, patch);
     }
-    updateBook(book.id, patch);
+
     refresh();
     posthog?.capture("shelf_entry_edited", {
-      book_id: book.id,
+      book_id: bookId,
       status: patch.status,
       has_rating: patch.rating !== undefined,
       has_note: !!patch.note,
     });
     setEditing(null);
+  };
+
+  const handleFindSelect = (book: PseudoBook, item: LibbyMediaItem) => {
+    const author = getAuthor(item);
+    const imageUrl = item.covers?.cover150Wide?.href;
+
+    let bookId: string;
+
+    if (book.__readEntryKey) {
+      // Promote ReadBookEntry to a real Book
+      const newBook: Omit<Book, "id" | "manual"> = {
+        title: item.title,
+        author,
+        source: "unknown",
+        status: book.status ?? "finished",
+        finishedAt: book.finishedAt,
+        startedAt: book.startedAt,
+        ...(imageUrl ? { imageUrl } : {}),
+      };
+      addBook(newBook);
+      removeReadBook(book.__readEntryKey);
+      const allBooks = getBooks();
+      bookId = allBooks[allBooks.length - 1].id;
+    } else {
+      bookId = book.id;
+      updateBook(bookId, {
+        title: item.title,
+        author,
+        ...(imageUrl ? { imageUrl } : {}),
+        source: book.source,
+      });
+    }
+
+    // Close modal, mark as enriching, refresh
+    setFinding(null);
+    setEnrichingIds((prev) => new Set(prev).add(bookId));
+    refresh();
+    posthog?.capture("shelf_entry_found", { book_id: bookId, selected_title: item.title });
+
+    // Enrich with Open Library data in the background
+    const updated = { ...book, id: bookId, title: item.title, author };
+    enrichBooksWithWorkId([updated])
+      .then((enriched) => {
+        if (enriched[0]?.workId) {
+          const {
+            workId,
+            isbn13,
+            canonicalTitle,
+            canonicalAuthor,
+            subjects,
+            pageCount,
+            firstPublishYear,
+          } = enriched[0];
+          updateBook(bookId, {
+            workId,
+            isbn13,
+            imageUrl: enriched[0].imageUrl ?? imageUrl,
+            canonicalTitle,
+            canonicalAuthor,
+            subjects,
+            pageCount,
+            firstPublishYear,
+          });
+          refresh();
+          showToast(`Matched "${item.title}" with Open Library`);
+        } else {
+          showToast(`Could not find "${item.title}" on Open Library`, "error");
+        }
+      })
+      .catch(() => {
+        showToast(`Failed to enrich "${item.title}"`, "error");
+      })
+      .finally(() => {
+        setEnrichingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(bookId);
+          return next;
+        });
+      });
+  };
+
+  const handleQuickStatus = (book: PseudoBook, status: ShelfStatus) => {
+    if (book.__readEntryKey) return;
+    updateBook(book.id, { status });
+    refresh();
+    posthog?.capture("shelf_quick_status", { book_id: book.id, status });
   };
 
   const handleDelete = (book: PseudoBook) => {
@@ -248,13 +364,16 @@ export default function Shelf() {
               </Link>
             </div>
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Every book you've added, across every status. Tap a row to rate, add a note, or change
-            status.{" "}
-            <Link to="/books" className="text-amber-600 hover:text-amber-700 underline">
-              Looking for the want-to-read view?
-            </Link>
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Every book you've added, across every status. Tap a row to rate, add a note, or change
+              status.{" "}
+              <Link to="/books" className="text-amber-600 hover:text-amber-700 underline">
+                Looking for the want-to-read view?
+              </Link>
+            </p>
+            <BookhiveSyncStatus onBooksChanged={refresh} />
+          </div>
         </header>
 
         {/* Filter bar */}
@@ -277,10 +396,28 @@ export default function Shelf() {
                 </button>
               );
             })}
-            {statusFilter.size > 0 && (
+            <span className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-0.5" />
+            <button
+              type="button"
+              onClick={() => {
+                setUnmatchedOnly((v) => !v);
+                setPage(1);
+              }}
+              className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                unmatchedOnly
+                  ? "bg-amber-600 border-amber-600 text-white"
+                  : "bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600"
+              }`}
+            >
+              Unmatched ({counts.unmatched})
+            </button>
+            {(statusFilter.size > 0 || unmatchedOnly) && (
               <button
                 type="button"
-                onClick={() => setStatusFilter(new Set())}
+                onClick={() => {
+                  setStatusFilter(new Set());
+                  setUnmatchedOnly(false);
+                }}
                 className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 underline ml-1"
               >
                 clear
@@ -312,6 +449,49 @@ export default function Shelf() {
           </div>
         </section>
 
+        {/* Toasts */}
+        {toasts.length > 0 && (
+          <div className="space-y-1.5 mb-3">
+            {toasts.map((t) => (
+              <div
+                key={t.id}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs animate-[fadeIn_0.2s_ease-out] ${
+                  t.type === "success"
+                    ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
+                    : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
+                }`}
+              >
+                {t.type === "success" ? (
+                  <svg
+                    className="w-3.5 h-3.5 flex-shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                ) : (
+                  <svg
+                    className="w-3.5 h-3.5 flex-shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                    />
+                  </svg>
+                )}
+                {t.message}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* List */}
         {filtered.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-12">
@@ -322,61 +502,122 @@ export default function Shelf() {
             {visible.map((entry) => (
               <li
                 key={entry.id}
-                className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-3 flex items-start gap-3"
+                className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden"
               >
-                <CoverImage
-                  src={
-                    entry.imageUrl ??
-                    (entry.isbn13
-                      ? `https://covers.openlibrary.org/b/isbn/${entry.isbn13}-M.jpg`
-                      : undefined)
-                  }
-                  alt={entry.title}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                        {entry.title}
-                      </h3>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                        {entry.author}
-                      </p>
+                <div className="p-3 flex items-start gap-3">
+                  <CoverImage
+                    src={
+                      entry.imageUrl ??
+                      (entry.isbn13
+                        ? `https://covers.openlibrary.org/b/isbn/${entry.isbn13}-M.jpg`
+                        : undefined)
+                    }
+                    alt={entry.title}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                          {entry.canonicalTitle ?? entry.title}
+                        </h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {entry.canonicalAuthor ?? entry.author}
+                        </p>
+                      </div>
+                      <StatusPill status={effectiveStatus(entry)} />
                     </div>
-                    <StatusPill status={effectiveStatus(entry)} />
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-3 text-xs text-gray-600 dark:text-gray-300">
-                    {entry.rating !== undefined && (
-                      <StarRating value={entry.rating} readOnly size={14} />
+                    <div className="mt-1.5 flex items-center gap-3 text-xs text-gray-600 dark:text-gray-300">
+                      {entry.rating !== undefined && (
+                        <StarRating value={entry.rating} readOnly size={14} />
+                      )}
+                      {entry.finishedAt && <span>Finished {fmtDate(entry.finishedAt)}</span>}
+                      {!entry.finishedAt && entry.startedAt && (
+                        <span>Started {fmtDate(entry.startedAt)}</span>
+                      )}
+                    </div>
+                    {entry.note && (
+                      <p className="mt-1.5 text-xs text-gray-600 dark:text-gray-300 line-clamp-2">
+                        {entry.note}
+                      </p>
                     )}
-                    {entry.finishedAt && <span>Finished {fmtDate(entry.finishedAt)}</span>}
-                    {!entry.finishedAt && entry.startedAt && (
-                      <span>Started {fmtDate(entry.startedAt)}</span>
-                    )}
                   </div>
-                  {entry.note && (
-                    <p className="mt-1.5 text-xs text-gray-600 dark:text-gray-300 line-clamp-2">
-                      {entry.note}
-                    </p>
-                  )}
+                  <div className="flex flex-col gap-1 flex-shrink-0">
+                    {entry.workId ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditing(entry)}
+                        className="text-xs px-2 py-1 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        aria-label="Edit"
+                      >
+                        Edit
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setFinding(entry)}
+                        disabled={enrichingIds.has(entry.id)}
+                        className="text-xs px-2 py-1 rounded text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50"
+                        aria-label="Find match"
+                      >
+                        {enrichingIds.has(entry.id) ? "Matching..." : "Find"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(entry)}
+                      className="text-xs px-2 py-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      aria-label="Remove"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1 flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setEditing(entry)}
-                    className="text-xs px-2 py-1 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    aria-label="Edit"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(entry)}
-                    className="text-xs px-2 py-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                    aria-label="Remove"
-                  >
-                    Remove
-                  </button>
+                {/* Card footer: source links + quick status */}
+                {enrichingIds.has(entry.id) && (
+                  <div className="px-3 pt-1.5 border-t border-gray-100 dark:border-gray-700">
+                    <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+                      <svg
+                        className="w-3.5 h-3.5 animate-spin"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      Matching with Open Library...
+                    </div>
+                  </div>
+                )}
+                <div
+                  className={`flex items-center justify-between px-3 py-1.5 ${enrichingIds.has(entry.id) ? "" : "border-t border-gray-100 dark:border-gray-700"}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <SourceLinks book={entry} />
+                  </div>
+                  {!entry.__readEntryKey && (
+                    <div className="flex items-center gap-1">
+                      {SHELF_STATUSES.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => handleQuickStatus(entry, s)}
+                          className={`px-1.5 py-0.5 text-[10px] rounded-full border transition-colors ${
+                            effectiveStatus(entry) === s
+                              ? "bg-amber-600 border-amber-600 text-white"
+                              : "border-gray-200 dark:border-gray-600 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                          }`}
+                          title={statusLabel(s)}
+                        >
+                          {statusLabel(s)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </li>
             ))}
@@ -414,6 +655,34 @@ export default function Shelf() {
           onSave={(patch) => handleSave(editing, patch)}
           onClose={() => setEditing(null)}
         />
+      )}
+
+      {finding && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+          <div className="absolute inset-0 bg-black/40" onClick={() => setFinding(null)} />
+          <div
+            role="dialog"
+            aria-label="Find book match"
+            className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
+          >
+            <div className="mb-3">
+              <h3 className="text-sm font-medium text-gray-900 dark:text-white">
+                Find match for &ldquo;{finding.title}&rdquo;
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Search and select the correct book to associate metadata.
+              </p>
+            </div>
+            <BookSearchPicker
+              libraryKey={getLibraries()[0]?.preferredKey}
+              initialQuery={finding.title}
+              onSelect={(item) => handleFindSelect(finding, item)}
+              onCancel={() => setFinding(null)}
+              placeholder="Search by title or author..."
+            />
+          </div>
+        </div>
       )}
     </main>
   );

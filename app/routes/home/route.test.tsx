@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { MemoryRouter } from "react-router";
+import { componentLocator } from "~/test/screenshot";
 
 const mockGetBooks = vi.fn().mockReturnValue([]);
 const mockGetLibraries = vi.fn().mockReturnValue([]);
@@ -57,6 +58,15 @@ describe("Home", () => {
     );
     await expect.element(screen.getByRole("link", { name: "ATproto" })).toBeVisible();
     await expect.element(screen.getByRole("link", { name: "ATmosphere" })).toBeVisible();
+  });
+
+  it("homepage matches screenshot", async () => {
+    const screen = await render(
+      <MemoryRouter>
+        <Home />
+      </MemoryRouter>,
+    );
+    await expect.element(componentLocator(screen)).toMatchScreenshot("homepage");
   });
 });
 

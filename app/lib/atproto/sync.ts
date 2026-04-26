@@ -226,16 +226,16 @@ async function pushMissingLocalShelf(
   session: OAuthSession,
   pdsIndexed: IndexedShelfRecord[],
 ): Promise<void> {
-  const pdsKeysByStatus = new Set(pdsIndexed.map((r) => `${r.status}|${r.contentKey}`));
+  // Check by content key only (regardless of status) so a book that changed
+  // status locally isn't pushed as a duplicate record.
+  const pdsContentKeys = new Set(pdsIndexed.map((r) => r.contentKey));
   for (const book of getBooks()) {
-    const k = `${STATUS.wantToRead}|${bookKey(book)}`;
-    if (pdsKeysByStatus.has(k)) continue;
+    if (pdsContentKeys.has(bookKey(book))) continue;
     if (book.pdsRkey) continue; // optimistic — assume someone else cleaned this up
     await safePushBook(session, book);
   }
   for (const entry of getReadBooks()) {
-    const k = `${STATUS.finished}|${entry.key}`;
-    if (pdsKeysByStatus.has(k)) continue;
+    if (pdsContentKeys.has(entry.key)) continue;
     if (entry.pdsRkey) continue;
     await safePushRead(session, entry);
   }

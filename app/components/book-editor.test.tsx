@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "vitest/browser";
 import { BookEditor } from "./book-editor";
 import type { Book } from "~/lib/storage";
 
@@ -125,5 +126,31 @@ describe("BookEditor", () => {
     const backdrop = screen.container.querySelector('[role="presentation"]') as HTMLElement;
     backdrop.click();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("empty editor matches screenshot", async () => {
+    const screen = await render(
+      <BookEditor book={makeBook()} onSave={vi.fn()} onClose={vi.fn()} />,
+    );
+    const dialog = screen.container.querySelector('[role="dialog"]')!;
+    await expect.element(page.elementLocator(dialog)).toMatchScreenshot("book-editor-empty");
+  });
+
+  it("populated editor matches screenshot", async () => {
+    const screen = await render(
+      <BookEditor
+        book={makeBook({
+          status: "finished",
+          rating: 80,
+          note: "A brilliant exploration of evolution and alien civilizations.",
+          startedAt: "2025-03-01T00:00:00.000Z",
+          finishedAt: "2025-03-15T00:00:00.000Z",
+        })}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const dialog = screen.container.querySelector('[role="dialog"]')!;
+    await expect.element(page.elementLocator(dialog)).toMatchScreenshot("book-editor-populated");
   });
 });
