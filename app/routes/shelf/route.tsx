@@ -86,6 +86,7 @@ export default function Shelf() {
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<PseudoBook | null>(null);
   const [finding, setFinding] = useState<PseudoBook | null>(null);
+  const [adding, setAdding] = useState(false);
   const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<
     { id: number; message: string; type: "success" | "error" }[]
@@ -253,6 +254,65 @@ export default function Shelf() {
       });
   };
 
+  const handleAddSelect = (item: LibbyMediaItem) => {
+    const author = getAuthor(item);
+    const imageUrl = item.covers?.cover150Wide?.href;
+    addBook({
+      title: item.title,
+      author,
+      source: "unknown",
+      status: "wantToRead",
+      ...(imageUrl ? { imageUrl } : {}),
+    });
+    const allBooks = getBooks();
+    const bookId = allBooks[allBooks.length - 1].id;
+    setAdding(false);
+    setEnrichingIds((prev) => new Set(prev).add(bookId));
+    refresh();
+    posthog?.capture("shelf_book_added", { book_id: bookId, title: item.title });
+
+    enrichBooksWithWorkId([
+      { id: bookId, title: item.title, author, source: "unknown", status: "wantToRead" },
+    ])
+      .then((enriched) => {
+        if (enriched[0]?.workId) {
+          const {
+            workId,
+            isbn13,
+            canonicalTitle,
+            canonicalAuthor,
+            subjects,
+            pageCount,
+            firstPublishYear,
+          } = enriched[0];
+          updateBook(bookId, {
+            workId,
+            isbn13,
+            imageUrl: enriched[0].imageUrl ?? imageUrl,
+            canonicalTitle,
+            canonicalAuthor,
+            subjects,
+            pageCount,
+            firstPublishYear,
+          });
+          refresh();
+          showToast(`Added "${item.title}" and matched with Open Library`);
+        } else {
+          showToast(`Added "${item.title}" (no Open Library match)`, "error");
+        }
+      })
+      .catch(() => {
+        showToast(`Added "${item.title}" but enrichment failed`, "error");
+      })
+      .finally(() => {
+        setEnrichingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(bookId);
+          return next;
+        });
+      });
+  };
+
   const handleQuickStatus = (book: PseudoBook, status: ShelfStatus) => {
     if (book.__readEntryKey) return;
     updateBook(book.id, { status });
@@ -281,6 +341,23 @@ export default function Shelf() {
               Your shelf
             </h1>
             <div className="flex items-center gap-3 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setAdding(true)}
+                className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                <span className="hidden sm:inline">Add</span>
+              </button>
+              <span className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
               <Link
                 to="/books"
                 className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -655,6 +732,32 @@ export default function Shelf() {
           onSave={(patch) => handleSave(editing, patch)}
           onClose={() => setEditing(null)}
         />
+      )}
+
+      {adding && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+          <div className="absolute inset-0 bg-black/40" onClick={() => setAdding(false)} />
+          <div
+            role="dialog"
+            aria-label="Add a book"
+            className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
+          >
+            <div className="mb-3">
+              <h3 className="text-sm font-medium text-gray-900 dark:text-white">Add a book</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Search for a book to add to your shelf.
+              </p>
+            </div>
+            <BookSearchPicker
+              libraryKey={getLibraries()[0]?.preferredKey}
+              onSelect={handleAddSelect}
+              onCancel={() => setAdding(false)}
+              existingBooks={entries.map((e) => ({ title: e.title, author: e.author ?? "" }))}
+              placeholder="Search by title or author..."
+            />
+          </div>
+        </div>
       )}
 
       {finding && (

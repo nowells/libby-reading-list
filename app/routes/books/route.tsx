@@ -308,19 +308,20 @@ export default function Books() {
             <div className="flex items-center gap-3 flex-shrink-0">
               <button
                 onClick={() => setShowAddBook((s) => !s)}
-                className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
               >
                 <svg
                   className="w-4 h-4"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth={1.5}
+                  strokeWidth={2}
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
                 <span className="hidden sm:inline">Add</span>
               </button>
+              <span className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
               <Link
                 to="/shelf"
                 className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -448,14 +449,28 @@ export default function Books() {
         </div>
 
         {showAddBook && libraries.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 mb-4">
-            <BookSearchPicker
-              libraryKey={libraries[0].preferredKey}
-              onSelect={handleSelectBook}
-              onCancel={() => setShowAddBook(false)}
-              placeholder="Search Libby for a book to add..."
-              existingBooks={books}
-            />
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+            {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+            <div className="absolute inset-0 bg-black/40" onClick={() => setShowAddBook(false)} />
+            <div
+              role="dialog"
+              aria-label="Add a book"
+              className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
+            >
+              <div className="mb-3">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-white">Add a book</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Search Libby for a book to add to your list.
+                </p>
+              </div>
+              <BookSearchPicker
+                libraryKey={libraries[0].preferredKey}
+                onSelect={handleSelectBook}
+                onCancel={() => setShowAddBook(false)}
+                placeholder="Search Libby for a book to add..."
+                existingBooks={books}
+              />
+            </div>
           </div>
         )}
 
