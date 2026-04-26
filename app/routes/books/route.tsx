@@ -494,7 +494,7 @@ export default function Books() {
         )}
 
         {books.length === 0 && (
-          <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+          <div className="text-center py-12 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
             <p className="text-gray-500 dark:text-gray-400">
               No books loaded. Upload a reading list to get started.
             </p>
@@ -571,7 +571,7 @@ export default function Books() {
         )}
 
         {sortedAndFilteredBooks.length === 0 && books.length > 0 && checkedCount > 0 && (
-          <div className="text-center py-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+          <div className="text-center py-8 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
             <p className="text-gray-500 dark:text-gray-400 text-sm">
               {searchQuery.trim()
                 ? `No books matching "${searchQuery.trim()}".`

@@ -227,7 +227,7 @@ export default function Friends() {
 
         {/* Not logged in state */}
         {sessionChecked && !session && (
-          <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+          <div className="text-center py-12 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
             <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg
                 className="w-8 h-8 text-blue-600 dark:text-blue-400"
@@ -261,7 +261,7 @@ export default function Friends() {
 
         {/* Loading state */}
         {session && status === "loading" && (
-          <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+          <div className="text-center py-12 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
             <svg
               className="w-8 h-8 animate-spin text-purple-500 mx-auto mb-4"
               fill="none"
@@ -286,7 +286,7 @@ export default function Friends() {
 
         {/* Error state */}
         {status === "error" && (
-          <div className="text-center py-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+          <div className="text-center py-8 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
             <p className="text-red-500 dark:text-red-400 text-sm mb-2">{error}</p>
             <button
               onClick={refresh}
@@ -299,7 +299,7 @@ export default function Friends() {
 
         {/* Empty state - logged in but no friends found */}
         {session && status === "done" && friends.length === 0 && (
-          <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+          <div className="text-center py-12 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
             <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg
                 className="w-8 h-8 text-purple-600 dark:text-purple-400"
@@ -368,7 +368,7 @@ export default function Friends() {
 
         {/* No search results */}
         {status === "done" && friends.length > 0 && filteredFriends.length === 0 && (
-          <div className="text-center py-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+          <div className="text-center py-8 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
             <p className="text-gray-500 dark:text-gray-400 text-sm">
               No friends matching &quot;{searchQuery.trim()}&quot;.
             </p>
