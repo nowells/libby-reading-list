@@ -241,7 +241,12 @@ export default function Authors() {
       title: work.title,
       author: authorName,
     });
-    addDismissedWork(key);
+    addDismissedWork({
+      key,
+      title: work.title,
+      author: authorName,
+      workId: work.olWorkKey,
+    });
     setDismissedWorksState(getDismissedWorks());
   };
 

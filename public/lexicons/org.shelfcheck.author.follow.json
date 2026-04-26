@@ -1,0 +1,34 @@
+{
+  "lexicon": 1,
+  "id": "org.shelfcheck.author.follow",
+  "description": "An author the user follows for new-release tracking on the authors view. Distinct from the social graph (app.bsky.graph.follow) — these are book authors, who may not have a Bluesky account.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["name", "createdAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "olAuthorKey": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Open Library author key, e.g. 'OL23919A'. Primary correlation key when present."
+          },
+          "imageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

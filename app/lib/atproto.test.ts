@@ -1,31 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { isBookhiveSyncStale, searchHandleSuggestions } from "./atproto";
-import { setBookhiveLastSync } from "./storage";
+import { describe, it, expect } from "vitest";
+import { hasImportedFromBookHive, getLastPdsSync, searchHandleSuggestions } from "./atproto";
 import { worker } from "~/test/setup";
 import { http, HttpResponse } from "msw";
 
+const TEST_DID = "did:plc:testuser";
+
 describe("atproto", () => {
-  describe("isBookhiveSyncStale", () => {
-    it("returns true when no last sync exists", () => {
-      expect(isBookhiveSyncStale()).toBe(true);
+  describe("hasImportedFromBookHive", () => {
+    it("returns false when no flag is stored for the DID", () => {
+      expect(hasImportedFromBookHive(TEST_DID)).toBe(false);
     });
 
-    it("returns true when last sync is invalid", () => {
-      // Store raw invalid value bypassing the helper to test parsing
-      localStorage.setItem("shelfcheck:bookhive-last-sync", JSON.stringify("not-a-date"));
-      expect(isBookhiveSyncStale()).toBe(true);
+    it("is keyed by DID so different accounts stay independent", () => {
+      localStorage.setItem(`shelfcheck:bookhive-imported:${TEST_DID}`, new Date().toISOString());
+      expect(hasImportedFromBookHive(TEST_DID)).toBe(true);
+      expect(hasImportedFromBookHive("did:plc:someoneelse")).toBe(false);
+    });
+  });
+
+  describe("getLastPdsSync", () => {
+    it("returns null when no sync has happened for the DID", () => {
+      expect(getLastPdsSync(TEST_DID)).toBeNull();
     });
 
-    it("returns true when last sync is older than 24 hours", () => {
-      const old = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
-      setBookhiveLastSync(old);
-      expect(isBookhiveSyncStale()).toBe(true);
-    });
-
-    it("returns false when last sync is recent", () => {
-      const recent = new Date(Date.now() - 1000).toISOString();
-      setBookhiveLastSync(recent);
-      expect(isBookhiveSyncStale()).toBe(false);
+    it("returns the stored timestamp", () => {
+      const stamp = new Date().toISOString();
+      localStorage.setItem(`shelfcheck:pds-last-sync:${TEST_DID}`, stamp);
+      expect(getLastPdsSync(TEST_DID)).toBe(stamp);
     });
   });
 
@@ -145,20 +146,6 @@ describe("atproto", () => {
       expect(results).toHaveLength(1);
       expect(results[0].displayName).toBeUndefined();
       expect(results[0].avatar).toBeUndefined();
-    });
-  });
-
-  describe("isBookhiveSyncStale edge cases", () => {
-    it("returns true at exactly 24 hours boundary", () => {
-      const exactBoundary = new Date(Date.now() - 24 * 60 * 60 * 1000 - 1).toISOString();
-      setBookhiveLastSync(exactBoundary);
-      expect(isBookhiveSyncStale()).toBe(true);
-    });
-
-    it("returns false just before 24 hours", () => {
-      const justBefore = new Date(Date.now() - 23 * 60 * 60 * 1000).toISOString();
-      setBookhiveLastSync(justBefore);
-      expect(isBookhiveSyncStale()).toBe(false);
     });
   });
 });

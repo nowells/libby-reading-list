@@ -392,22 +392,25 @@ describe("Dismissed Works", () => {
   });
 
   it("adds a dismissed work with timestamp", () => {
-    addDismissedWork("work:OL1W");
+    addDismissedWork({ key: "work:OL1W", title: "Book", author: "Author", workId: "OL1W" });
     const works = getDismissedWorks();
     expect(works).toHaveLength(1);
     expect(works[0].key).toBe("work:OL1W");
+    expect(works[0].title).toBe("Book");
+    expect(works[0].author).toBe("Author");
+    expect(works[0].workId).toBe("OL1W");
     expect(works[0].dismissedAt).toBeGreaterThan(0);
   });
 
   it("deduplicates by key", () => {
-    addDismissedWork("work:OL1W");
-    addDismissedWork("work:OL1W");
+    addDismissedWork({ key: "work:OL1W" });
+    addDismissedWork({ key: "work:OL1W" });
     expect(getDismissedWorks()).toHaveLength(1);
   });
 
   it("stores multiple different keys", () => {
-    addDismissedWork("work:OL1W");
-    addDismissedWork("work:OL2W");
+    addDismissedWork({ key: "work:OL1W" });
+    addDismissedWork({ key: "work:OL2W" });
     expect(getDismissedWorks()).toHaveLength(2);
   });
 });
@@ -468,7 +471,7 @@ describe("clearAll", () => {
     setBookhiveLastSync("2026-01-01T00:00:00.000Z");
     setSkippedRows([{ author: "A", note: "n" }]);
     addReadBook({ key: "work:OL1W", title: "B", author: "A" });
-    addDismissedWork("work:OL2W");
+    addDismissedWork({ key: "work:OL2W" });
 
     clearAll();
 

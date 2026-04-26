@@ -3,13 +3,17 @@ import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { Agent } from "@atproto/api";
 import { bookhiveRecordsToBooks, type BookhiveListEntry } from "./bookhive-mapper";
 import { enrichBooksWithWorkId } from "./openlibrary";
-import { getBookhiveLastSync, setBookhiveLastSync, setImportedBooks, type Book } from "./storage";
+import { setImportedBooks, type Book } from "./storage";
+import { attachSession as attachSyncSession, detachSession, resync } from "./atproto/sync";
 
 const PRODUCTION_CLIENT_ID = "https://www.shelfcheck.org/client-metadata.json";
 const BOOKHIVE_COLLECTION = "buzz.bookhive.book";
 const HANDLE_RESOLVER = "https://bsky.social";
 const PUBLIC_APPVIEW = "https://public.api.bsky.app";
-const SYNC_TTL_MS = 24 * 60 * 60 * 1000;
+/** Per-DID flag tracking whether we've already pulled the user's BookHive shelf into ShelfCheck. */
+const BOOKHIVE_IMPORTED_PREFIX = "shelfcheck:bookhive-imported:";
+/** Per-DID timestamp of the last successful PDS reconcile. */
+const PDS_LAST_SYNC_PREFIX = "shelfcheck:pds-last-sync:";
 
 function isLoopback(): boolean {
   const { hostname } = window.location;
@@ -63,6 +67,9 @@ let initPromise: Promise<InitResult | null> | null = null;
  * active session (if any). Memoized because `client.init()` must run exactly
  * once per page load — React StrictMode's double-mount would otherwise race
  * the callback out of the URL before the second call could read it.
+ *
+ * On success, the session is attached to the ATproto sync engine which
+ * mirrors org.shelfcheck.* record changes between local cache and the PDS.
  */
 export function initSession(): Promise<InitResult | null> {
   if (initPromise) return initPromise;
@@ -74,6 +81,17 @@ export function initSession(): Promise<InitResult | null> {
     const session = result.session;
     // `state` is present only when init processed an OAuth callback.
     const fresh = (result as { state?: string | null }).state !== undefined;
+
+    // Hydrate / reconcile the user's PDS records before any UI consumes
+    // local state. `bootstrap: true` on a fresh sign-in lets local data
+    // migrate up to an empty PDS (the typical first-sign-in case).
+    try {
+      await attachSyncSession(session, { bootstrap: fresh });
+      setLastPdsSync(session.did);
+    } catch (err) {
+      console.error("[atproto] failed to attach sync session", err);
+    }
+
     const agent = new Agent(session);
     let handle: string | undefined;
     try {
@@ -119,32 +137,74 @@ export async function signInWithBluesky(handleOrPds: string): Promise<never> {
 
 export async function signOut(did: string): Promise<void> {
   const client = await getClient();
+  detachSyncSession();
   await client.revoke(did);
   initPromise = null;
 }
 
-/** True when last sync is missing or older than SYNC_TTL_MS. */
-export function isBookhiveSyncStale(): boolean {
-  const last = getBookhiveLastSync();
-  if (!last) return true;
-  const lastMs = new Date(last).getTime();
-  if (Number.isNaN(lastMs)) return true;
-  return Date.now() - lastMs > SYNC_TTL_MS;
+function detachSyncSession(): void {
+  detachSession();
 }
 
 /**
- * Full Bookhive sync: fetch records, persist the imported list (preserving
- * manual books unless `clearManual`), and update the last-sync timestamp.
- * Always bumps the timestamp on a successful network call — empty repos
- * should not trigger a retry loop on every page load.
+ * Manually re-run a full reconcile against the PDS. Useful as a "Refresh"
+ * button — after attach this is the same diff/merge that runs during
+ * boot. Does NOT alter bookhive-imported state.
  */
-export async function syncBookhive(
+export async function refreshPdsSync(did: string): Promise<void> {
+  await resync();
+  setLastPdsSync(did);
+}
+
+export function getLastPdsSync(did: string): string | null {
+  try {
+    return localStorage.getItem(PDS_LAST_SYNC_PREFIX + did);
+  } catch {
+    return null;
+  }
+}
+
+function setLastPdsSync(did: string): void {
+  try {
+    localStorage.setItem(PDS_LAST_SYNC_PREFIX + did, new Date().toISOString());
+  } catch {
+    // Ignore quota errors
+  }
+}
+
+// --- BookHive one-time import ---
+
+export function hasImportedFromBookHive(did: string): boolean {
+  try {
+    return localStorage.getItem(BOOKHIVE_IMPORTED_PREFIX + did) !== null;
+  } catch {
+    return false;
+  }
+}
+
+function markImportedFromBookHive(did: string): void {
+  try {
+    localStorage.setItem(BOOKHIVE_IMPORTED_PREFIX + did, new Date().toISOString());
+  } catch {
+    // Ignore quota errors
+  }
+}
+
+/**
+ * One-time migration helper: reads the user's existing buzz.bookhive.book
+ * "want to read" records and writes them as ShelfCheck books. The active
+ * sync engine then mirrors those into org.shelfcheck.shelf.entry records on
+ * the same PDS, so subsequent app activity uses ShelfCheck's lexicon
+ * exclusively. We do not delete the original BookHive records — those
+ * remain readable by BookHive itself.
+ */
+export async function importFromBookHive(
   session: OAuthSession,
   opts: { clearManual?: boolean } = {},
 ): Promise<Book[]> {
   const books = await fetchBookhiveWantToRead(session);
   const enriched = await enrichBooksWithWorkId(books);
-  setBookhiveLastSync(new Date().toISOString());
+  markImportedFromBookHive(session.did);
   if (enriched.length > 0) {
     setImportedBooks(enriched, "bookhive", { clearManual: opts.clearManual });
   }
