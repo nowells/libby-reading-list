@@ -1,5 +1,6 @@
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import {
+  _mergeBookFromPds,
   _replaceAuthorsFromPds,
   _replaceBooksFromPds,
   _replaceDismissedFromPds,
@@ -151,7 +152,7 @@ async function reconcileShelfEntries(
     // one place when the user changes a book's status.
     const localBook = localBooksByKey.get(rec.contentKey);
     if (localBook) {
-      assignRkeyToLocalBook(rec.contentKey, rec.rkey);
+      mergeRkeyAndMetadata(localBook, rec.rkey, rec.value);
       continue;
     }
 
@@ -181,9 +182,24 @@ async function reconcileShelfEntries(
   await pushMissingLocalShelf(session, indexed);
 }
 
-function assignRkeyToLocalBook(contentKey: string, rkey: string) {
-  const book = getBooks().find((b) => bookKey(b) === contentKey);
-  if (book && book.pdsRkey !== rkey) _setBookPdsRkey(book.id, rkey);
+/**
+ * Assign the PDS rkey to a local book and merge any PDS-sourced metadata
+ * (rating, note, status, dates, cover) that the local copy is missing.
+ * This propagates edits made on another device during reconcile.
+ */
+function mergeRkeyAndMetadata(localBook: Book, rkey: string, pdsRecord: ShelfEntryRecord) {
+  if (localBook.pdsRkey !== rkey) {
+    _setBookPdsRkey(localBook.id, rkey);
+  }
+  const pdsBook = shelfRecordToBook(pdsRecord);
+  _mergeBookFromPds(localBook.id, {
+    status: pdsBook.status,
+    rating: pdsBook.rating,
+    note: pdsBook.note,
+    startedAt: pdsBook.startedAt,
+    finishedAt: pdsBook.finishedAt,
+    imageUrl: pdsBook.imageUrl,
+  });
 }
 
 function assignRkeyToLocalRead(contentKey: string, rkey: string) {

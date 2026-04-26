@@ -494,6 +494,32 @@ export function _setDismissedPdsRkey(key: string, rkey: string) {
   writeDismissedWorks(entries);
 }
 
+/**
+ * Merge PDS-sourced metadata into an existing local book without emitting
+ * events. Only fills in fields that the local copy is missing so user
+ * edits are never overwritten; PDS data from another device propagates
+ * down on the next reconcile.
+ */
+export function _mergeBookFromPds(id: string, pdsFields: Partial<Book>) {
+  const books = getBooks();
+  const idx = books.findIndex((b) => b.id === id);
+  if (idx === -1) return;
+  const book = books[idx];
+  let changed = false;
+  const updates: Partial<Book> = {};
+  for (const key of Object.keys(pdsFields) as (keyof Book)[]) {
+    if (book[key] === undefined && pdsFields[key] !== undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (updates as any)[key] = pdsFields[key];
+      changed = true;
+    }
+  }
+  if (changed) {
+    books[idx] = { ...book, ...updates };
+    writeBooks(books);
+  }
+}
+
 /** Bulk-replace local books with PDS-sourced records. Does not emit events. */
 export function _replaceBooksFromPds(books: Book[]) {
   writeBooks(dedupeBooks(books));
