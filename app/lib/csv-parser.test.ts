@@ -255,4 +255,38 @@ Title,Author,Notes
     expect(result.books).toHaveLength(1);
     expect(result.books[0].title).toBe("Real Book");
   });
+
+  it("uses generic fallback for CSV with Title column but unknown format", () => {
+    // Use "Writer" instead of "Author" to avoid matching Lyndi format
+    const csv = `Title,Writer,Extra
+"My Book","Jane Doe","extra"
+"Another","John Smith","data"`;
+
+    const result = importBooks(csv);
+    expect(result.format).toBe("unknown");
+    expect(result.books).toHaveLength(2);
+    expect(result.books[0].title).toBe("My Book");
+    expect(result.books[0].source).toBe("unknown");
+    expect(result.books[1].title).toBe("Another");
+  });
+
+  it("skips rows without title in generic fallback", () => {
+    const csv = `Title,Writer,Extra
+,"No Title","x"
+"Has Title","Writer","y"`;
+
+    const result = importBooks(csv);
+    expect(result.books).toHaveLength(1);
+    expect(result.books[0].title).toBe("Has Title");
+  });
+
+  it("returns error for CSV without a Title column", () => {
+    const csv = `Name,Description
+"A","B"`;
+
+    const result = importBooks(csv);
+    expect(result.format).toBe("unknown");
+    expect(result.error).toContain("Unrecognized CSV format");
+    expect(result.books).toHaveLength(0);
+  });
 });

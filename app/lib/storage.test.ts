@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   mergeImportForSource,
   getLibraries,
@@ -29,6 +29,14 @@ import {
   removeAuthor,
   clearAuthors,
   clearAll,
+  onStorageMutation,
+  _setBookPdsRkey,
+  _setAuthorPdsRkey,
+  _setReadPdsRkey,
+  _setDismissedPdsRkey,
+  _replaceBooksFromPds,
+  _replaceAuthorsFromPds,
+  _replaceDismissedFromPds,
   type Book,
   type LibraryConfig,
 } from "./storage";
@@ -522,5 +530,121 @@ describe("corrupted localStorage", () => {
   it("returns defaults for corrupted skipped-rows", () => {
     localStorage.setItem("shelfcheck:skipped-rows", "not-json");
     expect(getSkippedRows()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// onStorageMutation
+// ---------------------------------------------------------------------------
+describe("onStorageMutation", () => {
+  it("notifies listeners when a book is added", () => {
+    clearAll();
+    const listener = vi.fn();
+    const unsub = onStorageMutation(listener);
+    addBook(book({ id: "mut1" }));
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ kind: "book:added" }));
+    unsub();
+  });
+
+  it("unsubscribes correctly", () => {
+    clearAll();
+    const listener = vi.fn();
+    const unsub = onStorageMutation(listener);
+    unsub();
+    addBook(book({ id: "mut2" }));
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PDS rkey helpers
+// ---------------------------------------------------------------------------
+describe("PDS rkey helpers", () => {
+  it("_setBookPdsRkey sets rkey on an existing book", () => {
+    clearAll();
+    addBook(book());
+    const id = getBooks()[0].id;
+    _setBookPdsRkey(id, "rk_abc");
+    expect(getBooks()[0].pdsRkey).toBe("rk_abc");
+  });
+
+  it("_setBookPdsRkey is a no-op for missing book", () => {
+    clearAll();
+    _setBookPdsRkey("missing", "rk_abc");
+    expect(getBooks()).toEqual([]);
+  });
+
+  it("_setAuthorPdsRkey sets rkey on an existing author", () => {
+    clearAll();
+    addAuthor({ name: "Test Author" });
+    const author = getAuthors()[0];
+    _setAuthorPdsRkey(author.id, "rk_auth");
+    expect(getAuthors()[0].pdsRkey).toBe("rk_auth");
+  });
+
+  it("_setAuthorPdsRkey is a no-op for missing author", () => {
+    clearAll();
+    _setAuthorPdsRkey("missing", "rk_auth");
+    expect(getAuthors()).toEqual([]);
+  });
+
+  it("_setReadPdsRkey sets rkey on a read book entry", () => {
+    clearAll();
+    addReadBook({ workId: "OL1W", title: "Test", author: "Auth" });
+    const entry = getReadBooks()[0];
+    _setReadPdsRkey(entry.key, "rk_read");
+    expect(getReadBooks()[0].pdsRkey).toBe("rk_read");
+  });
+
+  it("_setReadPdsRkey is a no-op for missing entry", () => {
+    clearAll();
+    _setReadPdsRkey("missing", "rk_read");
+    expect(getReadBooks()).toEqual([]);
+  });
+
+  it("_setDismissedPdsRkey sets rkey on a dismissed entry", () => {
+    clearAll();
+    addDismissedWork({ workId: "OL1W" });
+    const entry = getDismissedWorks()[0];
+    _setDismissedPdsRkey(entry.key, "rk_dis");
+    expect(getDismissedWorks()[0].pdsRkey).toBe("rk_dis");
+  });
+
+  it("_setDismissedPdsRkey is a no-op for missing entry", () => {
+    clearAll();
+    _setDismissedPdsRkey("missing", "rk_dis");
+    expect(getDismissedWorks()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PDS bulk-replace helpers
+// ---------------------------------------------------------------------------
+describe("PDS bulk-replace helpers", () => {
+  it("_replaceBooksFromPds overwrites local books", () => {
+    clearAll();
+    addBook(book({ id: "local1" }));
+    _replaceBooksFromPds([book({ id: "pds1", title: "PDS Book" })]);
+    const books = getBooks();
+    expect(books).toHaveLength(1);
+    expect(books[0].id).toBe("pds1");
+  });
+
+  it("_replaceAuthorsFromPds overwrites local authors", () => {
+    clearAll();
+    addAuthor({ name: "Local Author" });
+    _replaceAuthorsFromPds([{ id: "a1", name: "PDS Author" }]);
+    const authors = getAuthors();
+    expect(authors).toHaveLength(1);
+    expect(authors[0].name).toBe("PDS Author");
+  });
+
+  it("_replaceDismissedFromPds overwrites local dismissed works", () => {
+    clearAll();
+    addDismissedWork({ workId: "OL1W" });
+    _replaceDismissedFromPds([{ key: "k1", workId: "OL2W" }]);
+    const dismissed = getDismissedWorks();
+    expect(dismissed).toHaveLength(1);
+    expect(dismissed[0].workId).toBe("OL2W");
   });
 });

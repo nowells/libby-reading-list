@@ -10,7 +10,7 @@ import {
   shelfRecordToReadEntry,
   statusFromToken,
 } from "./mappers";
-import { STATUS } from "./lexicon";
+import { STATUS, type ShelfEntryRecord } from "./lexicon";
 import type { Book, AuthorEntry, ReadBookEntry, DismissedWorkEntry } from "../storage";
 
 const NOW = new Date("2026-04-26T12:00:00.000Z");
@@ -94,6 +94,22 @@ describe("mappers", () => {
       expect(record.authors).toEqual([{ name: "Unknown" }]);
     });
 
+    it("maps reading and abandoned statuses to their tokens", () => {
+      const reading = bookToShelfRecord(
+        { id: "x", title: "T", author: "A", source: "unknown", status: "reading" },
+        STATUS.wantToRead,
+        NOW,
+      );
+      expect(reading.status).toBe(STATUS.reading);
+
+      const abandoned = bookToShelfRecord(
+        { id: "x", title: "T", author: "A", source: "unknown", status: "abandoned" },
+        STATUS.wantToRead,
+        NOW,
+      );
+      expect(abandoned.status).toBe(STATUS.abandoned);
+    });
+
     it("ignores unknown source values rather than emitting them", () => {
       const book: Book = {
         id: "x",
@@ -126,6 +142,28 @@ describe("mappers", () => {
       expect(restored.id).toBe("pds-ol-OL21422531W");
     });
 
+    it("maps reading and abandoned statuses back to Book", () => {
+      const reading = shelfRecordToBook({
+        status: STATUS.reading,
+        title: "T",
+        authors: [{ name: "A" }],
+        ids: { isbn13: "9781234567890" },
+        createdAt: NOW.toISOString(),
+      });
+      expect(reading.status).toBe("reading");
+      expect(reading.id).toBe("pds-isbn-9781234567890");
+
+      const abandoned = shelfRecordToBook({
+        status: STATUS.abandoned,
+        title: "T2",
+        authors: [{ name: "B" }],
+        ids: { hiveId: "hv1" },
+        createdAt: NOW.toISOString(),
+      });
+      expect(abandoned.status).toBe("abandoned");
+      expect(abandoned.id).toBe("pds-bh-hv1");
+    });
+
     it("derives a fuzzy id when no canonical identifier is present", () => {
       const restored = shelfRecordToBook({
         status: STATUS.wantToRead,
@@ -135,6 +173,17 @@ describe("mappers", () => {
         createdAt: NOW.toISOString(),
       });
       expect(restored.id).toBe("pds-fuzzy-untitledwork-anonymous");
+    });
+
+    it("returns undefined status for unrecognized status token", () => {
+      const restored = shelfRecordToBook({
+        status: "org.shelfcheck.defs#unknownStatus" as ShelfStatusToken,
+        title: "Mystery",
+        authors: [{ name: "X" }],
+        ids: { olWorkId: "OL1W" },
+        createdAt: NOW.toISOString(),
+      });
+      expect(restored.status).toBeUndefined();
     });
   });
 
@@ -152,6 +201,33 @@ describe("mappers", () => {
       expect(record.ids.olWorkId).toBe("OL12345W");
       expect(record.finishedAt).toBe("2025-08-01T00:00:00.000Z");
       expect(record.updatedAt).toBe(NOW.toISOString());
+    });
+
+    it("uses updatedAt when finishedAt is absent", () => {
+      const record: ShelfEntryRecord = {
+        status: STATUS.wantToRead,
+        title: "A Book",
+        authors: [{ name: "Writer" }],
+        ids: {},
+        createdAt: "2025-01-01T00:00:00.000Z",
+        updatedAt: "2025-06-15T00:00:00.000Z",
+      };
+      const entry = shelfRecordToReadEntry(record);
+      expect(entry.markedAt).toBe(Date.parse("2025-06-15T00:00:00.000Z"));
+      expect(entry.key).toBe("fuzzy:abook\0writer");
+    });
+
+    it("falls back to createdAt when neither finishedAt nor updatedAt exists", () => {
+      const record: ShelfEntryRecord = {
+        status: STATUS.wantToRead,
+        title: "Another",
+        authors: [],
+        ids: {},
+        createdAt: "2025-03-01T00:00:00.000Z",
+      };
+      const entry = shelfRecordToReadEntry(record);
+      expect(entry.markedAt).toBe(Date.parse("2025-03-01T00:00:00.000Z"));
+      expect(entry.author).toBe("Unknown");
     });
 
     it("round-trips back into a ReadBookEntry with the same content key", () => {
@@ -175,6 +251,10 @@ describe("mappers", () => {
       expect(statusFromToken("org.shelfcheck.defs#wantToRead")).toBe(STATUS.wantToRead);
       expect(statusFromToken("wantToRead")).toBe(STATUS.wantToRead);
       expect(statusFromToken("finished")).toBe(STATUS.finished);
+      expect(statusFromToken("reading")).toBe(STATUS.reading);
+      expect(statusFromToken("abandoned")).toBe(STATUS.abandoned);
+      expect(statusFromToken("org.shelfcheck.defs#reading")).toBe(STATUS.reading);
+      expect(statusFromToken("org.shelfcheck.defs#abandoned")).toBe(STATUS.abandoned);
       expect(statusFromToken("garbage")).toBeUndefined();
       expect(statusFromToken(undefined)).toBeUndefined();
     });

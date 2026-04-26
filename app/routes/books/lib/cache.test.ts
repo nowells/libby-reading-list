@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { getCached, setCached } from "./cache";
+import { getCached, setCached, readCache, cacheMaxAge } from "./cache";
 import type { BookAvailability } from "~/lib/libby";
 
 function makeAvailability(estimatedWaitDays?: number): BookAvailability {
@@ -62,6 +62,40 @@ describe("cache", () => {
     localStorage.setItem("shelfcheck:availability", JSON.stringify(raw));
 
     expect(getCached("book-2")).toBeNull();
+  });
+
+  it("returns default cache TTL when results have no estimatedWaitDays", () => {
+    const data = makeAvailability();
+    // Add a result without estimatedWaitDays
+    data.results = [
+      {
+        mediaItem: {
+          id: "1",
+          title: "Test Book",
+          sortTitle: "test book",
+          type: { id: "ebook", name: "eBook" },
+          formats: [],
+          creators: [],
+        },
+        availability: {
+          id: "1",
+          copiesOwned: 1,
+          copiesAvailable: 1,
+          numberOfHolds: 0,
+          isAvailable: true,
+        },
+        matchScore: 0.9,
+        formatType: "ebook",
+        libraryKey: "test-lib",
+      },
+    ];
+    const maxAge = cacheMaxAge({ data, fetchedAt: Date.now() });
+    expect(maxAge).toBe(24 * 60 * 60 * 1000); // DEFAULT_CACHE_MS = 24h
+  });
+
+  it("returns empty object when localStorage has invalid JSON", () => {
+    localStorage.setItem("shelfcheck:availability", "not-json");
+    expect(readCache()).toEqual({});
   });
 
   it("keeps cache valid within TTL for long wait times", () => {
