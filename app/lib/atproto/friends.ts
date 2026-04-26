@@ -2,7 +2,7 @@ import { Agent } from "@atproto/api";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { NSID, type ShelfEntryRecord, type AuthorFollowRecord } from "./lexicon";
 
-const PUBLIC_APPVIEW = "https://public.api.bsky.app";
+const PLCDIR = "https://plc.directory";
 
 export interface FriendProfile {
   did: string;
@@ -46,60 +46,91 @@ async function getFollows(session: OAuthSession): Promise<FriendProfile[]> {
 }
 
 /**
- * Check if a user has any org.shelfcheck.shelf.entry records (i.e. uses ShelfCheck).
- * Uses the public appview so no auth is needed to read public PDS records.
+ * Resolve a DID to its PDS service endpoint.
+ * Handles both did:plc (via plc.directory) and did:web (via .well-known).
  */
-async function listUserShelfEntries(
+async function resolvePds(did: string): Promise<string | null> {
+  try {
+    const docUrl = did.startsWith("did:web:")
+      ? `https://${did.slice("did:web:".length)}/.well-known/did.json`
+      : `${PLCDIR}/${did}`;
+    const res = await fetch(docUrl);
+    if (!res.ok) return null;
+    const doc = await res.json();
+    const services = doc.service as
+      | { id: string; type: string; serviceEndpoint: string }[]
+      | undefined;
+    const pds = services?.find(
+      (s: { id: string; type: string }) =>
+        s.id === "#atproto_pds" && s.type === "AtprotoPersonalDataServer",
+    );
+    return pds?.serviceEndpoint ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Cache of DID → PDS endpoint so we don't re-resolve within a single discovery run. */
+const pdsCache = new Map<string, string | null>();
+
+async function getPds(did: string): Promise<string | null> {
+  if (pdsCache.has(did)) return pdsCache.get(did)!;
+  const pds = await resolvePds(did);
+  pdsCache.set(did, pds);
+  return pds;
+}
+
+/**
+ * List records from a collection on a user's PDS.
+ * Queries the user's PDS directly (resolved from their DID doc).
+ */
+async function listPdsRecords<T>(
   did: string,
+  collection: string,
   opts?: { limit?: number },
-): Promise<ShelfEntryRecord[]> {
+): Promise<T[]> {
+  const pds = await getPds(did);
+  if (!pds) return [];
+
   const limit = opts?.limit ?? 100;
-  const entries: ShelfEntryRecord[] = [];
+  const out: T[] = [];
   let cursor: string | undefined;
 
   do {
-    const url = new URL(`${PUBLIC_APPVIEW}/xrpc/com.atproto.repo.listRecords`);
+    const url = new URL(`${pds}/xrpc/com.atproto.repo.listRecords`);
     url.searchParams.set("repo", did);
-    url.searchParams.set("collection", NSID.shelfEntry);
-    url.searchParams.set("limit", String(Math.min(limit - entries.length, 100)));
+    url.searchParams.set("collection", collection);
+    url.searchParams.set("limit", String(Math.min(limit - out.length, 100)));
     if (cursor) url.searchParams.set("cursor", cursor);
 
     const res = await fetch(url.toString());
     if (!res.ok) break;
     const data = await res.json();
     for (const r of data.records ?? []) {
-      entries.push(r.value as ShelfEntryRecord);
+      out.push(r.value as T);
     }
     cursor = data.cursor;
-  } while (cursor && entries.length < limit);
+  } while (cursor && out.length < limit);
 
-  return entries;
+  return out;
+}
+
+/**
+ * Check if a user has any org.shelfcheck.shelf.entry records (i.e. uses ShelfCheck).
+ * Queries the user's PDS directly.
+ */
+async function listUserShelfEntries(
+  did: string,
+  opts?: { limit?: number },
+): Promise<ShelfEntryRecord[]> {
+  return listPdsRecords<ShelfEntryRecord>(did, NSID.shelfEntry, opts);
 }
 
 /**
  * List a user's followed authors from their PDS.
  */
 async function listUserAuthors(did: string): Promise<AuthorFollowRecord[]> {
-  const authors: AuthorFollowRecord[] = [];
-  let cursor: string | undefined;
-
-  do {
-    const url = new URL(`${PUBLIC_APPVIEW}/xrpc/com.atproto.repo.listRecords`);
-    url.searchParams.set("repo", did);
-    url.searchParams.set("collection", NSID.authorFollow);
-    url.searchParams.set("limit", "100");
-    if (cursor) url.searchParams.set("cursor", cursor);
-
-    const res = await fetch(url.toString());
-    if (!res.ok) break;
-    const data = await res.json();
-    for (const r of data.records ?? []) {
-      authors.push(r.value as AuthorFollowRecord);
-    }
-    cursor = data.cursor;
-  } while (cursor);
-
-  return authors;
+  return listPdsRecords<AuthorFollowRecord>(did, NSID.authorFollow);
 }
 
 /**

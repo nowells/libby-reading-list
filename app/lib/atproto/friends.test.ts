@@ -29,6 +29,20 @@ const fakeFollow: FriendProfile = {
 
 const fakeSession = { did: "did:plc:testuser" } as never;
 
+/** Returns a DID doc pointing at a fake PDS */
+function didDoc(did: string) {
+  return {
+    id: did,
+    service: [
+      {
+        id: "#atproto_pds",
+        type: "AtprotoPersonalDataServer",
+        serviceEndpoint: "https://pds.example.com",
+      },
+    ],
+  };
+}
+
 // Use a function constructor for the mock so `new Agent(...)` works
 const mockGetFollows = vi.fn();
 
@@ -86,6 +100,9 @@ describe("friends", () => {
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          return new Response(JSON.stringify(didDoc(fakeFollow.did)));
+        }
         if (url.includes(NSID.shelfEntry)) {
           return new Response(
             JSON.stringify({ records: [{ uri: "at://test/entry/1", value: shelfEntry }] }),
@@ -117,7 +134,11 @@ describe("friends", () => {
         makeFollowsResponse([{ did: "did:plc:nobooks", handle: "nobooks.bsky.social" }]),
       );
 
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          return new Response(JSON.stringify(didDoc("did:plc:nobooks")));
+        }
         return new Response(JSON.stringify({ records: [] }));
       });
 
@@ -135,7 +156,12 @@ describe("friends", () => {
         ]),
       );
 
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          const did = url.split("/").pop()!;
+          return new Response(JSON.stringify(didDoc(did)));
+        }
         return new Response(JSON.stringify({ records: [] }));
       });
 
@@ -164,7 +190,12 @@ describe("friends", () => {
       const controller = new AbortController();
       controller.abort();
 
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          const did = url.split("/").pop()!;
+          return new Response(JSON.stringify(didDoc(did)));
+        }
         return new Response(JSON.stringify({ records: [] }));
       });
 
@@ -179,7 +210,11 @@ describe("friends", () => {
         makeFollowsResponse([{ did: "did:plc:error", handle: "error.bsky.social" }]),
       );
 
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          return new Response(JSON.stringify(didDoc("did:plc:error")));
+        }
         return new Response("Server Error", { status: 500 });
       });
 
