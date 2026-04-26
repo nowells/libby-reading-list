@@ -32,6 +32,13 @@ export function mergeBooks(primary: Book, secondary: Book): Book {
     // Preserve manual: if either is manual, the merged record is manual so
     // it doesn't get wiped by a future CSV/Bookhive import.
     manual: primary.manual || secondary.manual ? true : undefined,
+    // Preserve shelf metadata so dedup doesn't discard user edits.
+    status: primary.status ?? secondary.status,
+    rating: primary.rating ?? secondary.rating,
+    note: primary.note ?? secondary.note,
+    startedAt: primary.startedAt ?? secondary.startedAt,
+    finishedAt: primary.finishedAt ?? secondary.finishedAt,
+    pdsRkey: primary.pdsRkey ?? secondary.pdsRkey,
   };
 }
 

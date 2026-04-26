@@ -1,0 +1,309 @@
+import { describe, it, expect } from "vitest";
+import {
+  authorEntryToRecord,
+  authorRecordToEntry,
+  bookToShelfRecord,
+  dismissedRecordToEntry,
+  dismissedToRecord,
+  readEntryToShelfRecord,
+  shelfRecordToBook,
+  shelfRecordToReadEntry,
+  statusFromToken,
+} from "./mappers";
+import { STATUS, type ShelfEntryRecord, type ShelfStatusToken } from "./lexicon";
+import type { Book, AuthorEntry, ReadBookEntry, DismissedWorkEntry } from "../storage";
+
+const NOW = new Date("2026-04-26T12:00:00.000Z");
+
+describe("mappers", () => {
+  describe("status / rating / note round-trip", () => {
+    it("emits the book's own status when set, otherwise the fallback", () => {
+      const finished = bookToShelfRecord(
+        {
+          id: "x",
+          title: "T",
+          author: "A",
+          source: "unknown",
+          manual: true,
+          status: "finished",
+          rating: 80,
+          note: "loved it",
+          startedAt: "2025-01-01T00:00:00.000Z",
+          finishedAt: "2025-02-01T00:00:00.000Z",
+        },
+        STATUS.wantToRead,
+        NOW,
+      );
+      expect(finished.status).toBe(STATUS.finished);
+      expect(finished.rating).toBe(80);
+      expect(finished.note).toBe("loved it");
+      expect(finished.startedAt).toBe("2025-01-01T00:00:00.000Z");
+      expect(finished.finishedAt).toBe("2025-02-01T00:00:00.000Z");
+
+      const fallback = bookToShelfRecord(
+        { id: "x", title: "T", author: "A", source: "unknown", manual: true },
+        STATUS.reading,
+        NOW,
+      );
+      expect(fallback.status).toBe(STATUS.reading);
+    });
+
+    it("propagates new fields from the record back into a Book", () => {
+      const restored = shelfRecordToBook({
+        status: STATUS.finished,
+        title: "T",
+        authors: [{ name: "A" }],
+        ids: { olWorkId: "OL1W" },
+        rating: 90,
+        note: "great",
+        startedAt: "2025-03-01T00:00:00.000Z",
+        finishedAt: "2025-04-01T00:00:00.000Z",
+        createdAt: NOW.toISOString(),
+      });
+      expect(restored.status).toBe("finished");
+      expect(restored.rating).toBe(90);
+      expect(restored.note).toBe("great");
+      expect(restored.startedAt).toBe("2025-03-01T00:00:00.000Z");
+      expect(restored.finishedAt).toBe("2025-04-01T00:00:00.000Z");
+    });
+  });
+
+  describe("bookToShelfRecord", () => {
+    it("emits a record with required fields and Open Library work id", () => {
+      const book: Book = {
+        id: "gr-1",
+        title: "The Three-Body Problem",
+        author: "Cixin Liu, Ken Liu",
+        source: "goodreads",
+        workId: "OL45883W",
+        isbn13: "9780765382030",
+      };
+      const record = bookToShelfRecord(book, STATUS.wantToRead, NOW);
+      expect(record.status).toBe("org.shelfcheck.defs#wantToRead");
+      expect(record.title).toBe("The Three-Body Problem");
+      expect(record.authors).toEqual([{ name: "Cixin Liu" }, { name: "Ken Liu" }]);
+      expect(record.ids).toEqual({ olWorkId: "OL45883W", isbn13: "9780765382030" });
+      expect(record.source).toBe("goodreads");
+      expect(record.createdAt).toBe(NOW.toISOString());
+      expect(record.updatedAt).toBe(NOW.toISOString());
+    });
+
+    it("falls back to Unknown when no author is present", () => {
+      const book: Book = { id: "x", title: "Untitled", author: "", source: "unknown" };
+      const record = bookToShelfRecord(book, STATUS.wantToRead, NOW);
+      expect(record.authors).toEqual([{ name: "Unknown" }]);
+    });
+
+    it("maps reading and abandoned statuses to their tokens", () => {
+      const reading = bookToShelfRecord(
+        { id: "x", title: "T", author: "A", source: "unknown", status: "reading" },
+        STATUS.wantToRead,
+        NOW,
+      );
+      expect(reading.status).toBe(STATUS.reading);
+
+      const abandoned = bookToShelfRecord(
+        { id: "x", title: "T", author: "A", source: "unknown", status: "abandoned" },
+        STATUS.wantToRead,
+        NOW,
+      );
+      expect(abandoned.status).toBe(STATUS.abandoned);
+    });
+
+    it("ignores unknown source values rather than emitting them", () => {
+      const book: Book = {
+        id: "x",
+        title: "T",
+        author: "A",
+        // @ts-expect-error - exercising the unknown-source guard
+        source: "totally-not-a-source",
+      };
+      const record = bookToShelfRecord(book, STATUS.wantToRead, NOW);
+      expect(record.source).toBeUndefined();
+    });
+  });
+
+  describe("shelfRecordToBook", () => {
+    it("round-trips a record back into a Book with a deterministic id", () => {
+      const book: Book = {
+        id: "ignored",
+        title: "Project Hail Mary",
+        author: "Andy Weir",
+        source: "goodreads",
+        workId: "OL21422531W",
+        isbn13: "9780593135204",
+      };
+      const record = bookToShelfRecord(book, STATUS.wantToRead, NOW);
+      const restored = shelfRecordToBook(record);
+      expect(restored.title).toBe("Project Hail Mary");
+      expect(restored.author).toBe("Andy Weir");
+      expect(restored.workId).toBe("OL21422531W");
+      expect(restored.isbn13).toBe("9780593135204");
+      expect(restored.id).toBe("pds-ol-OL21422531W");
+    });
+
+    it("maps reading and abandoned statuses back to Book", () => {
+      const reading = shelfRecordToBook({
+        status: STATUS.reading,
+        title: "T",
+        authors: [{ name: "A" }],
+        ids: { isbn13: "9781234567890" },
+        createdAt: NOW.toISOString(),
+      });
+      expect(reading.status).toBe("reading");
+      expect(reading.id).toBe("pds-isbn-9781234567890");
+
+      const abandoned = shelfRecordToBook({
+        status: STATUS.abandoned,
+        title: "T2",
+        authors: [{ name: "B" }],
+        ids: { hiveId: "hv1" },
+        createdAt: NOW.toISOString(),
+      });
+      expect(abandoned.status).toBe("abandoned");
+      expect(abandoned.id).toBe("pds-bh-hv1");
+    });
+
+    it("derives a fuzzy id when no canonical identifier is present", () => {
+      const restored = shelfRecordToBook({
+        status: STATUS.wantToRead,
+        title: "Untitled Work",
+        authors: [{ name: "Anonymous" }],
+        ids: {},
+        createdAt: NOW.toISOString(),
+      });
+      expect(restored.id).toBe("pds-fuzzy-untitledwork-anonymous");
+    });
+
+    it("returns undefined status for unrecognized status token", () => {
+      const restored = shelfRecordToBook({
+        status: "org.shelfcheck.defs#unknownStatus" as ShelfStatusToken,
+        title: "Mystery",
+        authors: [{ name: "X" }],
+        ids: { olWorkId: "OL1W" },
+        createdAt: NOW.toISOString(),
+      });
+      expect(restored.status).toBeUndefined();
+    });
+  });
+
+  describe("read entries", () => {
+    it("encodes a finished read as a finished shelf record", () => {
+      const entry: ReadBookEntry = {
+        key: "work:OL12345W",
+        title: "Anathem",
+        author: "Neal Stephenson",
+        workId: "OL12345W",
+        markedAt: Date.parse("2025-08-01T00:00:00.000Z"),
+      };
+      const record = readEntryToShelfRecord(entry, NOW);
+      expect(record.status).toBe(STATUS.finished);
+      expect(record.ids.olWorkId).toBe("OL12345W");
+      expect(record.finishedAt).toBe("2025-08-01T00:00:00.000Z");
+      expect(record.updatedAt).toBe(NOW.toISOString());
+    });
+
+    it("uses updatedAt when finishedAt is absent", () => {
+      const record: ShelfEntryRecord = {
+        status: STATUS.wantToRead,
+        title: "A Book",
+        authors: [{ name: "Writer" }],
+        ids: {},
+        createdAt: "2025-01-01T00:00:00.000Z",
+        updatedAt: "2025-06-15T00:00:00.000Z",
+      };
+      const entry = shelfRecordToReadEntry(record);
+      expect(entry.markedAt).toBe(Date.parse("2025-06-15T00:00:00.000Z"));
+      expect(entry.key).toBe("fuzzy:abook\0writer");
+    });
+
+    it("falls back to createdAt when neither finishedAt nor updatedAt exists", () => {
+      const record: ShelfEntryRecord = {
+        status: STATUS.wantToRead,
+        title: "Another",
+        authors: [],
+        ids: {},
+        createdAt: "2025-03-01T00:00:00.000Z",
+      };
+      const entry = shelfRecordToReadEntry(record);
+      expect(entry.markedAt).toBe(Date.parse("2025-03-01T00:00:00.000Z"));
+      expect(entry.author).toBe("Unknown");
+    });
+
+    it("round-trips back into a ReadBookEntry with the same content key", () => {
+      const original: ReadBookEntry = {
+        key: "work:OL12345W",
+        title: "Anathem",
+        author: "Neal Stephenson",
+        workId: "OL12345W",
+        markedAt: Date.parse("2025-08-01T00:00:00.000Z"),
+      };
+      const record = readEntryToShelfRecord(original, NOW);
+      const restored = shelfRecordToReadEntry(record);
+      expect(restored.key).toBe(original.key);
+      expect(restored.workId).toBe(original.workId);
+      expect(restored.markedAt).toBe(original.markedAt);
+    });
+  });
+
+  describe("statusFromToken", () => {
+    it("accepts both fully-qualified token refs and bare tokens", () => {
+      expect(statusFromToken("org.shelfcheck.defs#wantToRead")).toBe(STATUS.wantToRead);
+      expect(statusFromToken("wantToRead")).toBe(STATUS.wantToRead);
+      expect(statusFromToken("finished")).toBe(STATUS.finished);
+      expect(statusFromToken("reading")).toBe(STATUS.reading);
+      expect(statusFromToken("abandoned")).toBe(STATUS.abandoned);
+      expect(statusFromToken("org.shelfcheck.defs#reading")).toBe(STATUS.reading);
+      expect(statusFromToken("org.shelfcheck.defs#abandoned")).toBe(STATUS.abandoned);
+      expect(statusFromToken("garbage")).toBeUndefined();
+      expect(statusFromToken(undefined)).toBeUndefined();
+    });
+  });
+
+  describe("authors", () => {
+    it("round-trips an AuthorEntry through the lexicon record shape", () => {
+      const author: AuthorEntry = {
+        id: "author-local-1",
+        name: "Ursula K. Le Guin",
+        olKey: "OL27349A",
+      };
+      const record = authorEntryToRecord(author, NOW);
+      expect(record.name).toBe("Ursula K. Le Guin");
+      expect(record.olAuthorKey).toBe("OL27349A");
+      const restored = authorRecordToEntry(record, "abc123");
+      expect(restored.name).toBe("Ursula K. Le Guin");
+      expect(restored.olKey).toBe("OL27349A");
+      expect(restored.id).toBe("pds-author-abc123");
+    });
+  });
+
+  describe("dismissed", () => {
+    it("returns null when the entry has no portable identifier", () => {
+      const entry: DismissedWorkEntry = {
+        key: "fuzzy:abc\0def",
+        dismissedAt: Date.now(),
+      };
+      expect(dismissedToRecord(entry, NOW)).toBeNull();
+    });
+
+    it("emits a record when a workId is present and round-trips back", () => {
+      const entry: DismissedWorkEntry = {
+        key: "work:OL999W",
+        title: "Some Book",
+        author: "Some Author",
+        workId: "OL999W",
+        dismissedAt: Date.parse("2025-07-15T00:00:00.000Z"),
+      };
+      const record = dismissedToRecord(entry, NOW);
+      expect(record).not.toBeNull();
+      expect(record!.ids.olWorkId).toBe("OL999W");
+      expect(record!.title).toBe("Some Book");
+      expect(record!.authors).toEqual([{ name: "Some Author" }]);
+
+      const restored = dismissedRecordToEntry(record!);
+      expect(restored.key).toBe("work:OL999W");
+      expect(restored.workId).toBe("OL999W");
+      expect(restored.dismissedAt).toBe(entry.dismissedAt);
+    });
+  });
+});

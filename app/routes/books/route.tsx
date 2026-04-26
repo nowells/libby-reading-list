@@ -7,14 +7,18 @@ import {
   getAuthors,
   addBook,
   removeBook,
+  updateBook,
   addReadBook,
   removeReadBook,
   getReadBooks,
   readBookKey,
   addAuthor,
+  isWantToRead,
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
+import { enrichBooksWithWorkId } from "~/lib/openlibrary";
+import { getAuthor } from "~/components/book-search-utils";
 import { Logo } from "~/components/logo";
 import { BookSearchPicker } from "~/components/book-search-picker";
 import type { LibbyMediaItem } from "~/lib/libby";
@@ -31,13 +35,14 @@ import { FormatFilterBar } from "./components/format-filter-bar";
 import { BookCard } from "./components/book-card";
 import { ProgressBar } from "./components/progress-bar";
 import { BookhiveSyncStatus } from "./components/bookhive-sync-status";
+import { BookEditor, type BookEditorPatch } from "~/components/book-editor";
 
 export function meta() {
   return [{ title: "Your Books | ShelfCheck" }];
 }
 
 export function clientLoader() {
-  const books = getBooks();
+  const books = getBooks().filter(isWantToRead);
   const libraries = getLibraries();
   if (books.length === 0 || libraries.length === 0) {
     throw redirect("/setup");
@@ -47,11 +52,23 @@ export function clientLoader() {
 
 export default function Books() {
   const posthog = usePostHog();
-  const [books, setBooksState] = useState<Book[]>(() => getBooks());
+  const [books, setBooksState] = useState<Book[]>(() => getBooks().filter(isWantToRead));
   const [libraries] = useState<LibraryConfig[]>(() => getLibraries());
   const [showAddBook, setShowAddBook] = useState(false);
   const [readBooks, setReadBooks] = useState(() => getReadBooks());
   const [followedAuthors, setFollowedAuthors] = useState(() => getAuthors());
+  const [editing, setEditing] = useState<Book | null>(null);
+  const [finding, setFinding] = useState<Book | null>(null);
+  const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
+  const [toasts, setToasts] = useState<
+    { id: number; message: string; type: "success" | "error" }[]
+  >([]);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  };
 
   const readBookKeys = useMemo(() => new Set(readBooks.map((r) => r.key)), [readBooks]);
   const followedAuthorNames = useMemo(
@@ -180,14 +197,14 @@ export default function Books() {
       imageUrl: item.covers?.cover150Wide?.href,
       source: "unknown",
     });
-    setBooksState(getBooks());
+    setBooksState(getBooks().filter(isWantToRead));
     setShowAddBook(false);
     posthog?.capture("book_added_from_search", { title: item.title });
   };
 
   const handleRemoveBook = (id: string) => {
     removeBook(id);
-    setBooksState(getBooks());
+    setBooksState(getBooks().filter(isWantToRead));
     posthog?.capture("book_removed", { book_id: id });
   };
 
@@ -201,6 +218,74 @@ export default function Books() {
       posthog?.capture("book_marked_read", { book_id: book.id });
     }
     setReadBooks(getReadBooks());
+  };
+
+  const handleEditSave = (patch: BookEditorPatch) => {
+    if (!editing) return;
+    updateBook(editing.id, patch);
+    setEditing(null);
+    setBooksState(getBooks().filter(isWantToRead));
+    posthog?.capture("book_edited", {
+      book_id: editing.id,
+      status: patch.status,
+      has_rating: patch.rating !== undefined,
+    });
+  };
+
+  const handleFindSelect = (book: Book, item: LibbyMediaItem) => {
+    const author = getAuthor(item);
+    const imageUrl = item.covers?.cover150Wide?.href;
+    updateBook(book.id, {
+      title: item.title,
+      author,
+      ...(imageUrl ? { imageUrl } : {}),
+      source: book.source,
+    });
+
+    setFinding(null);
+    setEnrichingIds((prev) => new Set(prev).add(book.id));
+    setBooksState(getBooks().filter(isWantToRead));
+    posthog?.capture("book_find_selected", { book_id: book.id, selected_title: item.title });
+
+    const updated = { ...book, title: item.title, author };
+    enrichBooksWithWorkId([updated])
+      .then((enriched) => {
+        if (enriched[0]?.workId) {
+          const {
+            workId,
+            isbn13,
+            canonicalTitle,
+            canonicalAuthor,
+            subjects,
+            pageCount,
+            firstPublishYear,
+          } = enriched[0];
+          updateBook(book.id, {
+            workId,
+            isbn13,
+            imageUrl: enriched[0].imageUrl ?? imageUrl,
+            canonicalTitle,
+            canonicalAuthor,
+            subjects,
+            pageCount,
+            firstPublishYear,
+          });
+          setBooksState(getBooks().filter(isWantToRead));
+          showToast(`Matched "${item.title}" with Open Library`);
+        } else {
+          showToast(`Could not find "${item.title}" on Open Library`, "error");
+        }
+      })
+      .catch(() => {
+        showToast(`Failed to enrich "${item.title}"`, "error");
+      })
+      .finally(() => {
+        setEnrichingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(book.id);
+          return next;
+        });
+      });
   };
 
   const handleFollowAuthor = (book: Book) => {
@@ -223,6 +308,22 @@ export default function Books() {
             <div className="flex items-center gap-3 flex-shrink-0">
               <button
                 onClick={() => setShowAddBook((s) => !s)}
+                className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                <span className="hidden sm:inline">Add</span>
+              </button>
+              <span className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
+              <Link
+                to="/shelf"
                 className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               >
                 <svg
@@ -232,10 +333,14 @@ export default function Books() {
                   stroke="currentColor"
                   strokeWidth={1.5}
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3.75 19.5h16.5M4.5 6.75h15M5.25 4.5v15M18.75 4.5v15M9 4.5v15M15 4.5v15"
+                  />
                 </svg>
-                <span className="hidden sm:inline">Add</span>
-              </button>
+                <span className="hidden sm:inline">Shelf</span>
+              </Link>
               <Link
                 to="/authors"
                 className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -306,7 +411,9 @@ export default function Books() {
               {libraries.length === 1 ? "library" : "libraries"}
             </p>
             <div className="flex flex-wrap items-center gap-2 mt-1">
-              <BookhiveSyncStatus onBooksChanged={() => setBooksState(getBooks())} />
+              <BookhiveSyncStatus
+                onBooksChanged={() => setBooksState(getBooks().filter(isWantToRead))}
+              />
               {oldestFetchedAt && checkedCount > 0 && (
                 <button
                   type="button"
@@ -342,14 +449,28 @@ export default function Books() {
         </div>
 
         {showAddBook && libraries.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 mb-4">
-            <BookSearchPicker
-              libraryKey={libraries[0].preferredKey}
-              onSelect={handleSelectBook}
-              onCancel={() => setShowAddBook(false)}
-              placeholder="Search Libby for a book to add..."
-              existingBooks={books}
-            />
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+            {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+            <div className="absolute inset-0 bg-black/40" onClick={() => setShowAddBook(false)} />
+            <div
+              role="dialog"
+              aria-label="Add a book"
+              className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
+            >
+              <div className="mb-3">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-white">Add a book</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Search Libby for a book to add to your list.
+                </p>
+              </div>
+              <BookSearchPicker
+                libraryKey={libraries[0].preferredKey}
+                onSelect={handleSelectBook}
+                onCancel={() => setShowAddBook(false)}
+                placeholder="Search Libby for a book to add..."
+                existingBooks={books}
+              />
+            </div>
           </div>
         )}
 
@@ -450,6 +571,49 @@ export default function Books() {
           </div>
         )}
 
+        {/* Toasts */}
+        {toasts.length > 0 && (
+          <div className="space-y-1.5 mb-3">
+            {toasts.map((t) => (
+              <div
+                key={t.id}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+                  t.type === "success"
+                    ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
+                    : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
+                }`}
+              >
+                {t.type === "success" ? (
+                  <svg
+                    className="w-3.5 h-3.5 flex-shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                ) : (
+                  <svg
+                    className="w-3.5 h-3.5 flex-shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                    />
+                  </svg>
+                )}
+                {t.message}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="space-y-3">
           {paginatedBooks.map((book) => {
             const state = availMap[book.id] ?? { status: "pending" as const };
@@ -468,6 +632,8 @@ export default function Books() {
                 formatFilter={formatFilter}
                 onRefresh={() => refreshBook(book)}
                 onLibbyClick={handleLibbyClick}
+                onEdit={() => setEditing(book)}
+                onFind={!book.workId ? () => setFinding(book) : undefined}
                 onRemove={() => handleRemoveBook(book.id)}
                 onMarkRead={() => handleMarkRead(book)}
                 onFollowAuthor={authorName ? () => handleFollowAuthor(book) : undefined}
@@ -563,6 +729,37 @@ export default function Books() {
           </div>
         )}
       </div>
+      {editing && (
+        <BookEditor book={editing} onSave={handleEditSave} onClose={() => setEditing(null)} />
+      )}
+
+      {finding && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+          <div className="absolute inset-0 bg-black/40" onClick={() => setFinding(null)} />
+          <div
+            role="dialog"
+            aria-label="Find book match"
+            className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
+          >
+            <div className="mb-3">
+              <h3 className="text-sm font-medium text-gray-900 dark:text-white">
+                Find match for &ldquo;{finding.title}&rdquo;
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Search and select the correct book to associate metadata.
+              </p>
+            </div>
+            <BookSearchPicker
+              libraryKey={libraries[0]?.preferredKey}
+              initialQuery={finding.title}
+              onSelect={(item) => handleFindSelect(finding, item)}
+              onCancel={() => setFinding(null)}
+              placeholder="Search by title or author..."
+            />
+          </div>
+        </div>
+      )}
     </main>
   );
 }

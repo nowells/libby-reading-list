@@ -14,7 +14,6 @@ import {
   removeLibrary,
   clearLibraries,
   clearAll,
-  getBookhiveLastSync,
   clearBookhiveLastSync,
   addAuthor,
   getAuthors,
@@ -36,8 +35,10 @@ import {
   initSession,
   signInWithBluesky,
   signOut,
-  syncBookhive,
-  isBookhiveSyncStale,
+  importFromBookHive,
+  hasImportedFromBookHive,
+  refreshPdsSync,
+  getLastPdsSync,
   searchHandleSuggestions,
   type AtprotoSessionInfo,
   type HandleSuggestion,
@@ -145,7 +146,7 @@ function SkippedRowsPanel({
       <div className="space-y-2">
         {skippedRows.map((row, idx) => (
           <div
-            key={idx}
+            key={`${row.author}-${row.note}`}
             className="bg-white dark:bg-gray-800 rounded-lg border border-yellow-100 dark:border-yellow-900/50 overflow-hidden"
           >
             <div className="flex items-center justify-between px-3 py-2">
@@ -257,6 +258,7 @@ export default function Setup() {
   const [bskyHandle, setBskyHandle] = useState("");
   const [bskyImporting, setBskyImporting] = useState(false);
   const [bskyLastSync, setBskyLastSync] = useState<string | null>(null);
+  const [bookhiveImported, setBookhiveImported] = useState(false);
   const [bskySuggestions, setBskySuggestions] = useState<HandleSuggestion[]>([]);
   const [bskySuggestionsOpen, setBskySuggestionsOpen] = useState(false);
 
@@ -269,7 +271,6 @@ export default function Setup() {
   useEffect(() => {
     setBooksState(getBooks());
     setLibrariesState(getLibraries());
-    setBskyLastSync(getBookhiveLastSync());
     setSkippedRowsState(getSkippedRows());
   }, []);
 
@@ -281,10 +282,21 @@ export default function Setup() {
         if (result) {
           setBskySession(result.session);
           setBskyInfo(result.info);
-          // Auto-import on fresh sign-in, and on restored sessions whose
-          // last sync is missing or older than the TTL (daily cadence).
-          if (result.fresh || isBookhiveSyncStale()) {
-            void runBskyImport(result.session, { silent: true });
+          setBskyLastSync(getLastPdsSync(result.info.did));
+          setBookhiveImported(hasImportedFromBookHive(result.info.did));
+          // After session attach the local cache already reflects PDS
+          // state. The setBooksState call below picks up any books pulled
+          // down during reconcile.
+          setBooksState(getBooks());
+          // Offer the one-time BookHive import on a fresh sign-in if the
+          // user hasn't imported before and they have no books yet (so we
+          // don't surprise CSV users with a parallel import).
+          if (
+            result.fresh &&
+            !hasImportedFromBookHive(result.info.did) &&
+            getBooks().length === 0
+          ) {
+            void runBookHiveImport(result.session, { silent: true });
           }
         }
       })
@@ -297,7 +309,7 @@ export default function Setup() {
     return () => {
       cancelled = true;
     };
-    // runBskyImport is stable via function declaration; deps intentionally empty for one-shot init.
+    // runBookHiveImport is stable via function declaration; deps intentionally empty for one-shot init.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -470,43 +482,60 @@ export default function Setup() {
     startBskySignIn(s.handle);
   }
 
-  async function runBskyImport(session: OAuthSession, opts: { silent?: boolean } = {}) {
+  async function runBookHiveImport(session: OAuthSession, opts: { silent?: boolean } = {}) {
     setError(null);
     setImportInfo(null);
     setBskyImporting(true);
     try {
-      const imported = await syncBookhive(session, { clearManual: clearManualOnImport });
-      setBskyLastSync(new Date().toISOString());
+      const imported = await importFromBookHive(session, { clearManual: clearManualOnImport });
+      setBookhiveImported(true);
+      setBskyLastSync(getLastPdsSync(session.did));
       if (imported.length === 0) {
         if (!opts.silent) {
           setError(
-            'No "want to read" books found in your Bluesky account. Make sure you have books marked as "wantToRead" in Bookhive.',
+            'No "want to read" books found in your BookHive shelf. Make sure you have books marked as "wantToRead" on BookHive before importing.',
           );
         }
-        posthog?.capture("bsky_import_failed", { reason: "no_want_to_read" });
+        posthog?.capture("bookhive_import_failed", { reason: "no_want_to_read" });
         return;
       }
       setBooksState(getBooks());
       const keptManual = clearManualOnImport ? 0 : manualBookCount;
       setImportInfo(
-        `Imported ${imported.length} want-to-read books from Bookhive (via Bluesky).${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
+        `Imported ${imported.length} want-to-read book${imported.length === 1 ? "" : "s"} from your BookHive shelf into ShelfCheck.${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
       );
-      posthog?.capture("bsky_imported", {
+      posthog?.capture("bookhive_imported", {
         book_count: imported.length,
         trigger: opts.silent ? "auto" : "manual",
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to import from Bluesky.";
+      const message =
+        err instanceof Error ? err.message : "Failed to import from your BookHive shelf.";
       setError(message);
-      posthog?.capture("bsky_import_failed", { reason: "fetch_error", error: message });
+      posthog?.capture("bookhive_import_failed", { reason: "fetch_error", error: message });
     } finally {
       setBskyImporting(false);
     }
   }
 
-  function handleBskyImport() {
+  function handleBookHiveImport() {
     if (!bskySession) return;
-    void runBskyImport(bskySession);
+    void runBookHiveImport(bskySession);
+  }
+
+  async function handlePdsResync() {
+    if (!bskySession || !bskyInfo) return;
+    setBskyImporting(true);
+    setError(null);
+    try {
+      await refreshPdsSync(bskyInfo.did);
+      setBskyLastSync(getLastPdsSync(bskyInfo.did));
+      setBooksState(getBooks());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resync.");
+    } finally {
+      setBskyImporting(false);
+    }
   }
 
   async function handleBskySignOut() {
@@ -520,6 +549,7 @@ export default function Setup() {
     setBskyInfo(null);
     clearBookhiveLastSync();
     setBskyLastSync(null);
+    setBookhiveImported(false);
     posthog?.capture("bsky_signed_out");
   }
 
@@ -703,7 +733,7 @@ export default function Setup() {
 
           {!step1Collapsed && (
             <div className="space-y-4">
-              {/* Option 1: Bluesky / Bookhive (live sync) */}
+              {/* Option 1: Bluesky / ATproto (live sync) */}
               <div className="rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50/60 dark:bg-sky-900/15 p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <svg
@@ -714,15 +744,18 @@ export default function Setup() {
                     <path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.649 8.649 0 01-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z" />
                   </svg>
                   <h3 className="font-semibold text-sm text-sky-900 dark:text-sky-100">
-                    Sync from Bluesky
+                    Sync via ATproto
                   </h3>
                   <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300">
                     Live
                   </span>
                 </div>
                 <p className="text-xs text-sky-800/80 dark:text-sky-200/70">
-                  Sign in to automatically sync your Bookhive "want to read" shelf. Updates daily
-                  and on demand — no re-uploading CSVs.
+                  Sign in with Bluesky to store your reading list on the AT Protocol. ShelfCheck
+                  publishes <code className="font-mono">org.shelfcheck.*</code> records to your PDS,
+                  so your books, followed authors, and dismissed works follow you across devices and
+                  other compatible clients. Previously used BookHive? You can do a one-time import
+                  of your existing shelf below.
                 </p>
                 {bskyInitializing ? (
                   <p className="text-sm text-gray-400">Checking Bluesky session...</p>
@@ -744,14 +777,14 @@ export default function Setup() {
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs text-gray-500 dark:text-gray-400">
                         {bskyImporting
-                          ? "Syncing Bookhive..."
+                          ? "Syncing with PDS..."
                           : bskyLastSync
                             ? `Last synced ${formatRelativeTime(bskyLastSync)}`
                             : "Not yet synced"}
                       </span>
                       <button
                         type="button"
-                        onClick={handleBskyImport}
+                        onClick={handlePdsResync}
                         disabled={bskyImporting}
                         className="px-3 py-1.5 text-sm bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
                       >
@@ -768,9 +801,24 @@ export default function Setup() {
                             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                           />
                         </svg>
-                        {bskyImporting ? "Syncing" : bskyLastSync ? "Refresh" : "Import"}
+                        {bskyImporting ? "Syncing" : "Resync"}
                       </button>
                     </div>
+                    {!bookhiveImported && (
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-sky-100 dark:border-sky-900/40">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          Migrate from BookHive (one-time import)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleBookHiveImport}
+                          disabled={bskyImporting}
+                          className="px-3 py-1.5 text-sm border border-sky-300 dark:border-sky-700 bg-white dark:bg-gray-800 hover:bg-sky-50 dark:hover:bg-sky-900/20 disabled:opacity-50 text-sky-700 dark:text-sky-300 rounded-lg font-medium transition-colors"
+                        >
+                          Import from BookHive
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <form onSubmit={handleBskySignIn} className="relative">

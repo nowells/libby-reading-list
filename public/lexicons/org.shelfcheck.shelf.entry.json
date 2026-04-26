@@ -1,0 +1,102 @@
+{
+  "lexicon": 1,
+  "id": "org.shelfcheck.shelf.entry",
+  "description": "A user's shelf entry for a book. Exactly one record per book per user (deduplicate by ids.olWorkId, then by isbn13, then by fuzzy title+author). Status, dates, rating and notes are all carried inline; aggregators and other apps may render the same record as a 'wantToRead' card or a 'finished' review depending on the status field.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["status", "title", "authors", "ids", "createdAt"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "knownValues": [
+              "org.shelfcheck.defs#wantToRead",
+              "org.shelfcheck.defs#reading",
+              "org.shelfcheck.defs#finished",
+              "org.shelfcheck.defs#abandoned"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Display title, denormalized so the record is self-contained."
+          },
+          "authors": {
+            "type": "array",
+            "minLength": 1,
+            "maxLength": 32,
+            "items": {
+              "type": "ref",
+              "ref": "org.shelfcheck.defs#authorRef"
+            }
+          },
+          "ids": {
+            "type": "ref",
+            "ref": "org.shelfcheck.defs#bookIds"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Where this entry originated, for provenance: e.g. 'goodreads', 'hardcover', 'storygraph', 'bookhive', 'lyndi', 'manual'."
+          },
+          "sourceUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Canonical link back to the source record (e.g. the Goodreads or BookHive page)."
+          },
+          "coverUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Remote cover image URL. Cover blobs are intentionally not uploaded to the PDS; clients may render via Open Library, the source URL, or their own cache."
+          },
+          "subjects": {
+            "type": "array",
+            "maxLength": 64,
+            "items": {
+              "type": "string",
+              "maxLength": 256
+            }
+          },
+          "pageCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "firstPublishYear": {
+            "type": "integer"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "rating": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "User rating, 0-100 (half-star resolution: 10 == 0.5★, 20 == 1★, ..., 100 == 5★)."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 60000,
+            "maxGraphemes": 15000,
+            "description": "Free-form private notes or a public review."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "lexicon": 1,
+  "id": "org.shelfcheck.book.dismissed",
+  "description": "A book the user has explicitly dismissed from suggestions (e.g. 'do not show me this work again on the authors page'). Distinct from a shelf entry: it carries no reading state, only the intent to suppress.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["ids", "createdAt"],
+        "properties": {
+          "ids": {
+            "type": "ref",
+            "ref": "org.shelfcheck.defs#bookIds"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "authors": {
+            "type": "array",
+            "maxLength": 32,
+            "items": {
+              "type": "ref",
+              "ref": "org.shelfcheck.defs#authorRef"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

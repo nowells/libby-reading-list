@@ -45,9 +45,9 @@ export function useAuthorAvailability(
   loadOrderRef.current = opts?.loadOrder;
 
   const loadAuthor = useCallback(
-    async (author: AuthorEntry, opts: { skipCache?: boolean } = {}) => {
+    async (author: AuthorEntry, loadOpts: { skipCache?: boolean } = {}) => {
       // Check cache first
-      if (!opts.skipCache) {
+      if (!loadOpts.skipCache) {
         const cached = getCachedAuthor(author.id);
         if (cached) {
           setStateMap((prev) => ({

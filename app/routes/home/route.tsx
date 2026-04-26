@@ -8,7 +8,7 @@ export function meta() {
     {
       name: "description",
       content:
-        "Upload your Goodreads, Hardcover, StoryGraph, or Lyndi CSV reading list — or sign in with Bluesky to live-sync your Bookhive library — and instantly see which books are available to borrow for free at your local library through Libby.",
+        "Upload your Goodreads, Hardcover, StoryGraph, or Lyndi CSV reading list — or sign in with Bluesky to store and sync your shelf via ATproto — and instantly see which books are available to borrow for free at your local library through Libby.",
     },
   ];
 }
@@ -50,16 +50,16 @@ export default function Home() {
                   >
                     Bluesky
                   </a>{" "}
-                  to live-sync your{" "}
+                  to store and sync your shelf via{" "}
                   <a
-                    href="https://bookhive.buzz"
+                    href="https://atproto.com"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-medium text-sky-700 dark:text-sky-400 underline hover:text-sky-800 dark:hover:text-sky-300"
                   >
-                    Bookhive
+                    ATproto
                   </a>{" "}
-                  library — updates automatically when your shelf changes
+                  — your books follow you across devices and apps
                 </li>
                 <li>
                   Or upload a CSV from{" "}
@@ -111,6 +111,41 @@ export default function Home() {
             </li>
             <li>See which books on your wishlist are available to borrow right now</li>
           </ol>
+        </div>
+
+        <div className="space-y-4 text-left bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg mb-8">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            Your data, your choice
+          </h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            ShelfCheck can work entirely in your browser — no account needed. Your reading list,
+            ratings, notes, and followed authors stay in local storage.
+          </p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Want to take your shelf with you?{" "}
+            <strong className="text-gray-700 dark:text-gray-300">Sign in with Bluesky</strong> and
+            ShelfCheck will store your shelf on the{" "}
+            <a
+              href="https://atproto.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-sky-700 dark:text-sky-400 underline hover:text-sky-800 dark:hover:text-sky-300"
+            >
+              ATmosphere
+            </a>{" "}
+            (the open network behind Bluesky). Your books, statuses, ratings, and notes are written
+            to your Personal Data Server as{" "}
+            <span className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">
+              org.shelfcheck.*
+            </span>{" "}
+            records — portable, yours to keep, and accessible from any app that speaks ATproto.
+          </p>
+          <ul className="list-disc list-inside space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
+            <li>Changes sync automatically between your browser and your PDS</li>
+            <li>Switch devices or browsers without losing your shelf</li>
+            <li>No ShelfCheck account — your Bluesky identity is your identity</li>
+            <li>Not on Bluesky? No problem — everything works locally too</li>
+          </ul>
         </div>
 
         <Link

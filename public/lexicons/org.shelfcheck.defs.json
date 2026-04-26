@@ -1,0 +1,67 @@
+{
+  "lexicon": 1,
+  "id": "org.shelfcheck.defs",
+  "description": "Shared definitions for the org.shelfcheck.* lexicon: status tokens, book identifiers, and structured author references.",
+  "defs": {
+    "wantToRead": {
+      "type": "token",
+      "description": "The user wants to read this book."
+    },
+    "reading": {
+      "type": "token",
+      "description": "The user is currently reading this book."
+    },
+    "finished": {
+      "type": "token",
+      "description": "The user has finished reading this book."
+    },
+    "abandoned": {
+      "type": "token",
+      "description": "The user started but did not finish, and has stopped."
+    },
+    "bookIds": {
+      "type": "object",
+      "description": "Identifiers correlating a book across catalogs. At least one identifier should be present, with olWorkId preferred.",
+      "properties": {
+        "olWorkId": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Open Library Work ID, e.g. 'OL45883W'. Edition-independent. Primary correlation key."
+        },
+        "isbn13": {
+          "type": "string",
+          "maxLength": 17
+        },
+        "isbn10": {
+          "type": "string",
+          "maxLength": 13
+        },
+        "hiveId": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "BookHive canonical book id, present when imported from a buzz.bookhive.book record."
+        },
+        "goodreadsId": {
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "authorRef": {
+      "type": "object",
+      "description": "Structured reference to an author of a book.",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "olAuthorKey": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Open Library author key, e.g. 'OL23919A'."
+        }
+      }
+    }
+  }
+}

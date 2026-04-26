@@ -241,7 +241,12 @@ export default function Authors() {
       title: work.title,
       author: authorName,
     });
-    addDismissedWork(key);
+    addDismissedWork({
+      key,
+      title: work.title,
+      author: authorName,
+      workId: work.olWorkKey,
+    });
     setDismissedWorksState(getDismissedWorks());
   };
 
@@ -286,19 +291,20 @@ export default function Authors() {
             <div className="flex items-center gap-3 flex-shrink-0">
               <button
                 onClick={() => setShowAddAuthor((s) => !s)}
-                className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
               >
                 <svg
                   className="w-4 h-4"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth={1.5}
+                  strokeWidth={2}
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
                 <span className="hidden sm:inline">Add</span>
               </button>
+              <span className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
               <Link
                 to="/books"
                 className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -317,6 +323,25 @@ export default function Authors() {
                   />
                 </svg>
                 <span className="hidden sm:inline">Books</span>
+              </Link>
+              <Link
+                to="/shelf"
+                className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3.75 19.5h16.5M4.5 6.75h15M5.25 4.5v15M18.75 4.5v15M9 4.5v15M15 4.5v15"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Shelf</span>
               </Link>
               <Link
                 to="/stats"
@@ -399,136 +424,167 @@ export default function Authors() {
           </div>
         </div>
 
-        {/* Add Author */}
+        {/* Add Author Modal */}
         {showAddAuthor && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 mb-4">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <svg
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-                  />
-                </svg>
-                <input
-                  type="text"
-                  value={addSearchQuery}
-                  onChange={(e) => handleAddQueryChange(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && addSearchQuery.trim() && searchResults.length > 0) {
-                      handleAddAuthor(searchResults[0]);
-                    }
-                  }}
-                  placeholder="Search for an author..."
-                  className="w-full pl-9 pr-9 py-2 text-sm bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                  autoFocus
-                />
-                {searching && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+            {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+            <div
+              className="absolute inset-0 bg-black/40"
+              onClick={() => {
+                setShowAddAuthor(false);
+                setAddSearchQuery("");
+                setSearchResults([]);
+              }}
+            />
+            <div
+              role="dialog"
+              aria-label="Add an author"
+              className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
+            >
+              <div className="mb-3">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-white">Add an author</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Search for an author to follow and track their books.
+                </p>
+              </div>
+              <div className="space-y-3">
+                <div className="relative">
                   <svg
-                    className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400"
-                    fill="none"
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
                     viewBox="0 0 24 24"
+                    fill="none"
                     stroke="currentColor"
                     strokeWidth={2}
                   >
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
                     />
                   </svg>
-                )}
-                {!searching && addSearchQuery && (
-                  <button
-                    onClick={() => handleAddQueryChange("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                  >
+                  <input
+                    type="text"
+                    value={addSearchQuery}
+                    onChange={(e) => handleAddQueryChange(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && addSearchQuery.trim() && searchResults.length > 0) {
+                        handleAddAuthor(searchResults[0]);
+                      }
+                    }}
+                    placeholder="Search for an author..."
+                    className="w-full pl-10 pr-9 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:focus:ring-amber-500 focus:border-transparent"
+                    autoFocus
+                  />
+                  {searching && (
                     <svg
-                      className="w-4 h-4"
-                      viewBox="0 0 24 24"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400"
                       fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-              <button
-                onClick={() => {
-                  setShowAddAuthor(false);
-                  setAddSearchQuery("");
-                  setSearchResults([]);
-                }}
-                className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              >
-                Cancel
-              </button>
-            </div>
-
-            {/* Search results */}
-            {searchResults.length > 0 && (
-              <div className="mt-3 space-y-1">
-                {searchResults.map((result) => (
-                  <button
-                    key={result.key}
-                    onClick={() => handleAddAuthor(result)}
-                    className="w-full flex items-center justify-between px-3 py-2 text-left rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    <div>
-                      <span className="text-sm font-medium text-gray-900 dark:text-white">
-                        {result.name}
-                      </span>
-                      <span className="ml-2 text-xs text-gray-400">{result.workCount} works</span>
-                      {result.topWork && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Notable: {result.topWork}
-                        </p>
-                      )}
-                    </div>
-                    <svg
-                      className="w-4 h-4 text-gray-400"
                       viewBox="0 0 24 24"
-                      fill="none"
                       stroke="currentColor"
                       strokeWidth={2}
                     >
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        d="M12 4.5v15m7.5-7.5h-15"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                       />
                     </svg>
-                  </button>
-                ))}
-              </div>
-            )}
+                  )}
+                  {!searching && addSearchQuery && (
+                    <button
+                      onClick={() => handleAddQueryChange("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  )}
+                </div>
 
-            {/* Option to add as custom name */}
-            {addSearchQuery.trim() && searchResults.length > 0 && (
-              <button
-                onClick={handleAddCustomAuthor}
-                className="mt-2 w-full text-center text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                Or add &quot;{addSearchQuery.trim()}&quot; as-is
-              </button>
-            )}
-            {addSearchQuery.trim() && !searching && searchResults.length === 0 && (
-              <button
-                onClick={handleAddCustomAuthor}
-                className="mt-3 w-full text-center text-sm text-purple-600 hover:text-purple-700"
-              >
-                Add &quot;{addSearchQuery.trim()}&quot;
-              </button>
-            )}
+                {/* Search results */}
+                {searchResults.length > 0 && (
+                  <div className="max-h-64 overflow-y-auto space-y-1 rounded-lg border border-gray-200 dark:border-gray-700">
+                    {searchResults.map((result) => (
+                      <button
+                        key={result.key}
+                        onClick={() => handleAddAuthor(result)}
+                        className="w-full flex items-center justify-between p-2.5 text-left transition-colors hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">
+                            {result.name}
+                          </span>
+                          <span className="ml-2 text-xs text-gray-400">
+                            {result.workCount} works
+                          </span>
+                          {result.topWork && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              Notable: {result.topWork}
+                            </p>
+                          )}
+                        </div>
+                        <svg
+                          className="w-4 h-4 text-gray-400 flex-shrink-0"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 4.5v15m7.5-7.5h-15"
+                          />
+                        </svg>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Option to add as custom name */}
+                {addSearchQuery.trim() && searchResults.length > 0 && (
+                  <button
+                    onClick={handleAddCustomAuthor}
+                    className="w-full text-center text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    Or add &quot;{addSearchQuery.trim()}&quot; as-is
+                  </button>
+                )}
+                {addSearchQuery.trim() && !searching && searchResults.length === 0 && (
+                  <button
+                    onClick={handleAddCustomAuthor}
+                    className="w-full text-center text-sm text-purple-600 hover:text-purple-700"
+                  >
+                    Add &quot;{addSearchQuery.trim()}&quot;
+                  </button>
+                )}
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddAuthor(false);
+                      setAddSearchQuery("");
+                      setSearchResults([]);
+                    }}
+                    className="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

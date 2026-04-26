@@ -1,34 +1,34 @@
 import { useEffect, useState } from "react";
 import {
   initSession,
-  syncBookhive,
-  isBookhiveSyncStale,
+  refreshPdsSync,
+  getLastPdsSync,
   type AtprotoSessionInfo,
 } from "~/lib/atproto";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
-import { getBookhiveLastSync } from "~/lib/storage";
 import { formatRelativeTime } from "../lib/format-relative-time";
 
 /**
- * Small status pill on the books page showing when we last pulled the
- * "want to read" list from the user's PDS. Auto-triggers a silent sync on
- * mount if the session is active and the last sync is missing or stale.
- * Clicking the pill forces a refresh.
+ * Small status pill on the books page showing when we last reconciled
+ * org.shelfcheck.* records with the user's PDS. The reconcile happens
+ * automatically during initSession() (which is called on every page load
+ * when a session is restored), so this pill is informational + provides a
+ * manual refresh affordance.
  */
 export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => void }) {
   const [session, setSession] = useState<OAuthSession | null>(null);
   const [info, setInfo] = useState<AtprotoSessionInfo | null>(null);
-  const [lastSync, setLastSync] = useState<string | null>(() => getBookhiveLastSync());
+  const [lastSync, setLastSync] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function runSync(s: OAuthSession, silent: boolean) {
+  async function runResync(did: string, silent: boolean) {
     setSyncing(true);
     setError(null);
     try {
-      const imported = await syncBookhive(s);
-      setLastSync(getBookhiveLastSync());
-      if (imported.length > 0) onBooksChanged();
+      await refreshPdsSync(did);
+      setLastSync(getLastPdsSync(did));
+      onBooksChanged();
     } catch (err) {
       if (!silent) setError(err instanceof Error ? err.message : "Sync failed");
     } finally {
@@ -43,9 +43,10 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
         if (cancelled || !result) return;
         setSession(result.session);
         setInfo(result.info);
-        if (isBookhiveSyncStale()) {
-          void runSync(result.session, true);
-        }
+        setLastSync(getLastPdsSync(result.info.did));
+        // initSession already attached the sync engine and ran a reconcile,
+        // so local state already reflects PDS state by the time we render.
+        onBooksChanged();
       })
       .catch(() => {
         // Non-fatal — the books page still works without a Bluesky session.
@@ -59,15 +60,15 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
   if (!session || !info) return null;
 
   const label = syncing
-    ? "Syncing from ATmosphere..."
+    ? "Syncing with PDS..."
     : lastSync
-      ? `Synced from ATmosphere ${formatRelativeTime(lastSync)}`
-      : "Synced from ATmosphere";
+      ? `Synced ${formatRelativeTime(lastSync)}`
+      : "Synced via ATproto";
 
   return (
     <button
       type="button"
-      onClick={() => runSync(session, false)}
+      onClick={() => runResync(info.did, false)}
       disabled={syncing}
       title={error ?? `Signed in as @${info.handle ?? info.did}`}
       className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors disabled:opacity-70 whitespace-nowrap"

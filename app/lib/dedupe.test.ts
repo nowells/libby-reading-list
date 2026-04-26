@@ -55,6 +55,45 @@ describe("mergeBooks", () => {
     const secondary = book({ manual: true });
     expect(mergeBooks(primary, secondary).manual).toBe(true);
   });
+
+  it("preserves rating, note, status, dates, and pdsRkey from secondary when primary lacks them", () => {
+    const primary = book({});
+    const secondary = book({
+      status: "finished",
+      rating: 80,
+      note: "Great book",
+      startedAt: "2025-01-01T00:00:00.000Z",
+      finishedAt: "2025-02-01T00:00:00.000Z",
+      pdsRkey: "abc123",
+    });
+    const merged = mergeBooks(primary, secondary);
+    expect(merged.status).toBe("finished");
+    expect(merged.rating).toBe(80);
+    expect(merged.note).toBe("Great book");
+    expect(merged.startedAt).toBe("2025-01-01T00:00:00.000Z");
+    expect(merged.finishedAt).toBe("2025-02-01T00:00:00.000Z");
+    expect(merged.pdsRkey).toBe("abc123");
+  });
+
+  it("does not overwrite primary's rating/note/status with secondary's", () => {
+    const primary = book({
+      status: "reading",
+      rating: 60,
+      note: "In progress",
+      pdsRkey: "xyz",
+    });
+    const secondary = book({
+      status: "finished",
+      rating: 100,
+      note: "Done",
+      pdsRkey: "abc",
+    });
+    const merged = mergeBooks(primary, secondary);
+    expect(merged.status).toBe("reading");
+    expect(merged.rating).toBe(60);
+    expect(merged.note).toBe("In progress");
+    expect(merged.pdsRkey).toBe("xyz");
+  });
 });
 
 describe("dedupeBooks", () => {

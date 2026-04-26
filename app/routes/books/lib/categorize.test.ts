@@ -93,6 +93,28 @@ describe("categorizeBookWithFormat", () => {
     expect(categorizeBookWithFormat(state, "audiobook")).toBe("available");
     expect(categorizeBookWithFormat(state, "all")).toBe("available");
   });
+
+  it("returns soon for short wait filtered by format", () => {
+    const state = makeState({
+      data: {
+        bookTitle: "X",
+        bookAuthor: "Y",
+        results: [makeResult(false, 7, "ebook")],
+      },
+    });
+    expect(categorizeBookWithFormat(state, "ebook")).toBe("soon");
+  });
+
+  it("returns waiting for long wait filtered by format", () => {
+    const state = makeState({
+      data: {
+        bookTitle: "X",
+        bookAuthor: "Y",
+        results: [makeResult(false, 30, "ebook")],
+      },
+    });
+    expect(categorizeBookWithFormat(state, "ebook")).toBe("waiting");
+  });
 });
 
 describe("categoryScore", () => {

@@ -15,7 +15,11 @@ export interface AuthorEntry {
   /** Open Library author key (e.g. "OL23919A"). */
   olKey?: string;
   imageUrl?: string;
+  /** rkey of the corresponding org.shelfcheck.author.follow record, when synced to a PDS. */
+  pdsRkey?: string;
 }
+
+export type ShelfStatus = "wantToRead" | "reading" | "finished" | "abandoned";
 
 export interface Book {
   id: string;
@@ -38,6 +42,21 @@ export interface Book {
   pageCount?: number;
   /** Year the work was first published. */
   firstPublishYear?: number;
+  /** rkey of the corresponding org.shelfcheck.shelf.entry record, when synced to a PDS. */
+  pdsRkey?: string;
+  /**
+   * Reading status. Absent (or "wantToRead") means the book is on the
+   * want-to-read shelf, which is what the primary /books view filters on.
+   */
+  status?: ShelfStatus;
+  /** User rating, 0-100 (10-step half-star resolution; 100 == 5★). */
+  rating?: number;
+  /** Free-form private notes / public review for this book. */
+  note?: string;
+  /** ISO 8601 timestamp when the user started reading. */
+  startedAt?: string;
+  /** ISO 8601 timestamp when the user finished reading. */
+  finishedAt?: string;
 }
 
 function get<T>(key: string): T | null {
@@ -105,7 +124,18 @@ export function getBooks(): Book[] {
   return get<Book[]>("books") ?? [];
 }
 
-function setBooks(books: Book[]) {
+/**
+ * Predicate for the primary "books I want to borrow" view: a book counts
+ * as want-to-read when its status is unset (legacy entries / fresh imports
+ * land here) or explicitly `wantToRead`. `reading` does NOT include here —
+ * the user has already started reading it, so library availability is
+ * less interesting for it on the primary view.
+ */
+export function isWantToRead(book: Book): boolean {
+  return book.status === undefined || book.status === "wantToRead";
+}
+
+function writeBooks(books: Book[]) {
   set("books", books);
 }
 
@@ -160,7 +190,10 @@ export function setImportedBooks(
   source: Book["source"],
   opts: { clearManual?: boolean } = {},
 ) {
-  set("books", mergeImportForSource(getBooks(), imported, source, opts));
+  const previous = getBooks();
+  const next = mergeImportForSource(previous, imported, source, opts);
+  writeBooks(next);
+  emitMutation({ kind: "books:bulkSet", previous, next });
 }
 
 /** Update a single book in storage by id, merging new fields. */
@@ -168,26 +201,33 @@ export function updateBook(id: string, updates: Partial<Book>) {
   const books = getBooks();
   const idx = books.findIndex((b) => b.id === id);
   if (idx === -1) return;
-  books[idx] = { ...books[idx], ...updates };
-  set("books", books);
+  const updated = { ...books[idx], ...updates };
+  books[idx] = updated;
+  writeBooks(books);
+  emitMutation({ kind: "book:updated", book: updated });
 }
 
 export function addBook(book: Omit<Book, "id" | "manual">) {
   const books = getBooks();
   const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  books.push({ ...book, id, manual: true });
-  set("books", books);
+  const newBook: Book = { ...book, id, manual: true };
+  books.push(newBook);
+  writeBooks(books);
+  emitMutation({ kind: "book:added", book: newBook });
 }
 
 export function removeBook(id: string) {
-  set(
-    "books",
-    getBooks().filter((b) => b.id !== id),
-  );
+  const books = getBooks();
+  const removed = books.find((b) => b.id === id);
+  if (!removed) return;
+  writeBooks(books.filter((b) => b.id !== id));
+  emitMutation({ kind: "book:removed", book: removed });
 }
 
 export function clearBooks() {
+  const previous = getBooks();
   remove("books");
+  emitMutation({ kind: "books:bulkSet", previous, next: [] });
 }
 
 export function getBookhiveLastSync(): string | null {
@@ -243,59 +283,90 @@ export function workDismissKey(opts: {
 // --- Read Books ---
 
 /** A book the user has marked as "read". Keyed by workId or fuzzy title+author. */
-interface ReadBookEntry {
+export interface ReadBookEntry {
   /** The key used for matching: "work:<workId>" or "fuzzy:<normalizedTitle>\0<normalizedAuthor>" */
   key: string;
   title: string;
   author: string;
   workId?: string;
   markedAt: number;
+  /** rkey of the org.shelfcheck.shelf.entry record (status=finished) on the PDS, when synced. */
+  pdsRkey?: string;
 }
 
 export function getReadBooks(): ReadBookEntry[] {
   return get<ReadBookEntry[]>("read-books") ?? [];
 }
 
+function writeReadBooks(entries: ReadBookEntry[]) {
+  set("read-books", entries);
+}
+
 export function addReadBook(entry: Omit<ReadBookEntry, "markedAt">) {
   const books = getReadBooks();
   if (books.some((b) => b.key === entry.key)) return;
-  books.push({ ...entry, markedAt: Date.now() });
-  set("read-books", books);
+  const newEntry: ReadBookEntry = { ...entry, markedAt: Date.now() };
+  books.push(newEntry);
+  writeReadBooks(books);
+  emitMutation({ kind: "read:added", entry: newEntry });
 }
 
 export function removeReadBook(key: string) {
-  set(
-    "read-books",
-    getReadBooks().filter((b) => b.key !== key),
-  );
-}
-
-function isBookRead(key: string): boolean {
-  return getReadBooks().some((b) => b.key === key);
+  const books = getReadBooks();
+  const removed = books.find((b) => b.key === key);
+  if (!removed) return;
+  writeReadBooks(books.filter((b) => b.key !== key));
+  emitMutation({ kind: "read:removed", entry: removed });
 }
 
 // --- Dismissed Works (for author page) ---
 
 /** A work dismissed from author suggestions. */
-interface DismissedWorkEntry {
+export interface DismissedWorkEntry {
   /** "work:<olWorkKey>" or "fuzzy:<normalizedTitle>\0<normalizedAuthor>" */
   key: string;
   dismissedAt: number;
+  /** Title at time of dismissal (denormalized so we can publish a self-contained PDS record). */
+  title?: string;
+  /** Author at time of dismissal. */
+  author?: string;
+  /** Open Library Work ID, when known. */
+  workId?: string;
+  /** rkey of the org.shelfcheck.book.dismissed record on the PDS, when synced. */
+  pdsRkey?: string;
 }
 
 export function getDismissedWorks(): DismissedWorkEntry[] {
   return get<DismissedWorkEntry[]>("dismissed-works") ?? [];
 }
 
-export function addDismissedWork(key: string) {
-  const works = getDismissedWorks();
-  if (works.some((w) => w.key === key)) return;
-  works.push({ key, dismissedAt: Date.now() });
-  set("dismissed-works", works);
+function writeDismissedWorks(entries: DismissedWorkEntry[]) {
+  set("dismissed-works", entries);
 }
 
-function isDismissedWork(key: string): boolean {
-  return getDismissedWorks().some((w) => w.key === key);
+/**
+ * Add a dismissed work. We accept the full work info (not just the key) so
+ * that synced PDS records carry enough metadata to be portable to other
+ * clients — a bare key isn't.
+ */
+export function addDismissedWork(entry: {
+  key: string;
+  title?: string;
+  author?: string;
+  workId?: string;
+}) {
+  const works = getDismissedWorks();
+  if (works.some((w) => w.key === entry.key)) return;
+  const newEntry: DismissedWorkEntry = {
+    key: entry.key,
+    dismissedAt: Date.now(),
+    title: entry.title,
+    author: entry.author,
+    workId: entry.workId,
+  };
+  works.push(newEntry);
+  writeDismissedWorks(works);
+  emitMutation({ kind: "dismissed:added", entry: newEntry });
 }
 
 // --- Authors ---
@@ -304,7 +375,7 @@ export function getAuthors(): AuthorEntry[] {
   return get<AuthorEntry[]>("authors") ?? [];
 }
 
-function setAuthors(authors: AuthorEntry[]) {
+function writeAuthors(authors: AuthorEntry[]) {
   set("authors", authors);
 }
 
@@ -313,19 +384,24 @@ export function addAuthor(author: Omit<AuthorEntry, "id">) {
   // Dedupe by name (case-insensitive)
   if (authors.some((a) => a.name.toLowerCase() === author.name.toLowerCase())) return;
   const id = `author-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  authors.push({ ...author, id });
-  set("authors", authors);
+  const newAuthor: AuthorEntry = { ...author, id };
+  authors.push(newAuthor);
+  writeAuthors(authors);
+  emitMutation({ kind: "author:added", author: newAuthor });
 }
 
 export function removeAuthor(id: string) {
-  set(
-    "authors",
-    getAuthors().filter((a) => a.id !== id),
-  );
+  const authors = getAuthors();
+  const removed = authors.find((a) => a.id === id);
+  if (!removed) return;
+  writeAuthors(authors.filter((a) => a.id !== id));
+  emitMutation({ kind: "author:removed", author: removed });
 }
 
 export function clearAuthors() {
+  const previous = getAuthors();
   remove("authors");
+  for (const a of previous) emitMutation({ kind: "author:removed", author: a });
 }
 
 export function clearAll() {
@@ -336,6 +412,123 @@ export function clearAll() {
   clearBookhiveLastSync();
   remove("availability");
   remove("author-availability");
+  // Emit removals for read + dismissed so any active sync engine can
+  // propagate the deletion to the PDS.
+  const reads = getReadBooks();
   remove("read-books");
+  for (const r of reads) emitMutation({ kind: "read:removed", entry: r });
+  const dismissals = getDismissedWorks();
   remove("dismissed-works");
+  for (const d of dismissals) emitMutation({ kind: "dismissed:removed", entry: d });
+}
+
+// --- Mutation event bus (for the ATproto sync engine) ---
+//
+// Storage stays the single source of truth for the local cache and exposes a
+// minimal event stream so that the optional ATproto sync layer can mirror
+// changes to the user's PDS without storage knowing anything about ATproto.
+
+export type StorageMutation =
+  | { kind: "book:added"; book: Book }
+  | { kind: "book:updated"; book: Book }
+  | { kind: "book:removed"; book: Book }
+  | { kind: "books:bulkSet"; previous: Book[]; next: Book[] }
+  | { kind: "author:added"; author: AuthorEntry }
+  | { kind: "author:removed"; author: AuthorEntry }
+  | { kind: "read:added"; entry: ReadBookEntry }
+  | { kind: "read:removed"; entry: ReadBookEntry }
+  | { kind: "dismissed:added"; entry: DismissedWorkEntry }
+  | { kind: "dismissed:removed"; entry: DismissedWorkEntry };
+
+const mutationListeners = new Set<(m: StorageMutation) => void>();
+
+export function onStorageMutation(fn: (m: StorageMutation) => void): () => void {
+  mutationListeners.add(fn);
+  return () => mutationListeners.delete(fn);
+}
+
+function emitMutation(m: StorageMutation) {
+  for (const fn of mutationListeners) {
+    try {
+      fn(m);
+    } catch (err) {
+      console.error("[storage] mutation listener threw", err);
+    }
+  }
+}
+
+// --- Internal helpers used by the ATproto sync engine to write back rkeys
+// and to bulk-replace state on hydrate. These mutate localStorage without
+// emitting mutation events, so the sync engine can update local caches with
+// PDS-derived data without re-triggering a push back to the PDS. ---
+
+export function _setBookPdsRkey(id: string, rkey: string) {
+  const books = getBooks();
+  const idx = books.findIndex((b) => b.id === id);
+  if (idx === -1) return;
+  books[idx] = { ...books[idx], pdsRkey: rkey };
+  writeBooks(books);
+}
+
+export function _setAuthorPdsRkey(id: string, rkey: string) {
+  const authors = getAuthors();
+  const idx = authors.findIndex((a) => a.id === id);
+  if (idx === -1) return;
+  authors[idx] = { ...authors[idx], pdsRkey: rkey };
+  writeAuthors(authors);
+}
+
+export function _setReadPdsRkey(key: string, rkey: string) {
+  const entries = getReadBooks();
+  const idx = entries.findIndex((e) => e.key === key);
+  if (idx === -1) return;
+  entries[idx] = { ...entries[idx], pdsRkey: rkey };
+  writeReadBooks(entries);
+}
+
+export function _setDismissedPdsRkey(key: string, rkey: string) {
+  const entries = getDismissedWorks();
+  const idx = entries.findIndex((e) => e.key === key);
+  if (idx === -1) return;
+  entries[idx] = { ...entries[idx], pdsRkey: rkey };
+  writeDismissedWorks(entries);
+}
+
+/**
+ * Merge PDS-sourced metadata into an existing local book without emitting
+ * events. Only fills in fields that the local copy is missing so user
+ * edits are never overwritten; PDS data from another device propagates
+ * down on the next reconcile.
+ */
+export function _mergeBookFromPds(id: string, pdsFields: Partial<Book>) {
+  const books = getBooks();
+  const idx = books.findIndex((b) => b.id === id);
+  if (idx === -1) return;
+  const book = books[idx];
+  let changed = false;
+  const updates: Partial<Book> = {};
+  for (const key of Object.keys(pdsFields) as (keyof Book)[]) {
+    if (book[key] === undefined && pdsFields[key] !== undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (updates as any)[key] = pdsFields[key];
+      changed = true;
+    }
+  }
+  if (changed) {
+    books[idx] = { ...book, ...updates };
+    writeBooks(books);
+  }
+}
+
+/** Bulk-replace local books with PDS-sourced records. Does not emit events. */
+export function _replaceBooksFromPds(books: Book[]) {
+  writeBooks(dedupeBooks(books));
+}
+
+export function _replaceAuthorsFromPds(authors: AuthorEntry[]) {
+  writeAuthors(authors);
+}
+
+export function _replaceDismissedFromPds(entries: DismissedWorkEntry[]) {
+  writeDismissedWorks(entries);
 }
