@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { hasImportedFromBookHive, getLastPdsSync, searchHandleSuggestions } from "./atproto";
+import {
+  hasImportedFromBookHive,
+  getLastPdsSync,
+  searchHandleSuggestions,
+  getLastSignedInAccount,
+  clearLastSignedInAccount,
+} from "./atproto";
 import { worker } from "~/test/setup";
 import { http, HttpResponse } from "msw";
 
@@ -27,6 +33,56 @@ describe("atproto", () => {
       const stamp = new Date().toISOString();
       localStorage.setItem(`shelfcheck:pds-last-sync:${TEST_DID}`, stamp);
       expect(getLastPdsSync(TEST_DID)).toBe(stamp);
+    });
+  });
+
+  describe("getLastSignedInAccount", () => {
+    it("returns null when no account is remembered", () => {
+      expect(getLastSignedInAccount()).toBeNull();
+    });
+
+    it("round-trips a stored account with handle", () => {
+      localStorage.setItem(
+        "shelfcheck:bsky-last-account",
+        JSON.stringify({ did: TEST_DID, handle: "alice.bsky.social" }),
+      );
+      expect(getLastSignedInAccount()).toEqual({
+        did: TEST_DID,
+        handle: "alice.bsky.social",
+      });
+    });
+
+    it("normalizes a stored account without a handle", () => {
+      localStorage.setItem("shelfcheck:bsky-last-account", JSON.stringify({ did: TEST_DID }));
+      expect(getLastSignedInAccount()).toEqual({ did: TEST_DID, handle: undefined });
+    });
+
+    it("returns null for malformed JSON", () => {
+      localStorage.setItem("shelfcheck:bsky-last-account", "{not json");
+      expect(getLastSignedInAccount()).toBeNull();
+    });
+
+    it("returns null when stored payload has no did", () => {
+      localStorage.setItem(
+        "shelfcheck:bsky-last-account",
+        JSON.stringify({ handle: "alice.bsky.social" }),
+      );
+      expect(getLastSignedInAccount()).toBeNull();
+    });
+  });
+
+  describe("clearLastSignedInAccount", () => {
+    it("removes the remembered account", () => {
+      localStorage.setItem(
+        "shelfcheck:bsky-last-account",
+        JSON.stringify({ did: TEST_DID, handle: "alice.bsky.social" }),
+      );
+      clearLastSignedInAccount();
+      expect(getLastSignedInAccount()).toBeNull();
+    });
+
+    it("is a no-op when nothing is stored", () => {
+      expect(() => clearLastSignedInAccount()).not.toThrow();
     });
   });
 

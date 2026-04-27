@@ -15,6 +15,8 @@ const PUBLIC_APPVIEW = "https://public.api.bsky.app";
 const BOOKHIVE_IMPORTED_PREFIX = "shelfcheck:bookhive-imported:";
 /** Per-DID timestamp of the last successful PDS reconcile. */
 const PDS_LAST_SYNC_PREFIX = "shelfcheck:pds-last-sync:";
+/** The last account that successfully signed in, used to offer a one-click reauthenticate when the OAuth session is later lost. */
+const LAST_BSKY_ACCOUNT_KEY = "shelfcheck:bsky-last-account";
 
 function isLoopback(): boolean {
   const { hostname } = window.location;
@@ -87,6 +89,7 @@ export function initSession(): Promise<InitResult | null> {
       } catch (err) {
         console.error("[atproto] failed to attach sync session", err);
       }
+      setLastSignedInAccount({ did: stored.did, handle: stored.handle });
       return { session, info: { did: stored.did, handle: stored.handle }, fresh };
     }
 
@@ -116,6 +119,7 @@ export function initSession(): Promise<InitResult | null> {
     } catch {
       // Profile lookup is best-effort; the DID alone is enough to continue.
     }
+    setLastSignedInAccount({ did: session.did, handle });
     return { session, info: { did: session.did, handle }, fresh };
   })();
   return initPromise;
@@ -162,6 +166,7 @@ export async function signInWithBluesky(handleOrPds: string): Promise<never> {
 }
 
 export async function signOut(did: string): Promise<void> {
+  clearLastSignedInAccount();
   const testHook = getTestOAuthHook();
   if (testHook) {
     detachSyncSession();
@@ -202,6 +207,50 @@ function setLastPdsSync(did: string): void {
     localStorage.setItem(PDS_LAST_SYNC_PREFIX + did, new Date().toISOString());
   } catch {
     // Ignore quota errors
+  }
+}
+
+// --- Remembered account (for reauthenticate UI when the OAuth session is lost) ---
+
+export interface RememberedBskyAccount {
+  did: string;
+  handle?: string;
+}
+
+/**
+ * Returns the last account that successfully signed in, if any. Used by the
+ * setup page to offer a one-click "Reauthenticate as @handle" affordance
+ * after a refresh token expires (or any other case where `initSession()`
+ * resolves without a live session). Cleared on explicit sign-out.
+ */
+export function getLastSignedInAccount(): RememberedBskyAccount | null {
+  try {
+    const raw = localStorage.getItem(LAST_BSKY_ACCOUNT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<RememberedBskyAccount>;
+    if (typeof parsed?.did !== "string") return null;
+    return {
+      did: parsed.did,
+      handle: typeof parsed.handle === "string" ? parsed.handle : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function setLastSignedInAccount(info: RememberedBskyAccount): void {
+  try {
+    localStorage.setItem(LAST_BSKY_ACCOUNT_KEY, JSON.stringify(info));
+  } catch {
+    // Ignore quota errors
+  }
+}
+
+export function clearLastSignedInAccount(): void {
+  try {
+    localStorage.removeItem(LAST_BSKY_ACCOUNT_KEY);
+  } catch {
+    // Ignore
   }
 }
 
