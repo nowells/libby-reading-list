@@ -11,9 +11,12 @@
     "fmt:check": "oxfmt --check app/ *.ts",
     "knip": "knip",
     "test:unit": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:update-snapshots": "vitest run --update",
+    "test:unit:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:coverage": "COVERAGE=1 playwright test",
+    "test:coverage:merge": "node scripts/merge-coverage.mjs",
+    "test:coverage": "npm run test:unit:coverage && npm run test:e2e:coverage && npm run test:coverage:merge",
+    "test:update-snapshots": "vitest run --update",
     "test": "npm run fmt:check && npm run lint && npm run typecheck && npm run test:unit && npm run knip && npm run build"
   },
   "dependencies": {
@@ -39,6 +42,7 @@
     "@vitest/browser-playwright": "^4.1.4",
     "@vitest/coverage-v8": "^4.1.4",
     "knip": "^6.4.1",
+    "monocart-coverage-reports": "^2.12.11",
     "msw": "^2.13.5",
     "oxfmt": "^0.45.0",
     "oxlint": "^1.60.0",
@@ -47,6 +51,7 @@
     "typescript": "^5.9.3",
     "vite": "^8.0.3",
     "vitest": "^4.1.4",
-    "vitest-browser-react": "^2.2.0"
+    "vitest-browser-react": "^2.2.0",
+    "vitest-monocart-coverage": "^4.0.2"
   }
 }
