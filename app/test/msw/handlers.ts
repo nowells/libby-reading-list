@@ -107,6 +107,14 @@ export const handlers = [
     return new HttpResponse(null, { status: 404 });
   }),
 
+  // Fallback for any OL cover request not matched above. Without this the
+  // fake IDs in fixtures (e.g. work covers, author photos) fall through to
+  // the real Open Library server, which 404s with variable timing — causing
+  // VRT screenshots to capture different image states between runs.
+  http.get("https://covers.openlibrary.org/*", () => {
+    return new HttpResponse(null, { status: 404 });
+  }),
+
   http.get("https://example.com/cover.jpg", () => {
     return HttpResponse.redirect(coverChildrenOfTime, 302);
   }),
