@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { searchAuthor, getAuthorWorks, resolveAuthorKey } from "./openlibrary-author";
+import {
+  searchAuthor,
+  getAuthorWorks,
+  resolveAuthorKey,
+  getAuthorDetails,
+} from "./openlibrary-author";
 import { worker } from "~/test/setup";
 import { http, HttpResponse } from "msw";
 
@@ -119,6 +124,58 @@ describe("openlibrary-author", () => {
       await resolveAuthorKey("Adrian Tchaikovsky");
       const cached = localStorage.getItem("shelfcheck:ol-author:resolve:adrian tchaikovsky");
       expect(cached).toBeTruthy();
+    });
+  });
+
+  describe("getAuthorDetails", () => {
+    beforeEach(() => {
+      worker.use(
+        http.get("https://openlibrary.org/authors/:authorKey.json", () =>
+          HttpResponse.json({
+            key: "/authors/OL7313085A",
+            name: "Adrian Tchaikovsky",
+            bio: { type: "/type/text", value: "British author of speculative fiction." },
+            birth_date: "14 June 1972",
+            alternate_names: ["Adrian Czajkowski"],
+            photos: [9000001],
+            links: [{ title: "Homepage", url: "https://shadowsoftheapt.com" }],
+            wikipedia: "https://en.wikipedia.org/wiki/Adrian_Tchaikovsky",
+          }),
+        ),
+      );
+    });
+
+    it("returns null for invalid keys", async () => {
+      expect(await getAuthorDetails("not-a-key")).toBeNull();
+    });
+
+    it("normalizes the typed-text bio to a string", async () => {
+      const d = await getAuthorDetails("OL7313085A");
+      expect(typeof d?.bio).toBe("string");
+      expect(d?.bio).toContain("British");
+    });
+
+    it("captures alternate names, birth date, photos, and wikipedia", async () => {
+      const d = await getAuthorDetails("OL7313085A");
+      expect(d?.alternateNames).toEqual(["Adrian Czajkowski"]);
+      expect(d?.birthDate).toBe("14 June 1972");
+      expect(d?.photoIds).toEqual([9000001]);
+      expect(d?.wikipediaUrl).toContain("wikipedia");
+    });
+
+    it("caches the response", async () => {
+      await getAuthorDetails("OL7313085A");
+      const cached = localStorage.getItem("shelfcheck:ol-author-details:OL7313085A");
+      expect(cached).toBeTruthy();
+    });
+
+    it("returns null on API error", async () => {
+      worker.use(
+        http.get("https://openlibrary.org/authors/:authorKey.json", () =>
+          HttpResponse.json({}, { status: 500 }),
+        ),
+      );
+      expect(await getAuthorDetails("OL999999A")).toBeNull();
     });
   });
 });
