@@ -5,6 +5,9 @@ import { discoverFriends, fetchFriendShelf, type FriendShelf } from "~/lib/atpro
 const CACHE_KEY = "shelfcheck:friends-cache";
 const CACHE_VERSION = 1;
 const CACHE_MAX_AGE = 1000 * 60 * 60 * 24 * 7; // 7 days
+// Skip the background refresh + discovery sweep when the cache is younger than
+// this. Page navigations within the window just rehydrate from localStorage.
+const DISCOVERY_STALE_AGE = 1000 * 60 * 60 * 2; // 2 hours
 const REFRESH_BATCH_SIZE = 5;
 
 interface CachedFriends {
@@ -60,104 +63,117 @@ export function useFriends(session: OAuthSession | null) {
     friendsRef.current = friends;
   }, [friends]);
 
-  const load = useCallback(async () => {
-    if (!session) return;
+  const load = useCallback(
+    async (force = false) => {
+      if (!session) return;
 
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-    setError(null);
-    setProgress(null);
-
-    // Hydrate from cache for instant UI
-    const cached = getCached();
-    let current: FriendShelf[] = cached?.friends ?? [];
-    if (current.length > 0) {
-      setFriends(current);
-      setStatus("done");
-      setRefreshing(true);
-    } else {
-      setFriends([]);
-      setStatus("loading");
-      setRefreshing(false);
-    }
-
-    try {
-      // Phase 1: refresh known friends' shelves first (priority over discovery)
-      if (current.length > 0) {
-        const refreshed: FriendShelf[] = [];
-        for (let i = 0; i < current.length; i += REFRESH_BATCH_SIZE) {
-          if (controller.signal.aborted) return;
-          const batch = current.slice(i, i + REFRESH_BATCH_SIZE);
-          const results = await Promise.allSettled(
-            batch.map((f) => fetchFriendShelf(f.profile, { signal: controller.signal })),
-          );
-          for (const r of results) {
-            if (r.status === "fulfilled" && r.value) refreshed.push(r.value);
-          }
-          if (controller.signal.aborted) return;
-          const checked = Math.min(i + REFRESH_BATCH_SIZE, current.length);
-          setProgress({ checked, total: current.length, phase: "refreshing" });
-          // Show in-progress merge: refreshed survivors + still-pending originals.
-          const stillPending = current.slice(checked);
-          setFriends([...refreshed, ...stillPending]);
-        }
-        current = refreshed;
-        if (!controller.signal.aborted) {
-          setFriends(refreshed);
-          setCache(refreshed);
-        }
-      }
-
-      if (controller.signal.aborted) return;
-
-      // Phase 2: discover new friends among follows we don't already know about
+      setError(null);
       setProgress(null);
-      if (current.length === 0) {
-        // No cached friends — show a single discovering bar from the start
-        setRefreshing(false);
-      } else {
-        setRefreshing(true);
-      }
-      const knownDids = new Set(current.map((f) => f.profile.did));
-      const newFriends = await discoverFriends(session, {
-        signal: controller.signal,
-        excludeDids: knownDids,
-        onProgress: (checked, total) => {
-          if (!controller.signal.aborted) {
-            setProgress({ checked, total, phase: "discovering" });
-          }
-        },
-      });
 
-      if (controller.signal.aborted) return;
-      const merged = [...current, ...newFriends];
-      setFriends(merged);
-      setCache(merged);
-      setStatus("done");
-      setRefreshing(false);
-      setProgress(null);
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      setError(err instanceof Error ? err.message : "Failed to load friends");
-      // If we have something to show, keep showing it; otherwise surface the error state.
-      if (friendsRef.current.length === 0) {
-        setStatus("error");
-      } else {
+      // Hydrate from cache for instant UI
+      const cached = getCached();
+      let current: FriendShelf[] = cached?.friends ?? [];
+
+      // If the cache is fresh, just hydrate and stop — discovery only runs on
+      // a manual refresh or after the cache ages past DISCOVERY_STALE_AGE.
+      if (!force && cached && Date.now() - cached.fetchedAt < DISCOVERY_STALE_AGE) {
+        setFriends(current);
         setStatus("done");
+        setRefreshing(false);
+        return;
       }
-      setRefreshing(false);
-      setProgress(null);
-    }
-  }, [session]);
+
+      if (current.length > 0) {
+        setFriends(current);
+        setStatus("done");
+        setRefreshing(true);
+      } else {
+        setFriends([]);
+        setStatus("loading");
+        setRefreshing(false);
+      }
+
+      try {
+        // Phase 1: refresh known friends' shelves first (priority over discovery)
+        if (current.length > 0) {
+          const refreshed: FriendShelf[] = [];
+          for (let i = 0; i < current.length; i += REFRESH_BATCH_SIZE) {
+            if (controller.signal.aborted) return;
+            const batch = current.slice(i, i + REFRESH_BATCH_SIZE);
+            const results = await Promise.allSettled(
+              batch.map((f) => fetchFriendShelf(f.profile, { signal: controller.signal })),
+            );
+            for (const r of results) {
+              if (r.status === "fulfilled" && r.value) refreshed.push(r.value);
+            }
+            if (controller.signal.aborted) return;
+            const checked = Math.min(i + REFRESH_BATCH_SIZE, current.length);
+            setProgress({ checked, total: current.length, phase: "refreshing" });
+            // Show in-progress merge: refreshed survivors + still-pending originals.
+            const stillPending = current.slice(checked);
+            setFriends([...refreshed, ...stillPending]);
+          }
+          current = refreshed;
+          if (!controller.signal.aborted) {
+            setFriends(refreshed);
+            setCache(refreshed);
+          }
+        }
+
+        if (controller.signal.aborted) return;
+
+        // Phase 2: discover new friends among follows we don't already know about
+        setProgress(null);
+        if (current.length === 0) {
+          // No cached friends — show a single discovering bar from the start
+          setRefreshing(false);
+        } else {
+          setRefreshing(true);
+        }
+        const knownDids = new Set(current.map((f) => f.profile.did));
+        const newFriends = await discoverFriends(session, {
+          signal: controller.signal,
+          excludeDids: knownDids,
+          onProgress: (checked, total) => {
+            if (!controller.signal.aborted) {
+              setProgress({ checked, total, phase: "discovering" });
+            }
+          },
+        });
+
+        if (controller.signal.aborted) return;
+        const merged = [...current, ...newFriends];
+        setFriends(merged);
+        setCache(merged);
+        setStatus("done");
+        setRefreshing(false);
+        setProgress(null);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : "Failed to load friends");
+        // If we have something to show, keep showing it; otherwise surface the error state.
+        if (friendsRef.current.length === 0) {
+          setStatus("error");
+        } else {
+          setStatus("done");
+        }
+        setRefreshing(false);
+        setProgress(null);
+      }
+    },
+    [session],
+  );
 
   useEffect(() => {
     load();
     return () => abortRef.current?.abort();
   }, [load]);
 
-  const refresh = useCallback(() => load(), [load]);
+  const refresh = useCallback(() => load(true), [load]);
 
   const refreshFriend = useCallback(async (did: string) => {
     const friend = friendsRef.current.find((f) => f.profile.did === did);

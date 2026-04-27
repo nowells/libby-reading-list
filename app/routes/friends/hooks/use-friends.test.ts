@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { act } from "react";
 import { render } from "vitest-browser-react";
 import { createElement } from "react";
 import { useFriends } from "./use-friends";
@@ -11,6 +12,7 @@ vi.mock("~/lib/atproto/friends", () => ({
 
 const CACHE_KEY = "shelfcheck:friends-cache";
 const CACHE_VERSION = 1;
+const HOUR = 60 * 60 * 1000;
 
 const fakeSession = { did: "did:plc:testuser" } as never;
 
@@ -33,8 +35,15 @@ const fakeFriend: friendsModule.FriendShelf = {
 };
 
 /** Tiny wrapper that renders hook state as visible text for assertion. */
-function HookHarness({ session }: { session: typeof fakeSession | null }) {
-  const { friends, status, refreshing, error } = useFriends(session);
+function HookHarness({
+  session,
+  onRefresh,
+}: {
+  session: typeof fakeSession | null;
+  onRefresh?: (refresh: () => void) => void;
+}) {
+  const { friends, status, refreshing, error, refresh } = useFriends(session);
+  if (onRefresh) onRefresh(refresh);
   return createElement(
     "div",
     null,
@@ -69,11 +78,12 @@ describe("useFriends", () => {
     expect(friendsModule.discoverFriends).toHaveBeenCalled();
   });
 
-  it("hydrates cached friends instantly and refreshes in background", async () => {
+  it("hydrates cached friends instantly and refreshes in background when cache is stale", async () => {
+    // Older than the 2h discovery window but inside the 7d cache validity window.
     const cached = {
       version: CACHE_VERSION,
       friends: [fakeFriend],
-      fetchedAt: Date.now(),
+      fetchedAt: Date.now() - 3 * HOUR,
     };
     localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
 
@@ -154,7 +164,7 @@ describe("useFriends", () => {
     const cached = {
       version: CACHE_VERSION,
       friends: [fakeFriend],
-      fetchedAt: Date.now(),
+      fetchedAt: Date.now() - 3 * HOUR,
     };
     localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
 
@@ -166,5 +176,57 @@ describe("useFriends", () => {
 
     await expect.element(screen.getByText("refreshing:false")).toBeInTheDocument();
     await expect.element(screen.getByText("count:0")).toBeInTheDocument();
+  });
+
+  it("skips discovery when the cache is fresher than the 2h discovery window", async () => {
+    const cached = {
+      version: CACHE_VERSION,
+      friends: [fakeFriend],
+      fetchedAt: Date.now() - 30 * 60 * 1000, // 30 minutes ago
+    };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
+
+    const screen = await render(createElement(HookHarness, { session: fakeSession }));
+
+    await expect.element(screen.getByText("status:done")).toBeInTheDocument();
+    await expect.element(screen.getByText("count:1")).toBeInTheDocument();
+    await expect.element(screen.getByText("refreshing:false")).toBeInTheDocument();
+    expect(friendsModule.discoverFriends).not.toHaveBeenCalled();
+    expect(friendsModule.fetchFriendShelf).not.toHaveBeenCalled();
+  });
+
+  it("manual refresh forces discovery even when cache is fresh", async () => {
+    const cached = {
+      version: CACHE_VERSION,
+      friends: [fakeFriend],
+      fetchedAt: Date.now() - 30 * 60 * 1000, // fresh
+    };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
+
+    vi.mocked(friendsModule.fetchFriendShelf).mockResolvedValue(fakeFriend);
+    vi.mocked(friendsModule.discoverFriends).mockResolvedValue([]);
+
+    let triggerRefresh: (() => void) | null = null;
+    const screen = await render(
+      createElement(HookHarness, {
+        session: fakeSession,
+        onRefresh: (r) => {
+          triggerRefresh = r;
+        },
+      }),
+    );
+
+    // Mount-time load skips discovery because the cache is fresh.
+    await expect.element(screen.getByText("status:done")).toBeInTheDocument();
+    expect(friendsModule.discoverFriends).not.toHaveBeenCalled();
+
+    // Manual refresh ignores the freshness check.
+    await act(async () => {
+      triggerRefresh!();
+    });
+    await vi.waitFor(() => {
+      expect(friendsModule.discoverFriends).toHaveBeenCalled();
+      expect(friendsModule.fetchFriendShelf).toHaveBeenCalled();
+    });
   });
 });
