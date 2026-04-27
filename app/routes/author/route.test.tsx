@@ -69,7 +69,12 @@ describe("AuthorDetails", () => {
 
   it("author details page matches screenshot", async () => {
     const screen = await renderRoute("OL7313085A");
+    // Wait for header, bio, and works grid so all async chunks have settled
+    // before the screenshot — otherwise the image-load race causes flakiness.
     await expect.element(screen.getByText("Adrian Tchaikovsky")).toBeVisible();
+    await expect.element(screen.getByText(/British author/i)).toBeVisible();
+    await expect.element(screen.getByText("Children of Time")).toBeVisible();
+    await expect.element(screen.getByText("Children of Ruin")).toBeVisible();
     await expect.element(componentLocator(screen)).toMatchScreenshot("author-details");
   });
 });
