@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { discoverFriends, type FriendProfile } from "./friends";
+import {
+  discoverFriends,
+  PDS_CACHE_KEY,
+  PDS_CACHE_VERSION,
+  _resetPdsRunCacheForTests,
+  type FriendProfile,
+} from "./friends";
 import { NSID, STATUS, type ShelfEntryRecord, type AuthorFollowRecord } from "./lexicon";
 
 function makeShelfEntry(overrides: Partial<ShelfEntryRecord> = {}): ShelfEntryRecord {
@@ -60,6 +66,14 @@ vi.mock("@atproto/api", () => ({
   },
 }));
 
+function countPlcCalls(spy: ReturnType<typeof vi.spyOn>): number {
+  return spy.mock.calls.filter((args: unknown[]) => {
+    const input = args[0] as RequestInfo | URL;
+    const url = typeof input === "string" ? input : ((input as Request).url ?? String(input));
+    return url.includes("plc.directory");
+  }).length;
+}
+
 function makeFollowsResponse(follows: FriendProfile[]) {
   return {
     data: {
@@ -83,6 +97,7 @@ function makeFollowsResponse(follows: FriendProfile[]) {
 describe("friends", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetPdsRunCacheForTests();
     mockGetFollows.mockResolvedValue(makeFollowsResponse([]));
   });
 
@@ -265,6 +280,157 @@ describe("friends", () => {
 
       const result = await discoverFriends(fakeSession);
       expect(result).toEqual([]);
+
+      fetchSpy.mockRestore();
+    });
+  });
+
+  describe("PDS metadata cache", () => {
+    it("persists resolved PDS endpoints to localStorage", async () => {
+      const friend: FriendProfile = {
+        did: "did:plc:cachetest1",
+        handle: "cachetest1.bsky.social",
+      };
+      mockGetFollows.mockResolvedValue(makeFollowsResponse([friend]));
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          return new Response(JSON.stringify(didDoc(friend.did)));
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      await discoverFriends(fakeSession);
+
+      const raw = localStorage.getItem(PDS_CACHE_KEY);
+      expect(raw).not.toBeNull();
+      const stored = JSON.parse(raw!);
+      expect(stored.version).toBe(PDS_CACHE_VERSION);
+      expect(stored.entries[friend.did].pds).toBe("https://pds.example.com");
+      expect(typeof stored.entries[friend.did].fetchedAt).toBe("number");
+
+      fetchSpy.mockRestore();
+    });
+
+    it("skips plc.directory when a fresh cache entry exists", async () => {
+      const friend: FriendProfile = {
+        did: "did:plc:cachetest2",
+        handle: "cachetest2.bsky.social",
+      };
+      localStorage.setItem(
+        PDS_CACHE_KEY,
+        JSON.stringify({
+          version: PDS_CACHE_VERSION,
+          entries: {
+            [friend.did]: { pds: "https://pds.example.com", fetchedAt: Date.now() },
+          },
+        }),
+      );
+
+      mockGetFollows.mockResolvedValue(makeFollowsResponse([friend]));
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          return new Response(JSON.stringify(didDoc(friend.did)));
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      await discoverFriends(fakeSession);
+
+      expect(countPlcCalls(fetchSpy)).toBe(0);
+
+      fetchSpy.mockRestore();
+    });
+
+    it("re-resolves when the cached entry has aged past the TTL", async () => {
+      const friend: FriendProfile = {
+        did: "did:plc:cachetest3",
+        handle: "cachetest3.bsky.social",
+      };
+      const thirtyOneDaysMs = 1000 * 60 * 60 * 24 * 31;
+      localStorage.setItem(
+        PDS_CACHE_KEY,
+        JSON.stringify({
+          version: PDS_CACHE_VERSION,
+          entries: {
+            [friend.did]: {
+              pds: "https://stale.example.com",
+              fetchedAt: Date.now() - thirtyOneDaysMs,
+            },
+          },
+        }),
+      );
+
+      mockGetFollows.mockResolvedValue(makeFollowsResponse([friend]));
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          return new Response(JSON.stringify(didDoc(friend.did)));
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      await discoverFriends(fakeSession);
+
+      expect(countPlcCalls(fetchSpy)).toBe(1);
+      const stored = JSON.parse(localStorage.getItem(PDS_CACHE_KEY)!);
+      expect(stored.entries[friend.did].pds).toBe("https://pds.example.com");
+
+      fetchSpy.mockRestore();
+    });
+
+    it("ignores cache entries with a mismatched version", async () => {
+      const friend: FriendProfile = {
+        did: "did:plc:cachetest4",
+        handle: "cachetest4.bsky.social",
+      };
+      localStorage.setItem(
+        PDS_CACHE_KEY,
+        JSON.stringify({
+          version: PDS_CACHE_VERSION + 99,
+          entries: {
+            [friend.did]: { pds: "https://stale.example.com", fetchedAt: Date.now() },
+          },
+        }),
+      );
+
+      mockGetFollows.mockResolvedValue(makeFollowsResponse([friend]));
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          return new Response(JSON.stringify(didDoc(friend.did)));
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      await discoverFriends(fakeSession);
+
+      expect(countPlcCalls(fetchSpy)).toBe(1);
+
+      fetchSpy.mockRestore();
+    });
+
+    it("does not persist failed resolutions", async () => {
+      const friend: FriendProfile = {
+        did: "did:plc:cachetest5",
+        handle: "cachetest5.bsky.social",
+      };
+      mockGetFollows.mockResolvedValue(makeFollowsResponse([friend]));
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          return new Response("Not Found", { status: 404 });
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      await discoverFriends(fakeSession);
+
+      const raw = localStorage.getItem(PDS_CACHE_KEY);
+      const stored = raw ? JSON.parse(raw) : null;
+      expect(stored?.entries?.[friend.did]).toBeUndefined();
 
       fetchSpy.mockRestore();
     });

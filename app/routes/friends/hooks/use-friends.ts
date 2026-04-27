@@ -50,14 +50,18 @@ interface FriendsProgress {
 }
 
 export function useFriends(session: OAuthSession | null) {
-  const [friends, setFriends] = useState<FriendShelf[]>([]);
-  const [status, setStatus] = useState<FriendsStatus>("idle");
+  // Hydrate from cache synchronously so the first paint shows previously
+  // discovered friends instead of flashing an empty page.
+  const [friends, setFriends] = useState<FriendShelf[]>(() => getCached()?.friends ?? []);
+  const [status, setStatus] = useState<FriendsStatus>(() =>
+    (getCached()?.friends?.length ?? 0) > 0 ? "done" : "idle",
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [progress, setProgress] = useState<FriendsProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshingDids, setRefreshingDids] = useState<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
-  const friendsRef = useRef<FriendShelf[]>([]);
+  const friendsRef = useRef<FriendShelf[]>(friends);
 
   useEffect(() => {
     friendsRef.current = friends;
@@ -100,6 +104,10 @@ export function useFriends(session: OAuthSession | null) {
       try {
         // Phase 1: refresh known friends' shelves first (priority over discovery)
         if (current.length > 0) {
+          // Mark every known friend as refreshing up front so each card shows a
+          // per-user spinner immediately, not just the ones in the active batch.
+          setRefreshingDids(new Set(current.map((f) => f.profile.did)));
+
           const refreshed: FriendShelf[] = [];
           for (let i = 0; i < current.length; i += REFRESH_BATCH_SIZE) {
             if (controller.signal.aborted) return;
@@ -116,11 +124,18 @@ export function useFriends(session: OAuthSession | null) {
             // Show in-progress merge: refreshed survivors + still-pending originals.
             const stillPending = current.slice(checked);
             setFriends([...refreshed, ...stillPending]);
+            // Drop just-refreshed DIDs from the spinner set as their batch finishes.
+            setRefreshingDids((prev) => {
+              const next = new Set(prev);
+              for (const f of batch) next.delete(f.profile.did);
+              return next;
+            });
           }
           current = refreshed;
           if (!controller.signal.aborted) {
             setFriends(refreshed);
             setCache(refreshed);
+            setRefreshingDids(new Set());
           }
         }
 

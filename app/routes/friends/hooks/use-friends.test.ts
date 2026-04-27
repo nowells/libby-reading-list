@@ -42,14 +42,16 @@ function HookHarness({
   session: typeof fakeSession | null;
   onRefresh?: (refresh: () => void) => void;
 }) {
-  const { friends, status, refreshing, error, refresh } = useFriends(session);
+  const { friends, status, refreshing, error, refresh, refreshingDids } = useFriends(session);
   if (onRefresh) onRefresh(refresh);
+  const refreshingList = [...refreshingDids].sort().join(",");
   return createElement(
     "div",
     null,
     createElement("span", null, `status:${status}`),
     createElement("span", null, `refreshing:${refreshing}`),
     createElement("span", null, `count:${friends.length}`),
+    createElement("span", null, `refreshingDids:${refreshingList}`),
     error && createElement("span", null, `error:${error}`),
   );
 }
@@ -193,6 +195,69 @@ describe("useFriends", () => {
     await expect.element(screen.getByText("refreshing:false")).toBeInTheDocument();
     expect(friendsModule.discoverFriends).not.toHaveBeenCalled();
     expect(friendsModule.fetchFriendShelf).not.toHaveBeenCalled();
+  });
+
+  it("hydrates cached friends synchronously so the first paint is not empty", async () => {
+    const cached = {
+      version: CACHE_VERSION,
+      friends: [fakeFriend],
+      fetchedAt: Date.now() - 30 * 60 * 1000, // fresh, so no background work fires
+    };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
+
+    // Pass session=null so load() bails immediately. Anything visible now had
+    // to come from the synchronous useState initializer, not a later effect.
+    const screen = await render(createElement(HookHarness, { session: null }));
+
+    await expect.element(screen.getByText("status:done")).toBeInTheDocument();
+    await expect.element(screen.getByText("count:1")).toBeInTheDocument();
+    expect(friendsModule.discoverFriends).not.toHaveBeenCalled();
+    expect(friendsModule.fetchFriendShelf).not.toHaveBeenCalled();
+  });
+
+  it("marks every cached friend as refreshing during the bulk refresh phase", async () => {
+    const friendA: friendsModule.FriendShelf = {
+      profile: { did: "did:plc:friendA", handle: "a.bsky.social" },
+      entries: [],
+      authors: [],
+    };
+    const friendB: friendsModule.FriendShelf = {
+      profile: { did: "did:plc:friendB", handle: "b.bsky.social" },
+      entries: [],
+      authors: [],
+    };
+
+    const cached = {
+      version: CACHE_VERSION,
+      friends: [friendA, friendB],
+      fetchedAt: Date.now() - 3 * HOUR, // stale → triggers background refresh
+    };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
+
+    // Hold both refreshes pending so we can observe the spinner state.
+    let resolveA: ((v: friendsModule.FriendShelf | null) => void) | null = null;
+    let resolveB: ((v: friendsModule.FriendShelf | null) => void) | null = null;
+    vi.mocked(friendsModule.fetchFriendShelf).mockImplementation((profile) => {
+      return new Promise<friendsModule.FriendShelf | null>((resolve) => {
+        if (profile.did === friendA.profile.did) resolveA = resolve;
+        else resolveB = resolve;
+      });
+    });
+    vi.mocked(friendsModule.discoverFriends).mockResolvedValue([]);
+
+    const screen = await render(createElement(HookHarness, { session: fakeSession }));
+
+    await expect
+      .element(screen.getByText(`refreshingDids:${friendA.profile.did},${friendB.profile.did}`))
+      .toBeInTheDocument();
+
+    await act(async () => {
+      resolveA!(friendA);
+      resolveB!(friendB);
+    });
+
+    await expect.element(screen.getByText("refreshingDids:")).toBeInTheDocument();
+    await expect.element(screen.getByText("refreshing:false")).toBeInTheDocument();
   });
 
   it("manual refresh forces discovery even when cache is fresh", async () => {
