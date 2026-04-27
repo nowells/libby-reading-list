@@ -22,6 +22,13 @@ function toMediaItem(book: MockBook) {
     ],
     creators: [{ name: book.author, role: "Author" }],
     covers: book.coverHref ? { cover150Wide: { href: book.coverHref } } : undefined,
+    series: book.seriesName,
+    detailedSeries: book.seriesName
+      ? {
+          seriesName: book.seriesName,
+          readingOrder: book.seriesOrder ?? "1",
+        }
+      : undefined,
     publisher: book.publisher ? { id: `pub-${book.id}`, name: book.publisher } : undefined,
     publishDate: book.publishDate,
     isAvailable: book.isAvailable ?? (book.availableCopies ?? 0) > 0,

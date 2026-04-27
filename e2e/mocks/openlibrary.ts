@@ -28,7 +28,8 @@ export async function installOpenLibraryRoutes(page: Page, mocks: OpenLibraryMoc
     });
   });
 
-  // /search.json?q=...  → title+author resolution
+  // /search.json?q=...  → title+author resolution OR series roll-ups
+  // ('series:"Children of Time"').
   await page.route("https://openlibrary.org/search.json*", async (route: Route) => {
     const url = new URL(route.request().url());
     const q = (url.searchParams.get("q") ?? "").toLowerCase();
@@ -39,6 +40,27 @@ export async function installOpenLibraryRoutes(page: Page, mocks: OpenLibraryMoc
         body: JSON.stringify({ docs: [] }),
       });
     }
+
+    // Series search: q = `series:"<name>"`
+    const seriesMatch = q.match(/^series:"([^"]+)"\s*$/);
+    if (seriesMatch) {
+      const series = seriesMatch[1];
+      const seriesDocs = mocks.books
+        .filter((b) => b.workId && b.seriesName?.toLowerCase() === series)
+        .map((b) => ({
+          key: `/works/${b.workId}`,
+          title: b.title,
+          author_name: [b.author],
+          first_publish_year: b.firstPublishYear,
+          cover_i: b.coverId,
+        }));
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ docs: seriesDocs }),
+      });
+    }
+
     const matches = mocks.books
       .filter((b) => b.workId)
       .filter((b) => {
@@ -51,6 +73,8 @@ export async function installOpenLibraryRoutes(page: Page, mocks: OpenLibraryMoc
         key: `/works/${b.workId}`,
         title: b.title,
         author_name: [b.author],
+        first_publish_year: b.firstPublishYear,
+        cover_i: b.coverId,
         isbn: b.isbn13 ? [b.isbn13] : [],
       }));
     await route.fulfill({
@@ -78,26 +102,41 @@ export async function installOpenLibraryRoutes(page: Page, mocks: OpenLibraryMoc
     });
   });
 
-  // /works/{id}.json → work metadata (subjects + first publish year)
+  // /works/{id}.json → full work record (subjects, description, authors, links)
   await page.route("https://openlibrary.org/works/*", async (route: Route) => {
     const url = new URL(route.request().url());
     const segments = url.pathname.split("/");
     const last = segments[segments.length - 1] ?? "";
-    if (last === "editions.json" || last.endsWith("editions.json")) return route.fallback();
+    // Anything nested below /works/{id}/ is handled by the more specific
+    // routes registered above (or below, when added).
+    if (last === "editions.json" || last === "ratings.json") return route.fallback();
     const workId = last.replace(/\.json$/, "");
     const book = mocks.books.find((b) => b.workId === workId);
+    if (!book) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ subjects: [] }),
+      });
+    }
+    const author = mocks.authors.find((a) => a.key === book.olAuthorKey);
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        subjects: book?.subjects ?? [],
-        first_publish_date: book?.firstPublishYear ? String(book.firstPublishYear) : undefined,
+        title: book.title,
+        subjects: book.subjects ?? [],
+        first_publish_date: book.firstPublishYear ? String(book.firstPublishYear) : undefined,
+        covers: book.coverId ? [book.coverId] : [],
+        description: book.description ? { type: "/type/text", value: book.description } : undefined,
+        authors: author ? [{ author: { key: `/authors/${author.key}` } }] : [],
+        links: [],
       }),
     });
   });
 
-  // /works/{id}/editions.json
-  await page.route("https://openlibrary.org/works/*/editions.json*", async (route: Route) => {
+  // /works/{id}/ratings.json
+  await page.route("https://openlibrary.org/works/*/ratings.json*", async (route: Route) => {
     const url = new URL(route.request().url());
     const segments = url.pathname.split("/");
     const workId = segments[segments.length - 2] ?? "";
@@ -106,7 +145,76 @@ export async function installOpenLibraryRoutes(page: Page, mocks: OpenLibraryMoc
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        entries: book?.isbn13 ? [{ isbn_13: [book.isbn13], isbn_10: [] }] : [],
+        summary: {
+          average: book?.ratingAverage,
+          count: book?.ratingCount ?? 0,
+        },
+        counts: { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 },
+      }),
+    });
+  });
+
+  // /works/{id}/editions.json — used by both the ISBN enricher and the new
+  // edition summary panel on the book detail page.
+  await page.route("https://openlibrary.org/works/*/editions.json*", async (route: Route) => {
+    const url = new URL(route.request().url());
+    const segments = url.pathname.split("/");
+    const workId = segments[segments.length - 2] ?? "";
+    const book = mocks.books.find((b) => b.workId === workId);
+    if (!book) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ entries: [] }),
+      });
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        entries: [
+          {
+            isbn_13: book.isbn13 ? [book.isbn13] : [],
+            isbn_10: [],
+            publishers: book.publisher ? [book.publisher] : [],
+            publish_date: book.publishDate,
+            number_of_pages: 480,
+            languages: [{ key: "/languages/eng" }],
+          },
+        ],
+      }),
+    });
+  });
+
+  // /authors/{key}.json — author bio + photos for the author detail page.
+  await page.route("https://openlibrary.org/authors/*", async (route: Route) => {
+    const url = new URL(route.request().url());
+    const segments = url.pathname.split("/");
+    const last = segments[segments.length - 1] ?? "";
+    // Skip nested paths like /authors/{key}/works.json — handled below.
+    if (last === "works.json" || last.endsWith("works.json")) return route.fallback();
+    const authorKey = last.replace(/\.json$/, "");
+    const author = mocks.authors.find((a) => a.key === authorKey);
+    if (!author) {
+      return route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "not found" }),
+      });
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        key: `/authors/${author.key}`,
+        name: author.name,
+        bio: author.bio ? { type: "/type/text", value: author.bio } : undefined,
+        birth_date: author.birthDate,
+        death_date: author.deathDate,
+        alternate_names: author.alternateNames ?? [],
+        photos: [],
+        links: [],
+        wikipedia: author.wikipediaUrl,
       }),
     });
   });

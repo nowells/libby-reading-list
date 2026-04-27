@@ -25,6 +25,18 @@ export interface MockBook {
   publishDate?: string;
   subjects?: string[];
   firstPublishYear?: number;
+  /** Long-form description for the book details page. */
+  description?: string;
+  /** Open Library cover ID (numeric), used by detail-page hero images. */
+  coverId?: number;
+  /** Series name (matches Libby's seriesInfo.seriesName), used for series roll-ups. */
+  seriesName?: string;
+  /** Reading order in the series (1, 2, 2.5, ...). */
+  seriesOrder?: string;
+  /** Average user rating (0-5). */
+  ratingAverage?: number;
+  /** Number of ratings on Open Library. */
+  ratingCount?: number;
 }
 
 export interface MockLibrary {
@@ -45,6 +57,11 @@ export interface MockAuthor {
   topWork?: string;
   /** Works to return for /authors/{key}/works.json. */
   works?: { title: string; firstPublishYear?: number; workId: string }[];
+  bio?: string;
+  birthDate?: string;
+  deathDate?: string;
+  alternateNames?: string[];
+  wikipediaUrl?: string;
 }
 
 /** A record stored in our in-memory PDS, keyed by collection NSID and rkey. */
