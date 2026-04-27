@@ -40,8 +40,11 @@ import {
   refreshPdsSync,
   getLastPdsSync,
   searchHandleSuggestions,
+  getLastSignedInAccount,
+  clearLastSignedInAccount,
   type AtprotoSessionInfo,
   type HandleSuggestion,
+  type RememberedBskyAccount,
 } from "~/lib/atproto";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 
@@ -261,6 +264,12 @@ export default function Setup() {
   const [bookhiveImported, setBookhiveImported] = useState(false);
   const [bskySuggestions, setBskySuggestions] = useState<HandleSuggestion[]>([]);
   const [bskySuggestionsOpen, setBskySuggestionsOpen] = useState(false);
+  // Mirror of the localStorage-backed last-signed-in account. When the OAuth
+  // session is gone but this is set, we offer a one-click reauthenticate
+  // instead of forcing the user to retype their handle.
+  const [rememberedBskyAccount, setRememberedBskyAccount] = useState<RememberedBskyAccount | null>(
+    null,
+  );
 
   // Step 1 collapses once books are loaded so step 2 becomes the focus.
   // Tracks whether the user has manually forced it open after that.
@@ -276,12 +285,18 @@ export default function Setup() {
 
   useEffect(() => {
     let cancelled = false;
+    // Read what we remembered from a prior visit before initSession resolves
+    // so the reauth UI can render the moment we know there's no live session.
+    setRememberedBskyAccount(getLastSignedInAccount());
     initSession()
       .then((result) => {
         if (cancelled) return;
         if (result) {
           setBskySession(result.session);
           setBskyInfo(result.info);
+          // initSession() persists this on success; sync our mirror so the
+          // reauth UI picks it up if the session is later lost on this page.
+          setRememberedBskyAccount({ did: result.info.did, handle: result.info.handle });
           setBskyLastSync(getLastPdsSync(result.info.did));
           setBookhiveImported(hasImportedFromBookHive(result.info.did));
           // After session attach the local cache already reflects PDS
@@ -550,7 +565,16 @@ export default function Setup() {
     clearBookhiveLastSync();
     setBskyLastSync(null);
     setBookhiveImported(false);
+    // Explicit sign-out also forgets the remembered account so the empty
+    // sign-in form (not the reauth UI) is what shows up next.
+    setRememberedBskyAccount(null);
     posthog?.capture("bsky_signed_out");
+  }
+
+  function handleSwitchAccounts() {
+    clearLastSignedInAccount();
+    setRememberedBskyAccount(null);
+    posthog?.capture("bsky_switch_accounts");
   }
 
   function handleQuickAddSelect(item: LibbyMediaItem) {
@@ -819,6 +843,40 @@ export default function Setup() {
                         </button>
                       </div>
                     )}
+                  </div>
+                ) : rememberedBskyAccount ? (
+                  <div className="space-y-2">
+                    <div className="p-3 border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 rounded-lg space-y-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-200">
+                        Your Bluesky session expired. Sign back in as{" "}
+                        <span className="font-medium">
+                          @{rememberedBskyAccount.handle ?? rememberedBskyAccount.did}
+                        </span>
+                        .
+                      </p>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const target =
+                              rememberedBskyAccount.handle ?? rememberedBskyAccount.did;
+                            posthog?.capture("bsky_reauth_started");
+                            void startBskySignIn(target);
+                          }}
+                          className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-medium transition-colors text-sm"
+                        >
+                          Reauthenticate as @
+                          {rememberedBskyAccount.handle ?? rememberedBskyAccount.did}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSwitchAccounts}
+                          className="text-xs text-sky-700 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-100 underline"
+                        >
+                          Use a different account
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <form onSubmit={handleBskySignIn} className="relative">
