@@ -70,13 +70,80 @@ async function resolvePds(did: string): Promise<string | null> {
   }
 }
 
-/** Cache of DID → PDS endpoint so we don't re-resolve within a single discovery run. */
-const pdsCache = new Map<string, string | null>();
+/**
+ * Persistent cache of DID → PDS endpoint. PDS migrations are rare, so we keep
+ * resolutions for 30 days; the in-memory map below dedups within a single run.
+ *
+ * Exported for tests.
+ */
+export const PDS_CACHE_KEY = "shelfcheck:pds-cache";
+export const PDS_CACHE_VERSION = 1;
+const PDS_CACHE_MAX_AGE = 1000 * 60 * 60 * 24 * 30; // 30 days
+
+interface PdsCacheEntry {
+  pds: string;
+  fetchedAt: number;
+}
+
+interface PdsCache {
+  version: number;
+  entries: Record<string, PdsCacheEntry>;
+}
+
+function readPdsCache(): PdsCache {
+  try {
+    const raw = localStorage.getItem(PDS_CACHE_KEY);
+    if (!raw) return { version: PDS_CACHE_VERSION, entries: {} };
+    const parsed = JSON.parse(raw) as PdsCache;
+    if (parsed.version !== PDS_CACHE_VERSION) {
+      return { version: PDS_CACHE_VERSION, entries: {} };
+    }
+    return parsed;
+  } catch {
+    return { version: PDS_CACHE_VERSION, entries: {} };
+  }
+}
+
+function getCachedPds(did: string): string | null {
+  const cache = readPdsCache();
+  const entry = cache.entries[did];
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt > PDS_CACHE_MAX_AGE) return null;
+  return entry.pds;
+}
+
+function setCachedPds(did: string, pds: string): void {
+  try {
+    const cache = readPdsCache();
+    cache.entries[did] = { pds, fetchedAt: Date.now() };
+    localStorage.setItem(PDS_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Ignore quota / unavailable storage
+  }
+}
+
+/** In-memory dedup so a single discovery run never resolves the same DID twice. */
+const pdsRunCache = new Map<string, string | null>();
+
+/** Test-only: drop the in-memory dedup map so tests start with a clean slate. */
+export function _resetPdsRunCacheForTests(): void {
+  pdsRunCache.clear();
+}
 
 async function getPds(did: string): Promise<string | null> {
-  if (pdsCache.has(did)) return pdsCache.get(did)!;
+  if (pdsRunCache.has(did)) return pdsRunCache.get(did)!;
+
+  const cached = getCachedPds(did);
+  if (cached) {
+    pdsRunCache.set(did, cached);
+    return cached;
+  }
+
   const pds = await resolvePds(did);
-  pdsCache.set(did, pds);
+  pdsRunCache.set(did, pds);
+  // Only persist successful resolutions — null means resolution failed and
+  // we should retry on the next page load.
+  if (pds) setCachedPds(did, pds);
   return pds;
 }
 
