@@ -7,6 +7,11 @@ import {
   olSearchResponse,
   olWorkMetadataResponse,
   olWorkEditionsResponse,
+  olWorkDetailsResponse,
+  olWorkRatingsResponse,
+  olAuthorDetailsResponse,
+  olAuthorWorksResponse,
+  olSeriesSearchResponse,
 } from "./data";
 import coverChildrenOfTime from "../fixtures/cover-children-of-time.png";
 import coverDune from "../fixtures/cover-dune.png";
@@ -53,16 +58,43 @@ export const handlers = [
     return HttpResponse.json(olEditionResponse);
   }),
 
-  http.get("https://openlibrary.org/search.json", () => {
+  http.get("https://openlibrary.org/search.json", ({ request }) => {
+    const url = new URL(request.url);
+    const q = url.searchParams.get("q") ?? "";
+    if (q.startsWith("series:")) {
+      return HttpResponse.json(olSeriesSearchResponse);
+    }
     return HttpResponse.json(olSearchResponse);
   }),
 
+  // The book details page calls `/works/:id.json` for the rich detail view;
+  // the legacy metadata-only test path overlaps and used the same endpoint.
+  // Return the richer payload — `getWorkMetadata` only reads the subset of
+  // fields it cares about so the test still validates that path.
   http.get("https://openlibrary.org/works/:workId.json", () => {
-    return HttpResponse.json(olWorkMetadataResponse);
+    return HttpResponse.json({ ...olWorkDetailsResponse, ...olWorkMetadataResponse });
   }),
 
   http.get("https://openlibrary.org/works/:workId/editions.json", () => {
     return HttpResponse.json(olWorkEditionsResponse);
+  }),
+
+  http.get("https://openlibrary.org/works/:workId/ratings.json", () => {
+    return HttpResponse.json(olWorkRatingsResponse);
+  }),
+
+  http.get("https://openlibrary.org/authors/:authorKey.json", () => {
+    return HttpResponse.json(olAuthorDetailsResponse);
+  }),
+
+  http.get("https://openlibrary.org/authors/:authorKey/works.json", () => {
+    return HttpResponse.json(olAuthorWorksResponse);
+  }),
+
+  http.get("https://openlibrary.org/search/authors.json", () => {
+    return HttpResponse.json({
+      docs: [{ key: "OL7313085A", name: "Adrian Tchaikovsky", work_count: 50 }],
+    });
   }),
 
   // --- Cover images ---

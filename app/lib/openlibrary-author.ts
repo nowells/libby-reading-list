@@ -122,6 +122,112 @@ export async function getAuthorWorks(
   return allWorks;
 }
 
+export interface AuthorDetails {
+  key: string;
+  name: string;
+  bio?: string;
+  birthDate?: string;
+  deathDate?: string;
+  alternateNames: string[];
+  /** Open Library cover photo IDs in display order. */
+  photoIds: number[];
+  links: { title: string; url: string }[];
+  workCount?: number;
+  /** Wikipedia / personal site / etc, parsed from the `wikipedia` and `links` fields. */
+  wikipediaUrl?: string;
+}
+
+function normalizeOlText(input: unknown): string | undefined {
+  if (!input) return undefined;
+  if (typeof input === "string") return input.trim() || undefined;
+  if (typeof input === "object" && input !== null && "value" in input) {
+    const v = (input as { value?: unknown }).value;
+    if (typeof v === "string") return v.trim() || undefined;
+  }
+  return undefined;
+}
+
+const DETAILS_CACHE_PREFIX = "shelfcheck:ol-author-details:";
+
+/**
+ * Fetch the rich profile for an author — bio, birth/death dates, photos,
+ * external links — used by the author details page. Cached for 7 days
+ * since these fields change rarely.
+ */
+export async function getAuthorDetails(
+  authorKey: string,
+  signal?: AbortSignal,
+): Promise<AuthorDetails | null> {
+  if (!/^OL[A-Z0-9]+A$/.test(authorKey)) return null;
+
+  try {
+    const raw = localStorage.getItem(DETAILS_CACHE_PREFIX + authorKey);
+    if (raw) {
+      const entry = JSON.parse(raw) as CacheEntry<AuthorDetails>;
+      if (Date.now() <= entry.t) return entry.v;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const res = await fetch(`${BASE}/authors/${authorKey}.json`, {
+      signal,
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      key?: string;
+      name?: string;
+      bio?: unknown;
+      birth_date?: string;
+      death_date?: string;
+      alternate_names?: string[];
+      photos?: number[];
+      links?: { title?: string; url?: string }[];
+      wikipedia?: string;
+    };
+
+    const photoIds = (json.photos ?? [])
+      .filter((p): p is number => typeof p === "number" && p > 0)
+      .slice(0, 5);
+
+    const alternateNames = (json.alternate_names ?? [])
+      .filter((n): n is string => typeof n === "string" && n.trim() !== "")
+      .slice(0, 10);
+
+    const links: { title: string; url: string }[] = [];
+    for (const l of json.links ?? []) {
+      if (l?.title && l?.url && typeof l.title === "string" && typeof l.url === "string") {
+        links.push({ title: l.title, url: l.url });
+      }
+    }
+
+    const details: AuthorDetails = {
+      key: authorKey,
+      name: typeof json.name === "string" ? json.name : authorKey,
+      bio: normalizeOlText(json.bio),
+      birthDate: typeof json.birth_date === "string" ? json.birth_date : undefined,
+      deathDate: typeof json.death_date === "string" ? json.death_date : undefined,
+      alternateNames,
+      photoIds,
+      links,
+      wikipediaUrl: typeof json.wikipedia === "string" ? json.wikipedia : undefined,
+    };
+
+    try {
+      const entry: CacheEntry<AuthorDetails> = { v: details, t: Date.now() + POSITIVE_TTL_MS };
+      localStorage.setItem(DETAILS_CACHE_PREFIX + authorKey, JSON.stringify(entry));
+    } catch {
+      // ignore
+    }
+
+    return details;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve an author name to their Open Library author key.
  * Caches the result.

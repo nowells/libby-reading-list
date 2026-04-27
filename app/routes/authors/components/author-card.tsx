@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import { Link } from "react-router";
 import type { AuthorEntry, LibraryConfig } from "~/lib/storage";
 import { FormatIcon } from "~/components/format-icon";
 import { LibraryIcon, LibraryName } from "~/components/library-icon";
@@ -154,7 +155,8 @@ function WorkRow({
       className={`border-t border-gray-100 dark:border-gray-700/50 ${isRead ? "opacity-50" : ""}`}
     >
       <div className="flex items-center">
-        <button
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div
           onClick={() => hasResults && setExpanded((e) => !e)}
           className={`flex-1 flex items-center gap-3 px-4 py-2.5 text-left ${hasResults ? "hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" : "cursor-default"} transition-colors`}
         >
@@ -184,9 +186,23 @@ function WorkRow({
           )}
 
           <div className="flex-1 min-w-0">
-            <span className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1">
-              {work.title}
-            </span>
+            {(() => {
+              const m = work.olWorkKey?.match(/^\/works\/(OL[A-Z0-9]+W)$/);
+              const wid = m?.[1];
+              return wid ? (
+                <Link
+                  to={`/book/${wid}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1 hover:text-amber-600 dark:hover:text-amber-400"
+                >
+                  {work.title}
+                </Link>
+              ) : (
+                <span className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1">
+                  {work.title}
+                </span>
+              );
+            })()}
             {work.firstPublishYear && (
               <span className="text-xs text-gray-400 dark:text-gray-500">
                 {work.firstPublishYear}
@@ -251,7 +267,7 @@ function WorkRow({
               </svg>
             )}
           </div>
-        </button>
+        </div>
         <div className="pr-2 flex-shrink-0">
           <WorkActionMenu
             onWantToRead={onWantToRead}
@@ -490,9 +506,10 @@ export function AuthorCard({
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 border-purple-400 dark:border-purple-500">
       {/* Author header */}
-      <button
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+      <div
         onClick={() => setExpanded((e) => !e)}
-        className="w-full flex items-center gap-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        className="w-full flex items-center gap-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
       >
         {/* Author icon */}
         <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center flex-shrink-0">
@@ -512,9 +529,19 @@ export function AuthorCard({
         </div>
 
         <div className="flex-1 min-w-0">
-          <span className="font-semibold text-gray-900 dark:text-white">
-            {state.resolvedName ?? author.name}
-          </span>
+          {state.olKey ? (
+            <Link
+              to={`/author/${state.olKey}`}
+              onClick={(e) => e.stopPropagation()}
+              className="font-semibold text-gray-900 dark:text-white hover:text-amber-600 dark:hover:text-amber-400"
+            >
+              {state.resolvedName ?? author.name}
+            </Link>
+          ) : (
+            <span className="font-semibold text-gray-900 dark:text-white">
+              {state.resolvedName ?? author.name}
+            </span>
+          )}
           {state.status === "done" && (
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {totalWorks} works &middot; {inLibraryCount} in library
@@ -554,7 +581,7 @@ export function AuthorCard({
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </div>
-      </button>
+      </div>
 
       {/* Loading progress bar */}
       {isLoading && state.progress && expanded && (

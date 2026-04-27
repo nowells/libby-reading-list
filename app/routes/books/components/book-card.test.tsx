@@ -1,9 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { MemoryRouter } from "react-router";
 import { componentLocator } from "~/test/screenshot";
 import { BookCard } from "./book-card";
 import { mockBooks, mockLibraries, mockAvailability } from "~/test/msw/data";
 import type { BookAvailState } from "../lib/categorize";
+
+// BookCard now uses <Link> for the title and cover; wrap renders in
+// MemoryRouter so the components have a router context.
+function withRouter(node: React.ReactNode) {
+  return <MemoryRouter>{node}</MemoryRouter>;
+}
 
 const defaultHandlers = {
   onRefresh: vi.fn(),
@@ -19,13 +26,15 @@ describe("BookCard", () => {
   it("renders loading state", async () => {
     const state: BookAvailState = { status: "pending" };
     const screen = await render(
-      <BookCard
-        book={mockBooks[0]}
-        state={state}
-        libraries={mockLibraries}
-        formatFilter="all"
-        {...defaultHandlers}
-      />,
+      withRouter(
+        <BookCard
+          book={mockBooks[0]}
+          state={state}
+          libraries={mockLibraries}
+          formatFilter="all"
+          {...defaultHandlers}
+        />,
+      ),
     );
     await expect.element(screen.getByText("Children of Time")).toBeVisible();
     await expect.element(screen.getByText("Checking")).toBeVisible();
@@ -38,13 +47,15 @@ describe("BookCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <BookCard
-        book={mockBooks[0]}
-        state={state}
-        libraries={mockLibraries}
-        formatFilter="all"
-        {...defaultHandlers}
-      />,
+      withRouter(
+        <BookCard
+          book={mockBooks[0]}
+          state={state}
+          libraries={mockLibraries}
+          formatFilter="all"
+          {...defaultHandlers}
+        />,
+      ),
     );
     await expect.element(screen.getByText("Children of Time")).toBeVisible();
     await expect.element(screen.getByText("Adrian Tchaikovsky")).toBeVisible();
@@ -57,13 +68,15 @@ describe("BookCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <BookCard
-        book={mockBooks[1]}
-        state={state}
-        libraries={mockLibraries}
-        formatFilter="all"
-        {...defaultHandlers}
-      />,
+      withRouter(
+        <BookCard
+          book={mockBooks[1]}
+          state={state}
+          libraries={mockLibraries}
+          formatFilter="all"
+          {...defaultHandlers}
+        />,
+      ),
     );
     expect(screen.container.textContent).toContain("Dune");
   });
@@ -75,14 +88,16 @@ describe("BookCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <BookCard
-        book={mockBooks[0]}
-        state={state}
-        libraries={mockLibraries}
-        formatFilter="all"
-        {...defaultHandlers}
-        isRead={true}
-      />,
+      withRouter(
+        <BookCard
+          book={mockBooks[0]}
+          state={state}
+          libraries={mockLibraries}
+          formatFilter="all"
+          {...defaultHandlers}
+          isRead={true}
+        />,
+      ),
     );
     await expect.element(screen.getByText("Read", { exact: true })).toBeVisible();
   });
@@ -90,13 +105,15 @@ describe("BookCard", () => {
   it("book card loading matches screenshot", async () => {
     const state: BookAvailState = { status: "pending" };
     const screen = await render(
-      <BookCard
-        book={mockBooks[0]}
-        state={state}
-        libraries={[mockLibraries[0]]}
-        formatFilter="all"
-        {...defaultHandlers}
-      />,
+      withRouter(
+        <BookCard
+          book={mockBooks[0]}
+          state={state}
+          libraries={[mockLibraries[0]]}
+          formatFilter="all"
+          {...defaultHandlers}
+        />,
+      ),
     );
     await expect.element(componentLocator(screen)).toMatchScreenshot("book-card-loading");
   });
@@ -108,13 +125,15 @@ describe("BookCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <BookCard
-        book={mockBooks[0]}
-        state={state}
-        libraries={[mockLibraries[0]]}
-        formatFilter="all"
-        {...defaultHandlers}
-      />,
+      withRouter(
+        <BookCard
+          book={mockBooks[0]}
+          state={state}
+          libraries={[mockLibraries[0]]}
+          formatFilter="all"
+          {...defaultHandlers}
+        />,
+      ),
     );
     await expect.element(componentLocator(screen)).toMatchScreenshot("book-card-available");
   });
@@ -126,13 +145,15 @@ describe("BookCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <BookCard
-        book={mockBooks[1]}
-        state={state}
-        libraries={[mockLibraries[0]]}
-        formatFilter="all"
-        {...defaultHandlers}
-      />,
+      withRouter(
+        <BookCard
+          book={mockBooks[1]}
+          state={state}
+          libraries={[mockLibraries[0]]}
+          formatFilter="all"
+          {...defaultHandlers}
+        />,
+      ),
     );
     await expect.element(componentLocator(screen)).toMatchScreenshot("book-card-not-found");
   });

@@ -1,9 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { MemoryRouter } from "react-router";
 import { AuthorCard } from "./author-card";
 import type { AuthorAvailState, AuthorBookResult } from "../hooks/use-author-availability";
 import { mockLibraries } from "~/test/msw/data";
 import type { AuthorEntry } from "~/lib/storage";
+
+// AuthorCard renders <Link> elements for the author header and each work
+// title, so a router context is required during tests.
+function withRouter(node: React.ReactNode) {
+  return <MemoryRouter>{node}</MemoryRouter>;
+}
 
 const author: AuthorEntry = { id: "author-1", name: "Adrian Tchaikovsky", olKey: "OL7313085A" };
 
@@ -64,7 +71,9 @@ describe("AuthorCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      withRouter(
+        <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      ),
     );
     await expect.element(screen.getByText("Adrian Tchaikovsky")).toBeVisible();
   });
@@ -81,7 +90,9 @@ describe("AuthorCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      withRouter(
+        <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      ),
     );
     await expect.element(screen.getByText("2 works · 1 in library")).toBeVisible();
   });
@@ -93,7 +104,9 @@ describe("AuthorCard", () => {
       progress: { done: 3, total: 10 },
     };
     const screen = await render(
-      <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      withRouter(
+        <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      ),
     );
     await expect.element(screen.getByText("Checking availability... 3/10")).toBeVisible();
   });
@@ -104,7 +117,9 @@ describe("AuthorCard", () => {
       works: [],
     };
     const screen = await render(
-      <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      withRouter(
+        <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      ),
     );
     await expect.element(screen.getByText("Loading works...")).toBeVisible();
   });
@@ -116,12 +131,14 @@ describe("AuthorCard", () => {
       error: 'Could not find "Unknown Author" on Open Library',
     };
     const screen = await render(
-      <AuthorCard
-        author={{ id: "a-2", name: "Unknown Author" }}
-        state={state}
-        libraries={mockLibraries}
-        {...defaultHandlers}
-      />,
+      withRouter(
+        <AuthorCard
+          author={{ id: "a-2", name: "Unknown Author" }}
+          state={state}
+          libraries={mockLibraries}
+          {...defaultHandlers}
+        />,
+      ),
     );
     await expect
       .element(screen.getByText('Could not find "Unknown Author" on Open Library'))
@@ -137,7 +154,9 @@ describe("AuthorCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      withRouter(
+        <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      ),
     );
     await expect.element(screen.getByText("Children of Time")).toBeVisible();
   });
@@ -151,7 +170,9 @@ describe("AuthorCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      withRouter(
+        <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      ),
     );
     await expect.element(screen.getByText("Not in library")).toBeVisible();
   });
@@ -168,13 +189,15 @@ describe("AuthorCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <AuthorCard
-        author={author}
-        state={state}
-        libraries={mockLibraries}
-        {...defaultHandlers}
-        isWorkDismissed={(w) => w.olWorkKey === "/works/OL99W"}
-      />,
+      withRouter(
+        <AuthorCard
+          author={author}
+          state={state}
+          libraries={mockLibraries}
+          {...defaultHandlers}
+          isWorkDismissed={(w) => w.olWorkKey === "/works/OL99W"}
+        />,
+      ),
     );
     expect(screen.container.textContent).not.toContain("Dismissed Book");
   });
@@ -188,7 +211,9 @@ describe("AuthorCard", () => {
       fetchedAt: Date.now(),
     };
     const screen = await render(
-      <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      withRouter(
+        <AuthorCard author={author} state={state} libraries={mockLibraries} {...defaultHandlers} />,
+      ),
     );
     await expect.element(screen.getByText("Now")).toBeVisible();
   });
