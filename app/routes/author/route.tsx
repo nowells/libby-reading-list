@@ -10,6 +10,7 @@ import {
 } from "~/lib/storage";
 import { getAuthorDetails, getAuthorWorks, type AuthorDetails } from "~/lib/openlibrary-author";
 import { Logo } from "~/components/logo";
+import { Markdown, truncateMarkdown } from "~/components/markdown";
 
 export function meta({ params }: { params: { authorKey?: string } }) {
   return [{ title: `Author ${params.authorKey ?? ""} | ShelfCheck` }];
@@ -145,7 +146,7 @@ export default function AuthorDetailsPage() {
 
   const bio = details?.bio;
   const bioTooLong = !!bio && bio.length > 600;
-  const visibleBio = bio && !bioExpanded && bioTooLong ? bio.slice(0, 600) + "…" : bio;
+  const visibleBio = bio && !bioExpanded && bioTooLong ? truncateMarkdown(bio, 600) : bio;
 
   return (
     <main className="min-h-screen py-8 px-4">
@@ -233,12 +234,10 @@ export default function AuthorDetailsPage() {
           </div>
 
           {/* Bio */}
-          {bio && (
+          {bio && visibleBio && (
             <div className="px-5 sm:px-6 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">About</h2>
-              <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">
-                {visibleBio}
-              </p>
+              <Markdown source={visibleBio} className="text-sm text-gray-700 dark:text-gray-300" />
               {bioTooLong && (
                 <button
                   type="button"
