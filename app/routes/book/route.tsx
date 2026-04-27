@@ -28,6 +28,7 @@ import { CoverImage } from "~/components/cover-image";
 import { FormatIcon } from "~/components/format-icon";
 import { LibraryIcon, LibraryName } from "~/components/library-icon";
 import { Logo } from "~/components/logo";
+import { Markdown, truncateMarkdown } from "~/components/markdown";
 import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
 import { libbyTitleUrl } from "~/routes/books/lib/utils";
 import { EtaBadge } from "~/routes/books/components/eta-badge";
@@ -392,7 +393,7 @@ export default function BookDetails() {
   const description = details?.description;
   const descTooLong = !!description && description.length > 480;
   const visibleDesc =
-    description && !descExpanded && descTooLong ? description.slice(0, 480) + "…" : description;
+    description && !descExpanded && descTooLong ? truncateMarkdown(description, 480) : description;
 
   return (
     <main className="min-h-screen py-8 px-4">
@@ -542,14 +543,12 @@ export default function BookDetails() {
           </div>
 
           {/* Description */}
-          {description && (
+          {description && visibleDesc && (
             <div className="px-5 sm:px-6 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
                 Description
               </h2>
-              <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">
-                {visibleDesc}
-              </p>
+              <Markdown source={visibleDesc} className="text-sm text-gray-700 dark:text-gray-300" />
               {descTooLong && (
                 <button
                   type="button"
