@@ -83,6 +83,10 @@ async function getPds(did: string): Promise<string | null> {
 /**
  * List records from a collection on a user's PDS.
  * Queries the user's PDS directly (resolved from their DID doc).
+ *
+ * When `limit` is omitted we page through every record using the cursor
+ * the PDS hands back; the page size hard-caps at 100 (the XRPC max).
+ * Friends with large shelves shouldn't get truncated to a single page.
  */
 async function listPdsRecords<T>(
   did: string,
@@ -92,7 +96,7 @@ async function listPdsRecords<T>(
   const pds = await getPds(did);
   if (!pds) return [];
 
-  const limit = opts?.limit ?? 100;
+  const limit = opts?.limit ?? Infinity;
   const out: T[] = [];
   let cursor: string | undefined;
 
@@ -152,7 +156,7 @@ export async function discoverFriends(
     const batch = follows.slice(i, i + BATCH_SIZE);
     const results = await Promise.allSettled(
       batch.map(async (follow) => {
-        const entries = await listUserShelfEntries(follow.did, { limit: 100 });
+        const entries = await listUserShelfEntries(follow.did);
         if (entries.length > 0) {
           const authors = await listUserAuthors(follow.did);
           return { profile: follow, entries, authors };
