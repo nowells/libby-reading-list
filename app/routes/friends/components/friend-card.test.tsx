@@ -196,6 +196,47 @@ describe("FriendCard", () => {
     await expect.element(screen.getByText("★★★★")).toBeInTheDocument();
   });
 
+  it("calls onRefresh without expanding when refresh button is clicked", async () => {
+    const onRefresh = vi.fn();
+    const screen = await render(
+      <FriendCard
+        friend={baseFriend}
+        onAddBook={vi.fn()}
+        onAddAuthor={vi.fn()}
+        onRefresh={onRefresh}
+        addedBookIds={new Set()}
+        addedAuthorKeys={new Set()}
+      />,
+    );
+
+    await screen.getByLabelText(/Refresh Friend One's reading list/).click();
+
+    expect(onRefresh).toHaveBeenCalledWith(baseFriend.profile.did);
+    // Should not have expanded — book details stay hidden.
+    expect(screen.container.textContent).not.toContain("Test Book");
+  });
+
+  it("disables refresh button while a refresh is in flight", async () => {
+    const onRefresh = vi.fn();
+    const screen = await render(
+      <FriendCard
+        friend={baseFriend}
+        onAddBook={vi.fn()}
+        onAddAuthor={vi.fn()}
+        onRefresh={onRefresh}
+        isRefreshing
+        addedBookIds={new Set()}
+        addedAuthorKeys={new Set()}
+      />,
+    );
+
+    const button = screen.container.querySelector<HTMLButtonElement>(
+      'button[aria-label*="Refresh Friend One"]',
+    );
+    expect(button).not.toBeNull();
+    expect(button!.disabled).toBe(true);
+  });
+
   it("filters entries by status tab", async () => {
     const friend: FriendShelf = {
       ...baseFriend,

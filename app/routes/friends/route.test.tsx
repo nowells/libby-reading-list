@@ -82,9 +82,12 @@ describe("Friends", () => {
     mockUseFriends.mockReturnValue({
       friends: [],
       status: "idle",
+      refreshing: false,
       progress: null,
       error: null,
       refresh: vi.fn(),
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
     });
 
     const screen = await render(
@@ -104,6 +107,9 @@ describe("Friends", () => {
       progress: null,
       error: null,
       refresh: vi.fn(),
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
     });
 
     const screen = await render(
@@ -128,6 +134,9 @@ describe("Friends", () => {
       progress: { checked: 5, total: 20 },
       error: null,
       refresh: vi.fn(),
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
     });
 
     const screen = await render(
@@ -152,6 +161,9 @@ describe("Friends", () => {
       progress: { checked: 5, total: 20 },
       error: null,
       refresh: vi.fn(),
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
     });
 
     const screen = await render(
@@ -176,6 +188,9 @@ describe("Friends", () => {
       progress: null,
       error: null,
       refresh: vi.fn(),
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
     });
 
     const screen = await render(
@@ -201,6 +216,9 @@ describe("Friends", () => {
       progress: null,
       error: null,
       refresh: vi.fn(),
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
     });
 
     const screen = await render(
@@ -225,6 +243,9 @@ describe("Friends", () => {
       progress: null,
       error: null,
       refresh: vi.fn(),
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
     });
 
     const screen = await render(
@@ -250,6 +271,9 @@ describe("Friends", () => {
       progress: null,
       error: null,
       refresh: vi.fn(),
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
     });
 
     const screen = await render(
@@ -274,6 +298,9 @@ describe("Friends", () => {
       progress: null,
       error: "Network timeout",
       refresh: vi.fn(),
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
     });
 
     const screen = await render(
@@ -298,6 +325,9 @@ describe("Friends", () => {
       progress: null,
       error: "Network timeout",
       refresh: vi.fn(),
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
     });
 
     const screen = await render(
@@ -308,5 +338,62 @@ describe("Friends", () => {
 
     await expect.element(screen.getByText("Network timeout")).toBeVisible();
     await expect.element(componentLocator(screen)).toMatchScreenshot("friends-error");
+  });
+
+  it("shows top-level progress bar instead of replacing friends when refreshing", async () => {
+    mockInitSession.mockResolvedValue({
+      session: { did: "did:plc:test" },
+      info: { did: "did:plc:test" },
+      fresh: false,
+    });
+    mockUseFriends.mockReturnValue({
+      friends: [fakeFriend],
+      status: "done",
+      progress: { checked: 12, total: 50, phase: "discovering" },
+      error: null,
+      refresh: vi.fn(),
+      refreshing: true,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
+    });
+
+    const screen = await render(
+      <MemoryRouter>
+        <Friends />
+      </MemoryRouter>,
+    );
+
+    // Cached friend is still rendered
+    await expect.element(screen.getByText("Alice Reader")).toBeVisible();
+    // Progress bar at the top (not replacing the list)
+    await expect.element(screen.getByText(/Discovering new friends/)).toBeVisible();
+  });
+
+  it("invokes refreshFriend when friend's refresh button is clicked", async () => {
+    const refreshFriend = vi.fn();
+    mockInitSession.mockResolvedValue({
+      session: { did: "did:plc:test" },
+      info: { did: "did:plc:test" },
+      fresh: false,
+    });
+    mockUseFriends.mockReturnValue({
+      friends: [fakeFriend],
+      status: "done",
+      progress: null,
+      error: null,
+      refresh: vi.fn(),
+      refreshing: false,
+      refreshFriend,
+      refreshingDids: new Set(),
+    });
+
+    const screen = await render(
+      <MemoryRouter>
+        <Friends />
+      </MemoryRouter>,
+    );
+
+    await screen.getByLabelText(/Refresh Alice Reader's reading list/).click();
+    expect(refreshFriend).toHaveBeenCalledWith(fakeFriend.profile.did);
   });
 });
