@@ -21,3 +21,19 @@ body {
 html.dark {
   color-scheme: dark;
 }
+
+/*
+ * iOS Safari (and Mobile Safari on iPad) auto-zooms on focus when an
+ * input's computed font-size is below 16px, then leaves the user stuck
+ * at the zoomed-in viewport. Inputs across the app use Tailwind's
+ * text-sm (14px), which triggers it. Pin form controls to 16px on
+ * touch devices so the focus zoom never fires; desktop keeps its
+ * smaller, denser look.
+ */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}

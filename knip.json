@@ -5,6 +5,8 @@
   ],
   "ignore": [
     "scripts/**",
-    ".claude/**"
+    ".claude/**",
+    "e2e/**",
+    "playwright.config.ts"
   ]
 }

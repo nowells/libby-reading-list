@@ -205,6 +205,51 @@ describe("friends", () => {
       fetchSpy.mockRestore();
     });
 
+    it("pages through all shelf entries past the 100-record limit", async () => {
+      // A returning user with 250 books used to be capped at 100 because
+      // listPdsRecords defaulted limit=100 and exited the cursor loop.
+      // Verify every record now comes back.
+      mockGetFollows.mockResolvedValue(makeFollowsResponse([fakeFollow]));
+
+      const totalBooks = 250;
+      const pageSize = 100;
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          return new Response(JSON.stringify(didDoc(fakeFollow.did)));
+        }
+        if (url.includes(NSID.shelfEntry)) {
+          const u = new URL(url);
+          const cursor = u.searchParams.get("cursor");
+          const offset = cursor ? parseInt(cursor, 10) : 0;
+          const remaining = totalBooks - offset;
+          if (remaining <= 0) {
+            return new Response(JSON.stringify({ records: [] }));
+          }
+          const take = Math.min(pageSize, remaining);
+          const records = Array.from({ length: take }, (_, i) => ({
+            uri: `at://test/entry/${offset + i}`,
+            value: makeShelfEntry({ title: `Book ${offset + i}` }),
+          }));
+          const nextOffset = offset + take;
+          const body: { records: typeof records; cursor?: string } = { records };
+          if (nextOffset < totalBooks) body.cursor = String(nextOffset);
+          return new Response(JSON.stringify(body));
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      const result = await discoverFriends(fakeSession);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].entries).toHaveLength(totalBooks);
+      expect(result[0].entries[0].title).toBe("Book 0");
+      expect(result[0].entries[totalBooks - 1].title).toBe(`Book ${totalBooks - 1}`);
+
+      fetchSpy.mockRestore();
+    });
+
     it("handles fetch errors gracefully for individual follows", async () => {
       mockGetFollows.mockResolvedValue(
         makeFollowsResponse([{ did: "did:plc:error", handle: "error.bsky.social" }]),
