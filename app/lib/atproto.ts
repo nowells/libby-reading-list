@@ -5,6 +5,7 @@ import { bookhiveRecordsToBooks, type BookhiveListEntry } from "./bookhive-mappe
 import { enrichBooksWithWorkId } from "./openlibrary";
 import { setImportedBooks, type Book } from "./storage";
 import { attachSession as attachSyncSession, detachSession, resync } from "./atproto/sync";
+import { getTestOAuthHook, makeTestOAuthSession } from "./atproto/test-hook";
 
 const PRODUCTION_CLIENT_ID = "https://www.shelfcheck.org/client-metadata.json";
 const BOOKHIVE_COLLECTION = "buzz.bookhive.book";
@@ -74,6 +75,21 @@ let initPromise: Promise<InitResult | null> | null = null;
 export function initSession(): Promise<InitResult | null> {
   if (initPromise) return initPromise;
   initPromise = (async () => {
+    const testHook = getTestOAuthHook();
+    if (testHook) {
+      const stored = testHook.getActiveSession();
+      if (!stored) return null;
+      const session = makeTestOAuthSession(stored);
+      const fresh = testHook.consumeFresh();
+      try {
+        await attachSyncSession(session, { bootstrap: fresh });
+        setLastPdsSync(session.did);
+      } catch (err) {
+        console.error("[atproto] failed to attach sync session", err);
+      }
+      return { session, info: { did: stored.did, handle: stored.handle }, fresh };
+    }
+
     const client = await getClient();
     const result = await client.init();
     if (!result) return null;
@@ -130,12 +146,29 @@ export async function searchHandleSuggestions(
 }
 
 export async function signInWithBluesky(handleOrPds: string): Promise<never> {
+  const testHook = getTestOAuthHook();
+  if (testHook) {
+    await testHook.signIn(handleOrPds);
+    // Reload to mimic the OAuth redirect — the next initSession() picks up
+    // the freshly installed test session and treats it as a fresh sign-in.
+    initPromise = null;
+    window.location.reload();
+    // The reload will tear down execution; throw to satisfy the never return type.
+    throw new Error("test-mode reload");
+  }
   const client = await getClient();
   await client.signIn(handleOrPds, { scope: "atproto transition:generic" });
   throw new Error("signIn should have redirected");
 }
 
 export async function signOut(did: string): Promise<void> {
+  const testHook = getTestOAuthHook();
+  if (testHook) {
+    detachSyncSession();
+    await testHook.signOut(did);
+    initPromise = null;
+    return;
+  }
   const client = await getClient();
   detachSyncSession();
   await client.revoke(did);

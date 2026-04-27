@@ -10,3 +10,5 @@
 data/
 **/*-darwin.png
 coverage/
+/test-results/
+/playwright-report/
