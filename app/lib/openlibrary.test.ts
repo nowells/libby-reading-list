@@ -8,6 +8,10 @@ import {
   enrichBooksWithWorkId,
   getWorkEditionIsbns,
   getWorkMetadata,
+  getWorkDetails,
+  getWorkRatings,
+  getWorkEditionSummary,
+  searchSeriesBooks,
 } from "./openlibrary";
 import type { Book } from "./storage";
 
@@ -377,5 +381,135 @@ describe("enrichBooksWithWorkId", () => {
     const books = [makeBook({ isbn13: undefined, title: "", author: "" })];
     const result = await enrichBooksWithWorkId(books);
     expect(result[0].workId).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getWorkDetails
+// ---------------------------------------------------------------------------
+describe("getWorkDetails", () => {
+  it("returns null for invalid work IDs", async () => {
+    expect(await getWorkDetails("not-a-work")).toBeNull();
+  });
+
+  it("normalizes typed-text descriptions to plain strings", async () => {
+    const d = await getWorkDetails("OL17823492W");
+    expect(d).not.toBeNull();
+    expect(typeof d!.description).toBe("string");
+    expect(d!.description!.length).toBeGreaterThan(10);
+  });
+
+  it("extracts author keys from /authors/<key> hrefs", async () => {
+    const d = await getWorkDetails("OL17823492W");
+    expect(d!.authors[0]?.key).toBe("OL7313085A");
+  });
+
+  it("captures cover IDs and external links", async () => {
+    const d = await getWorkDetails("OL17823492W");
+    expect(d!.coverIds).toContain(10000001);
+    expect(d!.links.some((l) => l.url.includes("shadowsoftheapt"))).toBe(true);
+  });
+
+  it("caches results in localStorage", async () => {
+    await getWorkDetails("OL17823492W");
+    const cached = localStorage.getItem("shelfcheck:ol-work-details:OL17823492W");
+    expect(cached).not.toBeNull();
+  });
+
+  it("returns null when the API returns an error", async () => {
+    worker.use(
+      http.get("https://openlibrary.org/works/:workId.json", () =>
+        HttpResponse.json({}, { status: 500 }),
+      ),
+    );
+    expect(await getWorkDetails("OL999W")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getWorkRatings
+// ---------------------------------------------------------------------------
+describe("getWorkRatings", () => {
+  it("returns null for invalid work IDs", async () => {
+    expect(await getWorkRatings("bogus")).toBeNull();
+  });
+
+  it("parses summary and histogram", async () => {
+    const r = await getWorkRatings("OL17823492W");
+    expect(r).not.toBeNull();
+    expect(r!.average).toBeCloseTo(4.32, 2);
+    expect(r!.count).toBe(4567);
+    expect(r!.histogram?.["5"]).toBe(2605);
+  });
+
+  it("treats average=0 as undefined", async () => {
+    worker.use(
+      http.get("https://openlibrary.org/works/:workId/ratings.json", () =>
+        HttpResponse.json({ summary: { average: 0, count: 0 } }),
+      ),
+    );
+    const r = await getWorkRatings("OL999W");
+    expect(r?.average).toBeUndefined();
+    expect(r?.count).toBe(0);
+  });
+
+  it("returns null on error", async () => {
+    worker.use(
+      http.get("https://openlibrary.org/works/:workId/ratings.json", () =>
+        HttpResponse.json({}, { status: 500 }),
+      ),
+    );
+    expect(await getWorkRatings("OL999W")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getWorkEditionSummary
+// ---------------------------------------------------------------------------
+describe("getWorkEditionSummary", () => {
+  it("returns null for invalid work IDs", async () => {
+    expect(await getWorkEditionSummary("nope")).toBeNull();
+  });
+
+  it("aggregates publishers, languages, page count, and earliest year", async () => {
+    const s = await getWorkEditionSummary("OL17823492W");
+    expect(s).not.toBeNull();
+    expect(s!.totalEditions).toBe(2);
+    expect(s!.publishers).toEqual(["Pan Macmillan"]);
+    expect(s!.languages).toEqual(["eng"]);
+    expect(s!.pageCount).toBe(612);
+    expect(s!.earliestPublishYear).toBe(2015);
+  });
+
+  it("returns empty defaults when no editions exist", async () => {
+    worker.use(
+      http.get("https://openlibrary.org/works/:workId/editions.json", () =>
+        HttpResponse.json({ entries: [] }),
+      ),
+    );
+    const s = await getWorkEditionSummary("OL17823492W");
+    expect(s).toEqual({ publishers: [], totalEditions: 0, languages: [] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// searchSeriesBooks
+// ---------------------------------------------------------------------------
+describe("searchSeriesBooks", () => {
+  it("returns books sorted by first publish year", async () => {
+    const out = await searchSeriesBooks("Children of Time");
+    expect(out.length).toBeGreaterThanOrEqual(2);
+    expect(out[0].firstPublishYear ?? 0).toBeLessThanOrEqual(out[1].firstPublishYear ?? 0);
+    expect(out.every((b) => /^OL[A-Z0-9]+W$/.test(b.workId))).toBe(true);
+  });
+
+  it("returns empty array for blank input", async () => {
+    expect(await searchSeriesBooks("   ")).toEqual([]);
+  });
+
+  it("caches results", async () => {
+    await searchSeriesBooks("Children of Time");
+    const cached = localStorage.getItem("shelfcheck:ol-series:children of time");
+    expect(cached).not.toBeNull();
   });
 });

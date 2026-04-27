@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import { Link } from "react-router";
 import type { Book, LibraryConfig } from "~/lib/storage";
 import { FormatIcon } from "~/components/format-icon";
 import { LibraryIcon, LibraryName } from "~/components/library-icon";
@@ -251,18 +252,44 @@ export function BookCard({
     >
       {/* Book header */}
       <div className="flex items-center gap-4 p-4">
-        <CoverImage
-          src={
-            state.data?.coverUrl ??
-            book.imageUrl ??
-            (book.isbn13 ? `https://covers.openlibrary.org/b/isbn/${book.isbn13}-M.jpg` : undefined)
-          }
-          alt={book.title}
-        />
+        {book.workId ? (
+          <Link to={`/book/${book.workId}`} aria-label={`View details for ${book.title}`}>
+            <CoverImage
+              src={
+                state.data?.coverUrl ??
+                book.imageUrl ??
+                (book.isbn13
+                  ? `https://covers.openlibrary.org/b/isbn/${book.isbn13}-M.jpg`
+                  : undefined)
+              }
+              alt={book.title}
+            />
+          </Link>
+        ) : (
+          <CoverImage
+            src={
+              state.data?.coverUrl ??
+              book.imageUrl ??
+              (book.isbn13
+                ? `https://covers.openlibrary.org/b/isbn/${book.isbn13}-M.jpg`
+                : undefined)
+            }
+            alt={book.title}
+          />
+        )}
         <div className="flex-1 min-w-0">
-          <span className="font-semibold text-gray-900 dark:text-white line-clamp-1">
-            {book.canonicalTitle ?? book.title}
-          </span>
+          {book.workId ? (
+            <Link
+              to={`/book/${book.workId}`}
+              className="font-semibold text-gray-900 dark:text-white line-clamp-1 hover:text-amber-600 dark:hover:text-amber-400"
+            >
+              {book.canonicalTitle ?? book.title}
+            </Link>
+          ) : (
+            <span className="font-semibold text-gray-900 dark:text-white line-clamp-1">
+              {book.canonicalTitle ?? book.title}
+            </span>
+          )}
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {book.canonicalAuthor ?? book.author ?? "Unknown Author"}
           </p>

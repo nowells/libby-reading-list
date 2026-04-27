@@ -565,3 +565,463 @@ export async function getWorkMetadata(
   olInflight.set(inflightKey, promise);
   return promise;
 }
+
+// --- Rich Work Details (description, covers, authors, links) ---
+
+const WORK_DETAILS_CACHE_PREFIX = "shelfcheck:ol-work-details:";
+const RATINGS_CACHE_PREFIX = "shelfcheck:ol-work-ratings:";
+const SERIES_CACHE_PREFIX = "shelfcheck:ol-series:";
+/** Ratings move daily; cache for a day so users don't see stale numbers for too long. */
+const SHORT_TTL_MS = 24 * 60 * 60 * 1000;
+
+export interface WorkAuthorRef {
+  /** Open Library Author key (e.g. "OL23919A"). */
+  key: string;
+  name?: string;
+}
+
+export interface WorkLink {
+  title: string;
+  url: string;
+}
+
+export interface WorkDetails {
+  workId: string;
+  title?: string;
+  subtitle?: string;
+  description?: string;
+  subjects: string[];
+  subjectPlaces: string[];
+  subjectPeople: string[];
+  subjectTimes: string[];
+  firstPublishYear?: number;
+  /** Open Library cover IDs in display order. */
+  coverIds: number[];
+  authors: WorkAuthorRef[];
+  links: WorkLink[];
+}
+
+/**
+ * Open Library descriptions can be either a plain string or a typed-text
+ * object `{ type: "/type/text", value: "..." }`. Normalize to a string.
+ */
+function normalizeOlText(input: unknown): string | undefined {
+  if (!input) return undefined;
+  if (typeof input === "string") return input.trim() || undefined;
+  if (typeof input === "object" && input !== null && "value" in input) {
+    const v = (input as { value?: unknown }).value;
+    if (typeof v === "string") return v.trim() || undefined;
+  }
+  return undefined;
+}
+
+interface WorkDetailsCacheEntry {
+  v: WorkDetails;
+  t: number;
+}
+
+/**
+ * Fetch a complete view of a work — title, description, subjects, authors,
+ * covers, external links — for the dedicated details page. Cached for the
+ * positive TTL since work pages rarely change. Pulls only the work-level
+ * record; edition-specific data (page count, publisher) comes from
+ * `getWorkEditionSummaries` on demand.
+ */
+export async function getWorkDetails(
+  workId: string,
+  signal?: AbortSignal,
+): Promise<WorkDetails | null> {
+  if (!/^OL[A-Z0-9]+W$/.test(workId)) return null;
+
+  try {
+    const raw = localStorage.getItem(WORK_DETAILS_CACHE_PREFIX + workId);
+    if (raw) {
+      const entry = JSON.parse(raw) as WorkDetailsCacheEntry;
+      if (Date.now() <= entry.t) return entry.v;
+    }
+  } catch {
+    // ignore cache read
+  }
+
+  const inflightKey = `work-details:${workId}`;
+  const existing = olInflight.get(inflightKey);
+  if (existing) return existing as Promise<WorkDetails | null>;
+
+  const promise = (async () => {
+    try {
+      const res = await fetch(`${BASE}/works/${workId}.json`, {
+        signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as {
+        title?: string;
+        subtitle?: string;
+        description?: unknown;
+        subjects?: string[];
+        subject_places?: string[];
+        subject_people?: string[];
+        subject_times?: string[];
+        first_publish_date?: string;
+        covers?: number[];
+        authors?: { author?: { key?: string }; type?: { key?: string } }[];
+        links?: { title?: string; url?: string }[];
+      };
+
+      const subjects = (json.subjects ?? [])
+        .filter((s): s is string => typeof s === "string")
+        .slice(0, 30);
+      const subjectPlaces = (json.subject_places ?? [])
+        .filter((s): s is string => typeof s === "string")
+        .slice(0, 10);
+      const subjectPeople = (json.subject_people ?? [])
+        .filter((s): s is string => typeof s === "string")
+        .slice(0, 10);
+      const subjectTimes = (json.subject_times ?? [])
+        .filter((s): s is string => typeof s === "string")
+        .slice(0, 10);
+
+      let firstPublishYear: number | undefined;
+      if (json.first_publish_date) {
+        const yearMatch = json.first_publish_date.match(/\d{4}/);
+        if (yearMatch) firstPublishYear = parseInt(yearMatch[0], 10);
+      }
+
+      const coverIds = (json.covers ?? [])
+        .filter((c): c is number => typeof c === "number" && c > 0)
+        .slice(0, 5);
+
+      const authors: WorkAuthorRef[] = [];
+      for (const a of json.authors ?? []) {
+        const key = a?.author?.key;
+        if (typeof key !== "string") continue;
+        const m = key.match(/\/authors\/(OL[A-Z0-9]+A)$/);
+        if (!m) continue;
+        if (authors.some((x) => x.key === m[1])) continue;
+        authors.push({ key: m[1] });
+      }
+
+      const links: WorkLink[] = [];
+      for (const l of json.links ?? []) {
+        if (l?.title && l?.url && typeof l.title === "string" && typeof l.url === "string") {
+          links.push({ title: l.title, url: l.url });
+        }
+      }
+
+      const details: WorkDetails = {
+        workId,
+        title: typeof json.title === "string" ? json.title.trim() || undefined : undefined,
+        subtitle: typeof json.subtitle === "string" ? json.subtitle.trim() || undefined : undefined,
+        description: normalizeOlText(json.description),
+        subjects,
+        subjectPlaces,
+        subjectPeople,
+        subjectTimes,
+        firstPublishYear,
+        coverIds,
+        authors,
+        links,
+      };
+
+      try {
+        const entry: WorkDetailsCacheEntry = { v: details, t: Date.now() + POSITIVE_TTL_MS };
+        localStorage.setItem(WORK_DETAILS_CACHE_PREFIX + workId, JSON.stringify(entry));
+      } catch {
+        // ignore
+      }
+      return details;
+    } catch {
+      return null;
+    }
+  })().finally(() => {
+    olInflight.delete(inflightKey);
+  });
+
+  olInflight.set(inflightKey, promise);
+  return promise;
+}
+
+export interface WorkRatings {
+  /** Average rating out of 5, when known. */
+  average?: number;
+  /** Total number of ratings. */
+  count: number;
+  histogram?: Record<"1" | "2" | "3" | "4" | "5", number>;
+}
+
+interface RatingsCacheEntry {
+  v: WorkRatings;
+  t: number;
+}
+
+/**
+ * Fetch the aggregated user-rating summary for a work. Cached briefly
+ * (1 day) so the displayed average doesn't drift too far from the live
+ * Open Library number.
+ */
+export async function getWorkRatings(
+  workId: string,
+  signal?: AbortSignal,
+): Promise<WorkRatings | null> {
+  if (!/^OL[A-Z0-9]+W$/.test(workId)) return null;
+
+  try {
+    const raw = localStorage.getItem(RATINGS_CACHE_PREFIX + workId);
+    if (raw) {
+      const entry = JSON.parse(raw) as RatingsCacheEntry;
+      if (Date.now() <= entry.t) return entry.v;
+    }
+  } catch {
+    // ignore
+  }
+
+  const inflightKey = `ratings:${workId}`;
+  const existing = olInflight.get(inflightKey);
+  if (existing) return existing as Promise<WorkRatings | null>;
+
+  const promise = (async () => {
+    try {
+      const res = await fetch(`${BASE}/works/${workId}/ratings.json`, {
+        signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as {
+        summary?: { average?: number; count?: number };
+        counts?: Record<string, number>;
+      };
+
+      const ratings: WorkRatings = {
+        average:
+          typeof json.summary?.average === "number" && json.summary.average > 0
+            ? json.summary.average
+            : undefined,
+        count: typeof json.summary?.count === "number" ? json.summary.count : 0,
+      };
+
+      if (json.counts && typeof json.counts === "object") {
+        const h: WorkRatings["histogram"] = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 };
+        for (const k of ["1", "2", "3", "4", "5"] as const) {
+          const v = json.counts[k];
+          if (typeof v === "number") h[k] = v;
+        }
+        ratings.histogram = h;
+      }
+
+      try {
+        const entry: RatingsCacheEntry = { v: ratings, t: Date.now() + SHORT_TTL_MS };
+        localStorage.setItem(RATINGS_CACHE_PREFIX + workId, JSON.stringify(entry));
+      } catch {
+        // ignore
+      }
+      return ratings;
+    } catch {
+      return null;
+    }
+  })().finally(() => {
+    olInflight.delete(inflightKey);
+  });
+
+  olInflight.set(inflightKey, promise);
+  return promise;
+}
+
+/**
+ * Compact roll-up of edition records used by the book details page:
+ * the most-common publisher, the median page count, and a representative
+ * publish date. Pulls from the same `/editions.json` payload that
+ * `getWorkEditionIsbns` consumes.
+ */
+export async function getWorkEditionSummary(
+  workId: string,
+  signal?: AbortSignal,
+): Promise<{
+  pageCount?: number;
+  publishers: string[];
+  earliestPublishYear?: number;
+  totalEditions: number;
+  languages: string[];
+} | null> {
+  if (!/^OL[A-Z0-9]+W$/.test(workId)) return null;
+
+  try {
+    const res = await fetch(`${BASE}/works/${workId}/editions.json?limit=200`, {
+      signal,
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      entries?: {
+        publishers?: string[];
+        publish_date?: string;
+        number_of_pages?: number;
+        languages?: { key?: string }[];
+      }[];
+    };
+
+    const entries = json.entries ?? [];
+    if (entries.length === 0) {
+      return { publishers: [], totalEditions: 0, languages: [] };
+    }
+
+    const publisherCounts = new Map<string, number>();
+    const pageCounts: number[] = [];
+    const languageCounts = new Map<string, number>();
+    let earliestYear: number | undefined;
+
+    for (const e of entries) {
+      for (const p of e.publishers ?? []) {
+        if (typeof p === "string" && p.trim()) {
+          const key = p.trim();
+          publisherCounts.set(key, (publisherCounts.get(key) ?? 0) + 1);
+        }
+      }
+      if (typeof e.number_of_pages === "number" && e.number_of_pages > 0) {
+        pageCounts.push(e.number_of_pages);
+      }
+      if (typeof e.publish_date === "string") {
+        const m = e.publish_date.match(/\d{4}/);
+        if (m) {
+          const y = parseInt(m[0], 10);
+          if (!earliestYear || y < earliestYear) earliestYear = y;
+        }
+      }
+      for (const l of e.languages ?? []) {
+        const m = l?.key?.match(/\/languages\/([a-z]+)$/);
+        if (m) languageCounts.set(m[1], (languageCounts.get(m[1]) ?? 0) + 1);
+      }
+    }
+
+    let medianPages: number | undefined;
+    if (pageCounts.length > 0) {
+      pageCounts.sort((a, b) => a - b);
+      medianPages = pageCounts[Math.floor(pageCounts.length / 2)];
+    }
+
+    const publishers = Array.from(publisherCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map((p) => p[0])
+      .slice(0, 5);
+
+    const languages = Array.from(languageCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map((p) => p[0])
+      .slice(0, 5);
+
+    return {
+      pageCount: medianPages,
+      publishers,
+      earliestPublishYear: earliestYear,
+      totalEditions: entries.length,
+      languages,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export interface SeriesBook {
+  workId: string;
+  title: string;
+  firstPublishYear?: number;
+  coverId?: number;
+  authorName?: string;
+  /** Reading order if Open Library indexes it (e.g. "1", "2.5"). Often unset. */
+  readingOrder?: string;
+}
+
+interface SeriesCacheEntry {
+  v: SeriesBook[];
+  t: number;
+}
+
+/**
+ * Find every work Open Library tags with the given series name. Useful for
+ * the "More in this series" section on a book details page. Cached for
+ * the positive TTL since series rarely add books day-to-day.
+ *
+ * Open Library has no first-class series endpoint, so this leans on the
+ * search index with a quoted series filter — best-effort, and may miss
+ * spin-offs or omnibus editions.
+ */
+export async function searchSeriesBooks(
+  seriesName: string,
+  signal?: AbortSignal,
+): Promise<SeriesBook[]> {
+  const trimmed = seriesName.trim();
+  if (!trimmed) return [];
+
+  const cacheKey = trimmed.toLowerCase();
+  try {
+    const raw = localStorage.getItem(SERIES_CACHE_PREFIX + cacheKey);
+    if (raw) {
+      const entry = JSON.parse(raw) as SeriesCacheEntry;
+      if (Date.now() <= entry.t) return entry.v;
+    }
+  } catch {
+    // ignore
+  }
+
+  const inflightKey = `series:${cacheKey}`;
+  const existing = olInflight.get(inflightKey);
+  if (existing) return existing as Promise<SeriesBook[]>;
+
+  const promise = (async () => {
+    try {
+      const params = new URLSearchParams({
+        q: `series:"${trimmed}"`,
+        limit: "30",
+        fields: "key,title,author_name,first_publish_year,cover_i",
+      });
+      const res = await fetch(`${BASE}/search.json?${params}`, {
+        signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return [];
+      const json = (await res.json()) as {
+        docs?: {
+          key?: string;
+          title?: string;
+          author_name?: string[];
+          first_publish_year?: number;
+          cover_i?: number;
+        }[];
+      };
+
+      const out: SeriesBook[] = [];
+      const seen = new Set<string>();
+      for (const doc of json.docs ?? []) {
+        const m = doc.key?.match(/^\/works\/(OL[A-Z0-9]+W)$/);
+        if (!m) continue;
+        if (seen.has(m[1])) continue;
+        seen.add(m[1]);
+        if (typeof doc.title !== "string") continue;
+        out.push({
+          workId: m[1],
+          title: doc.title,
+          firstPublishYear: doc.first_publish_year,
+          coverId: doc.cover_i,
+          authorName: doc.author_name?.[0],
+        });
+      }
+
+      // Sort by first publish year asc — series typically read chronologically.
+      out.sort((a, b) => (a.firstPublishYear ?? 9999) - (b.firstPublishYear ?? 9999));
+
+      try {
+        const entry: SeriesCacheEntry = { v: out, t: Date.now() + POSITIVE_TTL_MS };
+        localStorage.setItem(SERIES_CACHE_PREFIX + cacheKey, JSON.stringify(entry));
+      } catch {
+        // ignore
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  })().finally(() => {
+    olInflight.delete(inflightKey);
+  });
+
+  olInflight.set(inflightKey, promise);
+  return promise;
+}

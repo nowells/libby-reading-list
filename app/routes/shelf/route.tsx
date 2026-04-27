@@ -601,21 +601,47 @@ export default function Shelf() {
                 className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden"
               >
                 <div className="p-3 flex items-start gap-3">
-                  <CoverImage
-                    src={
-                      entry.imageUrl ??
-                      (entry.isbn13
-                        ? `https://covers.openlibrary.org/b/isbn/${entry.isbn13}-M.jpg`
-                        : undefined)
-                    }
-                    alt={entry.title}
-                  />
+                  {entry.workId ? (
+                    <Link
+                      to={`/book/${entry.workId}`}
+                      aria-label={`View details for ${entry.title}`}
+                    >
+                      <CoverImage
+                        src={
+                          entry.imageUrl ??
+                          (entry.isbn13
+                            ? `https://covers.openlibrary.org/b/isbn/${entry.isbn13}-M.jpg`
+                            : undefined)
+                        }
+                        alt={entry.title}
+                      />
+                    </Link>
+                  ) : (
+                    <CoverImage
+                      src={
+                        entry.imageUrl ??
+                        (entry.isbn13
+                          ? `https://covers.openlibrary.org/b/isbn/${entry.isbn13}-M.jpg`
+                          : undefined)
+                      }
+                      alt={entry.title}
+                    />
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <h3 className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                          {entry.canonicalTitle ?? entry.title}
-                        </h3>
+                        {entry.workId ? (
+                          <Link
+                            to={`/book/${entry.workId}`}
+                            className="text-sm font-medium text-gray-900 dark:text-white truncate hover:text-amber-600 dark:hover:text-amber-400 block"
+                          >
+                            {entry.canonicalTitle ?? entry.title}
+                          </Link>
+                        ) : (
+                          <h3 className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                            {entry.canonicalTitle ?? entry.title}
+                          </h3>
+                        )}
                         <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                           {entry.canonicalAuthor ?? entry.author}
                         </p>
