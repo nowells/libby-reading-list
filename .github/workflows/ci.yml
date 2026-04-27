@@ -47,12 +47,26 @@ jobs:
       - name: Install Playwright system dependencies
         run: npx playwright install-deps chromium
 
-      - name: Run tests with coverage
-        run: npx vitest run --coverage
+      - name: Run unit tests with coverage
+        run: npm run test:unit:coverage
 
       - name: Update VRT screenshots on mismatch
         if: failure() && steps.check-vrt.outputs.is_vrt_commit != 'true'
         run: npx vitest run --update || true
+
+      - name: Run e2e tests with coverage
+        run: npm run test:e2e:coverage
+
+      - name: Merge unit + e2e coverage
+        run: npm run test:coverage:merge
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
 
       - name: Commit updated VRT screenshots
         if: failure() && steps.check-vrt.outputs.is_vrt_commit != 'true'

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/coverage";
 import { installMocks } from "../mocks/install";
 import { AuthorsPage, BookEditor, BooksPage, SetupPage, ShelfPage } from "../pages";
 

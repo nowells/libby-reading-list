@@ -7,6 +7,11 @@
     "scripts/**",
     ".claude/**",
     "e2e/**",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "mcr.config.js"
+  ],
+  "ignoreDependencies": [
+    "vitest-monocart-coverage",
+    "@vitest/coverage-custom"
   ]
 }

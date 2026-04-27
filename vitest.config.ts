@@ -22,7 +22,12 @@ export default defineConfig({
       viewport: { width: 1280, height: 900 },
     },
     coverage: {
-      provider: "v8",
+      // Custom provider that hands raw V8 data to monocart-coverage-reports
+      // so unit + e2e coverage can be merged into a single report. The MCR
+      // options are loaded from mcr.config.js; the merged report and
+      // thresholds are produced by scripts/merge-coverage.mjs.
+      provider: "custom",
+      customProviderModule: "vitest-monocart-coverage/browser",
       include: ["app/**/*.{ts,tsx}"],
       exclude: [
         "app/**/*.test.{ts,tsx}",
@@ -31,13 +36,6 @@ export default defineConfig({
         "app/root.tsx",
         "app/routes.ts",
       ],
-      thresholds: {
-        lines: 55,
-        functions: 48,
-        branches: 50,
-        statements: 53,
-      },
-      reporter: ["text", "lcov", "json-summary"],
     },
   },
 });
