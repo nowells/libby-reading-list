@@ -138,14 +138,39 @@ async function listUserAuthors(did: string): Promise<AuthorFollowRecord[]> {
 }
 
 /**
+ * Fetch a single friend's shelf entries and followed authors.
+ * Returns null if the user no longer has any shelf entries.
+ */
+export async function fetchFriendShelf(
+  profile: FriendProfile,
+  opts?: { signal?: AbortSignal },
+): Promise<FriendShelf | null> {
+  if (opts?.signal?.aborted) return null;
+  const entries = await listUserShelfEntries(profile.did);
+  if (entries.length === 0) return null;
+  if (opts?.signal?.aborted) return null;
+  const authors = await listUserAuthors(profile.did);
+  return { profile, entries, authors };
+}
+
+/**
  * Discover which of the user's Bluesky follows also use ShelfCheck.
  * Checks each follow for org.shelfcheck.shelf.entry records.
+ *
+ * Pass `excludeDids` to skip follows we've already discovered as friends —
+ * those should be refreshed via {@link fetchFriendShelf} instead.
  */
 export async function discoverFriends(
   session: OAuthSession,
-  opts?: { signal?: AbortSignal; onProgress?: (checked: number, total: number) => void },
+  opts?: {
+    signal?: AbortSignal;
+    onProgress?: (checked: number, total: number) => void;
+    excludeDids?: Iterable<string>;
+  },
 ): Promise<FriendShelf[]> {
-  const follows = await getFollows(session);
+  const allFollows = await getFollows(session);
+  const exclude = new Set(opts?.excludeDids ?? []);
+  const follows = exclude.size > 0 ? allFollows.filter((f) => !exclude.has(f.did)) : allFollows;
   const friends: FriendShelf[] = [];
 
   // Check follows in batches of 5 to avoid overwhelming the appview
@@ -155,14 +180,7 @@ export async function discoverFriends(
 
     const batch = follows.slice(i, i + BATCH_SIZE);
     const results = await Promise.allSettled(
-      batch.map(async (follow) => {
-        const entries = await listUserShelfEntries(follow.did);
-        if (entries.length > 0) {
-          const authors = await listUserAuthors(follow.did);
-          return { profile: follow, entries, authors };
-        }
-        return null;
-      }),
+      batch.map((follow) => fetchFriendShelf(follow, { signal: opts?.signal })),
     );
 
     for (const result of results) {

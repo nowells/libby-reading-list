@@ -43,7 +43,8 @@ export default function Friends() {
     });
   }, []);
 
-  const { friends, status, progress, error, refresh } = useFriends(session);
+  const { friends, status, refreshing, progress, error, refresh, refreshFriend, refreshingDids } =
+    useFriends(session);
 
   // Track which books/authors the user already has
   const addedBookIds = useMemo(() => {
@@ -199,7 +200,7 @@ export default function Friends() {
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {friends.length} {friends.length === 1 ? "friend" : "friends"} on ShelfCheck
             </span>
-            {status === "done" && (
+            {status === "done" && !refreshing && (
               <button
                 type="button"
                 onClick={refresh}
@@ -224,6 +225,48 @@ export default function Friends() {
             )}
           </div>
         </div>
+
+        {/* Top-level progress bar (shown while refreshing if we have friends to display) */}
+        {refreshing && friends.length > 0 && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-4 rounded-lg border border-purple-100 dark:border-purple-900/40 bg-purple-50/60 dark:bg-purple-900/10 px-3 py-2"
+          >
+            <div className="flex items-center gap-2 text-xs text-purple-700 dark:text-purple-300">
+              <svg
+                className="w-3.5 h-3.5 animate-spin flex-shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              <span className="flex-1 truncate">
+                {progress?.phase === "discovering"
+                  ? `Discovering new friends${progress ? ` · ${progress.checked} of ${progress.total} follows` : ""}`
+                  : progress?.phase === "refreshing"
+                    ? `Refreshing reading lists · ${progress.checked} of ${progress.total}`
+                    : "Refreshing…"}
+              </span>
+            </div>
+            {progress && progress.total > 0 && (
+              <div className="mt-1.5 h-1 w-full bg-purple-100 dark:bg-purple-900/30 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-purple-500 dark:bg-purple-400 transition-all duration-300"
+                  style={{
+                    width: `${Math.min(100, Math.round((progress.checked / progress.total) * 100))}%`,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Not logged in state */}
         {sessionChecked && !session && (
@@ -389,6 +432,8 @@ export default function Friends() {
               friend={friend}
               onAddBook={handleAddBook}
               onAddAuthor={handleAddAuthor}
+              onRefresh={refreshFriend}
+              isRefreshing={refreshingDids.has(friend.profile.did)}
               addedBookIds={addedBookIds}
               addedAuthorKeys={addedAuthorKeys}
             />

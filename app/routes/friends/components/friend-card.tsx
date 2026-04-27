@@ -7,6 +7,8 @@ interface FriendCardProps {
   friend: FriendShelf;
   onAddBook: (entry: ShelfEntryRecord) => void;
   onAddAuthor: (name: string, olKey?: string) => void;
+  onRefresh?: (did: string) => void;
+  isRefreshing?: boolean;
   addedBookIds: Set<string>;
   addedAuthorKeys: Set<string>;
 }
@@ -21,6 +23,8 @@ export function FriendCard({
   friend,
   onAddBook,
   onAddAuthor,
+  onRefresh,
+  isRefreshing,
   addedBookIds,
   addedAuthorKeys,
 }: FriendCardProps) {
@@ -44,46 +48,73 @@ export function FriendCard({
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Header */}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
-      >
-        {profile.avatar ? (
-          <img
-            src={profile.avatar}
-            alt=""
-            className="w-10 h-10 rounded-full flex-shrink-0 object-cover"
-          />
-        ) : (
-          <div className="w-10 h-10 rounded-full flex-shrink-0 bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-            <span className="text-sm font-medium text-purple-600 dark:text-purple-400">
-              {(profile.displayName ?? profile.handle)[0]?.toUpperCase()}
-            </span>
+      <div className="relative flex items-stretch hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
+          className="flex-1 min-w-0 flex items-center gap-3 p-4 text-left"
+        >
+          {profile.avatar ? (
+            <img
+              src={profile.avatar}
+              alt=""
+              className="w-10 h-10 rounded-full flex-shrink-0 object-cover"
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-full flex-shrink-0 bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+              <span className="text-sm font-medium text-purple-600 dark:text-purple-400">
+                {(profile.displayName ?? profile.handle)[0]?.toUpperCase()}
+              </span>
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+              {profile.displayName ?? profile.handle}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">@{profile.handle}</p>
           </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-            {profile.displayName ?? profile.handle}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">@{profile.handle}</p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="text-xs text-gray-400 dark:text-gray-500">
-            {entries.length} {entries.length === 1 ? "book" : "books"}
-            {authors.length > 0 && ` · ${authors.length} authors`}
-          </span>
-          <svg
-            className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              {entries.length} {entries.length === 1 ? "book" : "books"}
+              {authors.length > 0 && ` · ${authors.length} authors`}
+            </span>
+            <svg
+              className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </div>
+        </button>
+        {onRefresh && (
+          <button
+            type="button"
+            onClick={() => onRefresh(profile.did)}
+            disabled={isRefreshing}
+            aria-label={`Refresh ${profile.displayName ?? profile.handle}'s reading list`}
+            title="Refresh reading list"
+            className="flex-shrink-0 self-center mr-2 p-2 rounded-full text-gray-400 hover:text-purple-600 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-          </svg>
-        </div>
-      </button>
+            <svg
+              className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+          </button>
+        )}
+      </div>
 
       {/* Expanded content */}
       {expanded && (
