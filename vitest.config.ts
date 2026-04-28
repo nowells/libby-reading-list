@@ -21,6 +21,15 @@ export default defineConfig({
       instances: [{ browser: "chromium" }],
       viewport: { width: 1280, height: 900 },
     },
+    // vitest-monocart-coverage's CDP listener (Debugger.scriptParsed) keeps
+    // firing after a test file's browser page is torn down. The forwarded
+    // tester.cdpEvent() call then rejects with "[birpc] rpc is closed",
+    // which Vitest 4.1 surfaces as a fatal unhandled rejection. Suppress
+    // that specific rejection without masking real errors.
+    onUnhandledError: (err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("rpc is closed")) return false;
+    },
     coverage: {
       // Custom provider that hands raw V8 data to monocart-coverage-reports
       // so unit + e2e coverage can be merged into a single report. The MCR
