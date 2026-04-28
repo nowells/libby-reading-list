@@ -15,10 +15,6 @@ export default defineConfig({
   test: {
     include: ["app/**/*.test.{ts,tsx}"],
     setupFiles: ["app/test/setup.ts"],
-    // See app/test/global-setup.ts — wraps Vitest's hard-exit
-    // unhandledRejection handler so vitest-monocart-coverage's
-    // CDP-teardown noise doesn't kill the whole run.
-    globalSetup: ["./app/test/global-setup.ts"],
     browser: {
       enabled: true,
       provider: playwright(),
@@ -26,12 +22,12 @@ export default defineConfig({
       viewport: { width: 1280, height: 900 },
     },
     coverage: {
-      // Custom provider that hands raw V8 data to monocart-coverage-reports
-      // so unit + e2e coverage can be merged into a single report. The MCR
-      // options are loaded from mcr.config.js; the merged report and
-      // thresholds are produced by scripts/merge-coverage.mjs.
-      provider: "custom",
-      customProviderModule: "vitest-monocart-coverage/browser",
+      // Built-in V8 coverage; writes coverage-final.json under
+      // ./coverage/unit/ for scripts/merge-coverage.mjs to combine with the
+      // e2e raws.
+      provider: "v8",
+      reportsDirectory: "./coverage/unit",
+      reporter: ["json"],
       include: ["app/**/*.{ts,tsx}"],
       exclude: [
         "app/**/*.test.{ts,tsx}",
