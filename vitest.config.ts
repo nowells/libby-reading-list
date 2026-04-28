@@ -15,6 +15,10 @@ export default defineConfig({
   test: {
     include: ["app/**/*.test.{ts,tsx}"],
     setupFiles: ["app/test/setup.ts"],
+    // See app/test/global-setup.ts — wraps Vitest's hard-exit
+    // unhandledRejection handler so vitest-monocart-coverage's
+    // CDP-teardown noise doesn't kill the whole run.
+    globalSetup: ["./app/test/global-setup.ts"],
     browser: {
       enabled: true,
       provider: playwright(),

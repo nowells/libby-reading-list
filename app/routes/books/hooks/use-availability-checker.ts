@@ -12,7 +12,23 @@ export function useAvailabilityChecker(
   libraries: LibraryConfig[],
   opts?: { onBookEnriched?: (bookId: string, updates: Partial<Book>) => void },
 ) {
-  const [availMap, setAvailMap] = useState<Record<string, BookAvailState>>({});
+  // Seed from cache on mount so navigating back to /books doesn't briefly
+  // re-render every BookCard in its "Checking" state before the effect below
+  // rehydrates the cache.
+  const [availMap, setAvailMap] = useState<Record<string, BookAvailState>>(() => {
+    const initial: Record<string, BookAvailState> = {};
+    for (const book of books) {
+      const cached = getCached(book.id);
+      if (cached) {
+        initial[book.id] = {
+          status: "cached",
+          data: cached.data,
+          fetchedAt: cached.fetchedAt,
+        };
+      }
+    }
+    return initial;
+  });
   const availMapRef = useRef(availMap);
   availMapRef.current = availMap;
   const [refreshToken, setRefreshToken] = useState(0);
