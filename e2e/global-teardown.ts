@@ -1,14 +1,11 @@
-import { createCoverageReport } from "./fixtures/coverage";
+import { flushCoverage } from "./fixtures/coverage";
 
 /**
- * Flush the e2e raw V8 entries to disk after every test has finished. The
- * fixture only calls `report.add()`, which buffers in MCR's cache; the raw
- * report files are not written until `generate()` runs.
+ * Persist the e2e coverage map to disk after all tests finish. The fixture
+ * accumulates istanbul-format coverage in memory; this writes a single
+ * `coverage/e2e/coverage-final.json` for scripts/merge-coverage.mjs.
  */
 export default async function globalTeardown() {
-  if (process.env.COVERAGE !== "1") {
-    return;
-  }
-
-  await createCoverageReport().generate();
+  if (process.env.COVERAGE !== "1") return;
+  await flushCoverage();
 }

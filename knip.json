@@ -5,13 +5,6 @@
   ],
   "ignore": [
     "scripts/**",
-    ".claude/**",
-    "e2e/**",
-    "playwright.config.ts",
-    "mcr.config.js"
-  ],
-  "ignoreDependencies": [
-    "vitest-monocart-coverage",
-    "@vitest/coverage-custom"
+    "e2e/**"
   ]
 }
