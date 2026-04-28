@@ -17,7 +17,8 @@
     "test:coverage:merge": "node scripts/merge-coverage.mjs",
     "test:coverage": "npm run test:unit:coverage && npm run test:e2e:coverage && npm run test:coverage:merge",
     "test:update-snapshots": "vitest run --update",
-    "test": "npm run fmt:check && npm run lint && npm run typecheck && npm run test:unit && npm run knip && npm run build"
+    "test": "npm run fmt:check && npm run lint && npm run typecheck && npm run test:unit && npm run knip && npm run build",
+    "publish:lexicons": "node --experimental-strip-types scripts/publish-lexicons.ts"
   },
   "dependencies": {
     "@atproto/api": "^0.19.9",
