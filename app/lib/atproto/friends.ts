@@ -4,6 +4,13 @@ import { NSID, type ShelfEntryRecord, type AuthorFollowRecord } from "./lexicon"
 
 const PLCDIR = "https://plc.directory";
 
+/**
+ * Relay used for network-wide collection enumeration. Bluesky's public relay
+ * implements the optional `com.atproto.sync.listReposByCollection` endpoint.
+ * Exported for tests.
+ */
+export const RELAY_HOST = "https://relay1.us-east.bsky.network";
+
 export interface FriendProfile {
   did: string;
   handle: string;
@@ -221,8 +228,53 @@ export async function fetchFriendShelf(
 }
 
 /**
+ * Enumerate every DID in the network whose repo holds at least one record in
+ * the given collection, by paging through `com.atproto.sync.listReposByCollection`
+ * on the relay. Returns null on any network/parse error so callers can fall
+ * back to a full per-follow scan.
+ *
+ * The endpoint is optional for relays — bsky.network supports it; smaller
+ * relays may not.
+ */
+async function listReposByCollection(
+  collection: string,
+  opts?: { signal?: AbortSignal },
+): Promise<Set<string> | null> {
+  const PAGE_SIZE = 1000;
+  const dids = new Set<string>();
+  let cursor: string | undefined;
+
+  try {
+    do {
+      if (opts?.signal?.aborted) return null;
+      const url = new URL(`${RELAY_HOST}/xrpc/com.atproto.sync.listReposByCollection`);
+      url.searchParams.set("collection", collection);
+      url.searchParams.set("limit", String(PAGE_SIZE));
+      if (cursor) url.searchParams.set("cursor", cursor);
+
+      const res = await fetch(url.toString(), { signal: opts?.signal });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { repos?: { did?: string }[]; cursor?: string };
+      for (const r of data.repos ?? []) {
+        if (r.did) dids.add(r.did);
+      }
+      cursor = data.cursor;
+    } while (cursor);
+  } catch {
+    return null;
+  }
+
+  return dids;
+}
+
+/**
  * Discover which of the user's Bluesky follows also use ShelfCheck.
- * Checks each follow for org.shelfcheck.shelf.entry records.
+ *
+ * Strategy: ask the relay which repos in the entire network have an
+ * org.shelfcheck.shelf.entry record, then intersect that with the user's
+ * follows. This collapses what used to be a per-follow PDS sweep into one
+ * network-wide enumeration plus a few targeted shelf fetches. If the relay
+ * endpoint is unavailable we fall back to scanning every follow.
  *
  * Pass `excludeDids` to skip follows we've already discovered as friends —
  * those should be refreshed via {@link fetchFriendShelf} instead.
@@ -235,17 +287,28 @@ export async function discoverFriends(
     excludeDids?: Iterable<string>;
   },
 ): Promise<FriendShelf[]> {
-  const allFollows = await getFollows(session);
+  // Run the relay enumeration in parallel with the follow list — they're
+  // independent and both can be slow on large accounts.
+  const [allFollows, shelfCheckDids] = await Promise.all([
+    getFollows(session),
+    listReposByCollection(NSID.shelfEntry, { signal: opts?.signal }),
+  ]);
+
+  if (opts?.signal?.aborted) return [];
+
   const exclude = new Set(opts?.excludeDids ?? []);
-  const follows = exclude.size > 0 ? allFollows.filter((f) => !exclude.has(f.did)) : allFollows;
+  let candidates = exclude.size > 0 ? allFollows.filter((f) => !exclude.has(f.did)) : allFollows;
+  if (shelfCheckDids) {
+    candidates = candidates.filter((f) => shelfCheckDids.has(f.did));
+  }
+
   const friends: FriendShelf[] = [];
 
-  // Check follows in batches of 5 to avoid overwhelming the appview
   const BATCH_SIZE = 5;
-  for (let i = 0; i < follows.length; i += BATCH_SIZE) {
+  for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
     if (opts?.signal?.aborted) break;
 
-    const batch = follows.slice(i, i + BATCH_SIZE);
+    const batch = candidates.slice(i, i + BATCH_SIZE);
     const results = await Promise.allSettled(
       batch.map((follow) => fetchFriendShelf(follow, { signal: opts?.signal })),
     );
@@ -256,7 +319,7 @@ export async function discoverFriends(
       }
     }
 
-    opts?.onProgress?.(Math.min(i + BATCH_SIZE, follows.length), follows.length);
+    opts?.onProgress?.(Math.min(i + BATCH_SIZE, candidates.length), candidates.length);
   }
 
   return friends;

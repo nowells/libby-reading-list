@@ -3,6 +3,7 @@ import {
   discoverFriends,
   PDS_CACHE_KEY,
   PDS_CACHE_VERSION,
+  RELAY_HOST,
   _resetPdsRunCacheForTests,
   type FriendProfile,
 } from "./friends";
@@ -47,6 +48,13 @@ function didDoc(did: string) {
       },
     ],
   };
+}
+
+const RELAY_LIST_PATH = "com.atproto.sync.listReposByCollection";
+
+/** Body for a relay listReposByCollection response. */
+function relayResponse(dids: string[]): Response {
+  return new Response(JSON.stringify({ repos: dids.map((did) => ({ did })) }));
 }
 
 // Use a function constructor for the mock so `new Agent(...)` works
@@ -103,8 +111,16 @@ describe("friends", () => {
 
   describe("discoverFriends", () => {
     it("returns empty array when user has no follows", async () => {
+      // Even with zero follows we still issue the relay call in parallel; mock
+      // it so the test stays hermetic.
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async () => relayResponse([]));
+
       const result = await discoverFriends(fakeSession);
       expect(result).toEqual([]);
+
+      fetchSpy.mockRestore();
     });
 
     it("finds friends who have shelfcheck records", async () => {
@@ -115,6 +131,9 @@ describe("friends", () => {
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse([fakeFollow.did]);
+        }
         if (url.includes("plc.directory")) {
           return new Response(JSON.stringify(didDoc(fakeFollow.did)));
         }
@@ -144,13 +163,18 @@ describe("friends", () => {
       fetchSpy.mockRestore();
     });
 
-    it("skips follows who have no shelfcheck records", async () => {
+    it("skips follows whose PDS shelf is empty even when the relay reports them", async () => {
+      // Relay says the DID has shelfcheck records (e.g. they did once) but the
+      // PDS now returns nothing — they've deleted everything. Drop them.
       mockGetFollows.mockResolvedValue(
         makeFollowsResponse([{ did: "did:plc:nobooks", handle: "nobooks.bsky.social" }]),
       );
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse(["did:plc:nobooks"]);
+        }
         if (url.includes("plc.directory")) {
           return new Response(JSON.stringify(didDoc("did:plc:nobooks")));
         }
@@ -159,6 +183,109 @@ describe("friends", () => {
 
       const result = await discoverFriends(fakeSession);
       expect(result).toEqual([]);
+
+      fetchSpy.mockRestore();
+    });
+
+    it("filters out follows the relay does not list, without per-PDS lookups", async () => {
+      // The relay's listReposByCollection narrows candidates *before* any PDS
+      // call. Confirm DIDs the relay omits never trigger a plc.directory or
+      // listRecords request.
+      const friend: FriendProfile = { did: "did:plc:user-yes", handle: "yes.bsky.social" };
+      const stranger: FriendProfile = { did: "did:plc:user-no", handle: "no.bsky.social" };
+      mockGetFollows.mockResolvedValue(makeFollowsResponse([friend, stranger]));
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse([friend.did]);
+        }
+        if (url.includes("plc.directory")) {
+          const did = url.split("/").pop()!;
+          return new Response(JSON.stringify(didDoc(did)));
+        }
+        if (url.includes(NSID.shelfEntry)) {
+          return new Response(
+            JSON.stringify({
+              records: [{ uri: "at://x/1", value: makeShelfEntry({ title: "Found" }) }],
+            }),
+          );
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      const result = await discoverFriends(fakeSession);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].profile.did).toBe(friend.did);
+
+      // No PDS resolution or listRecords call should have happened for the
+      // stranger — that's the whole point of the relay narrowing.
+      const strangerCalls = fetchSpy.mock.calls.filter((args) => {
+        const input = args[0] as RequestInfo | URL;
+        const url = typeof input === "string" ? input : ((input as Request).url ?? String(input));
+        return url.includes(stranger.did);
+      });
+      expect(strangerCalls).toHaveLength(0);
+
+      fetchSpy.mockRestore();
+    });
+
+    it("falls back to scanning every follow when the relay endpoint fails", async () => {
+      // If the relay returns an error (or doesn't implement the endpoint),
+      // we must not silently exclude everyone — fall back to per-follow scans.
+      const friend: FriendProfile = { did: "did:plc:fallback", handle: "fb.bsky.social" };
+      mockGetFollows.mockResolvedValue(makeFollowsResponse([friend]));
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return new Response("Not Implemented", { status: 501 });
+        }
+        if (url.includes("plc.directory")) {
+          return new Response(JSON.stringify(didDoc(friend.did)));
+        }
+        if (url.includes(NSID.shelfEntry)) {
+          return new Response(
+            JSON.stringify({
+              records: [{ uri: "at://x/1", value: makeShelfEntry({ title: "Fallback" }) }],
+            }),
+          );
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      const result = await discoverFriends(fakeSession);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].profile.did).toBe(friend.did);
+
+      fetchSpy.mockRestore();
+    });
+
+    it("uses the configured relay host", async () => {
+      mockGetFollows.mockResolvedValue(makeFollowsResponse([fakeFollow]));
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) return relayResponse([]);
+        if (url.includes("plc.directory")) {
+          return new Response(JSON.stringify(didDoc(fakeFollow.did)));
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      await discoverFriends(fakeSession);
+
+      const relayCalls = fetchSpy.mock.calls.filter((args) => {
+        const input = args[0] as RequestInfo | URL;
+        const url = typeof input === "string" ? input : ((input as Request).url ?? String(input));
+        return url.includes(RELAY_LIST_PATH);
+      });
+      expect(relayCalls.length).toBeGreaterThan(0);
+      const firstUrl = relayCalls[0][0] as string;
+      expect(firstUrl.startsWith(RELAY_HOST)).toBe(true);
+      expect(firstUrl).toContain(`collection=${encodeURIComponent(NSID.shelfEntry)}`);
 
       fetchSpy.mockRestore();
     });
@@ -173,6 +300,9 @@ describe("friends", () => {
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse(["did:plc:a", "did:plc:b"]);
+        }
         if (url.includes("plc.directory")) {
           const did = url.split("/").pop()!;
           return new Response(JSON.stringify(didDoc(did)));
@@ -207,6 +337,11 @@ describe("friends", () => {
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          // Relay reports every DID so we can be sure the abort check is what
+          // empties the result, not the relay narrowing filter.
+          return relayResponse(Array.from({ length: 20 }, (_, i) => `did:plc:user${i}`));
+        }
         if (url.includes("plc.directory")) {
           const did = url.split("/").pop()!;
           return new Response(JSON.stringify(didDoc(did)));
@@ -231,6 +366,9 @@ describe("friends", () => {
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse([fakeFollow.did]);
+        }
         if (url.includes("plc.directory")) {
           return new Response(JSON.stringify(didDoc(fakeFollow.did)));
         }
@@ -272,6 +410,9 @@ describe("friends", () => {
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse(["did:plc:error"]);
+        }
         if (url.includes("plc.directory")) {
           return new Response(JSON.stringify(didDoc("did:plc:error")));
         }
@@ -295,6 +436,9 @@ describe("friends", () => {
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse([friend.did]);
+        }
         if (url.includes("plc.directory")) {
           return new Response(JSON.stringify(didDoc(friend.did)));
         }
@@ -331,6 +475,9 @@ describe("friends", () => {
       mockGetFollows.mockResolvedValue(makeFollowsResponse([friend]));
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse([friend.did]);
+        }
         if (url.includes("plc.directory")) {
           return new Response(JSON.stringify(didDoc(friend.did)));
         }
@@ -366,6 +513,9 @@ describe("friends", () => {
       mockGetFollows.mockResolvedValue(makeFollowsResponse([friend]));
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse([friend.did]);
+        }
         if (url.includes("plc.directory")) {
           return new Response(JSON.stringify(didDoc(friend.did)));
         }
@@ -399,6 +549,9 @@ describe("friends", () => {
       mockGetFollows.mockResolvedValue(makeFollowsResponse([friend]));
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse([friend.did]);
+        }
         if (url.includes("plc.directory")) {
           return new Response(JSON.stringify(didDoc(friend.did)));
         }
@@ -420,6 +573,9 @@ describe("friends", () => {
       mockGetFollows.mockResolvedValue(makeFollowsResponse([friend]));
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes(RELAY_LIST_PATH)) {
+          return relayResponse([friend.did]);
+        }
         if (url.includes("plc.directory")) {
           return new Response("Not Found", { status: 404 });
         }
