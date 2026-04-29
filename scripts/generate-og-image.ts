@@ -14,7 +14,7 @@ const html = `<!DOCTYPE html>
 </html>`;
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1200, height: 630 } });
+const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 await page.setContent(html);
 const buffer = await page.screenshot({ type: "png" });
 writeFileSync(outPath, buffer);
