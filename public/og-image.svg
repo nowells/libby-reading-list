@@ -1,16 +1,16 @@
-<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
   <!-- Background gradient -->
-  <rect width="1200" height="630" fill="#FFFBEB"/>
-  <rect width="1200" height="630" fill="url(#bg-gradient)"/>
+  <rect width="1600" height="900" fill="#FFFBEB"/>
+  <rect width="1600" height="900" fill="url(#bg-gradient)"/>
   <defs>
-    <linearGradient id="bg-gradient" x1="0" y1="0" x2="1200" y2="630">
+    <linearGradient id="bg-gradient" x1="0" y1="0" x2="1600" y2="900">
       <stop offset="0%" stop-color="#FFFBEB"/>
       <stop offset="100%" stop-color="#FFF7ED"/>
     </linearGradient>
   </defs>
 
   <!-- Logo (scaled up) -->
-  <g transform="translate(100, 140) scale(5)">
+  <g transform="translate(160, 270) scale(6)">
     <!-- Bookshelf base -->
     <rect x="6" y="52" width="52" height="4" rx="1" fill="#b45309"/>
     <!-- Book 1 -->
@@ -27,16 +27,16 @@
   </g>
 
   <!-- Title -->
-  <text x="520" y="230" font-family="system-ui, -apple-system, sans-serif" font-size="80" font-weight="700" fill="#111827">ShelfCheck</text>
+  <text x="620" y="380" font-family="system-ui, -apple-system, sans-serif" font-size="110" font-weight="700" fill="#111827">ShelfCheck</text>
 
   <!-- Description -->
-  <text x="520" y="310" font-family="system-ui, -apple-system, sans-serif" font-size="30" fill="#4B5563">Your reading list + your local library.</text>
-  <text x="520" y="355" font-family="system-ui, -apple-system, sans-serif" font-size="30" fill="#4B5563">See what's available to borrow for free via Libby.</text>
+  <text x="620" y="465" font-family="system-ui, -apple-system, sans-serif" font-size="36" fill="#4B5563">Your reading list + your local library.</text>
+  <text x="620" y="520" font-family="system-ui, -apple-system, sans-serif" font-size="36" fill="#4B5563">See what's available to borrow for free via Libby.</text>
 
   <!-- CTA button -->
-  <rect x="520" y="400" width="260" height="56" rx="10" fill="#D97706"/>
-  <text x="650" y="436" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="600" fill="white" text-anchor="middle">Check Your Shelf</text>
+  <rect x="620" y="580" width="320" height="72" rx="12" fill="#D97706"/>
+  <text x="780" y="628" font-family="system-ui, -apple-system, sans-serif" font-size="30" font-weight="600" fill="white" text-anchor="middle">Check Your Shelf</text>
 
   <!-- URL -->
-  <text x="520" y="510" font-family="system-ui, -apple-system, sans-serif" font-size="24" fill="#92400E">shelfcheck.org</text>
+  <text x="620" y="730" font-family="system-ui, -apple-system, sans-serif" font-size="30" fill="#92400E">shelfcheck.org</text>
 </svg>
