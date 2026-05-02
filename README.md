@@ -102,3 +102,7 @@ Output is a static site in `build/client/`, deployable anywhere that serves stat
 ## Deployment
 
 Pushes to `main` automatically deploy to GitHub Pages via GitHub Actions.
+
+## License
+
+ShelfCheck is released under the [MIT License](LICENCE.md).
