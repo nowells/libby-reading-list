@@ -2,7 +2,7 @@ import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { NSID, type ShelfEntryRecord, type AuthorFollowRecord } from "./lexicon";
 
 const PLCDIR = "https://plc.directory";
-const PUBLIC_APPVIEW = "https://public.api.bsky.app";
+const BSKY_FOLLOW_COLLECTION = "app.bsky.graph.follow";
 
 export interface FriendProfile {
   did: string;
@@ -17,80 +17,95 @@ export interface FriendShelf {
   authors: AuthorFollowRecord[];
 }
 
+interface Actor {
+  pds: string;
+  handle: string;
+}
+
 /**
- * Get the authenticated user's Bluesky follows.
+ * Get the authenticated user's follows by reading `app.bsky.graph.follow`
+ * records directly from their own PDS.
  *
- * Routed through the public AppView (unauthenticated) so we don't need an
- * `rpc:app.bsky.graph.getFollows` scope on the user's OAuth session — follow
- * lists are public data anyway.
+ * Avoids hitting any AppView (Bluesky's or otherwise) — follow records live
+ * in the user's repo and `com.atproto.repo.listRecords` is a public XRPC
+ * method, so this works for any AT Protocol user regardless of which
+ * AppView (if any) indexes their data.
  */
-async function getFollows(session: OAuthSession): Promise<FriendProfile[]> {
-  const follows: FriendProfile[] = [];
+async function getFollows(session: OAuthSession): Promise<string[]> {
+  const actor = await getActor(session.did);
+  if (!actor) return [];
+
+  const dids: string[] = [];
   let cursor: string | undefined;
 
   do {
-    const url = new URL(`${PUBLIC_APPVIEW}/xrpc/app.bsky.graph.getFollows`);
-    url.searchParams.set("actor", session.did);
+    const url = new URL(`${actor.pds}/xrpc/com.atproto.repo.listRecords`);
+    url.searchParams.set("repo", session.did);
+    url.searchParams.set("collection", BSKY_FOLLOW_COLLECTION);
     url.searchParams.set("limit", "100");
     if (cursor) url.searchParams.set("cursor", cursor);
 
     const res = await fetch(url.toString());
     if (!res.ok) break;
     const data: {
-      follows?: { did: string; handle: string; displayName?: string; avatar?: string }[];
+      records?: { value?: { subject?: unknown } }[];
       cursor?: string;
     } = await res.json();
-    for (const f of data.follows ?? []) {
-      follows.push({
-        did: f.did,
-        handle: f.handle,
-        displayName: f.displayName,
-        avatar: f.avatar,
-      });
+    for (const r of data.records ?? []) {
+      const subject = r.value?.subject;
+      if (typeof subject === "string") dids.push(subject);
     }
     cursor = data.cursor;
   } while (cursor);
 
-  return follows;
+  return dids;
 }
 
 /**
- * Resolve a DID to its PDS service endpoint.
+ * Resolve a DID to its PDS service endpoint and primary handle.
  * Handles both did:plc (via plc.directory) and did:web (via .well-known).
+ *
+ * The handle comes from `alsoKnownAs[0]` (an `at://<handle>` URI). If a DID
+ * has no `alsoKnownAs` entry we fall back to the DID itself for display —
+ * unusual but valid.
  */
-async function resolvePds(did: string): Promise<string | null> {
+async function resolveActor(did: string): Promise<Actor | null> {
   try {
     const docUrl = did.startsWith("did:web:")
       ? `https://${did.slice("did:web:".length)}/.well-known/did.json`
       : `${PLCDIR}/${did}`;
     const res = await fetch(docUrl);
     if (!res.ok) return null;
-    const doc = await res.json();
-    const services = doc.service as
-      | { id: string; type: string; serviceEndpoint: string }[]
-      | undefined;
-    const pds = services?.find(
-      (s: { id: string; type: string }) =>
-        s.id === "#atproto_pds" && s.type === "AtprotoPersonalDataServer",
+    const doc = (await res.json()) as {
+      service?: { id: string; type: string; serviceEndpoint: string }[];
+      alsoKnownAs?: string[];
+    };
+    const pdsService = doc.service?.find(
+      (s) => s.id === "#atproto_pds" && s.type === "AtprotoPersonalDataServer",
     );
-    return pds?.serviceEndpoint ?? null;
+    if (!pdsService?.serviceEndpoint) return null;
+    const handleUri = doc.alsoKnownAs?.find((u) => u.startsWith("at://"));
+    const handle = handleUri ? handleUri.slice("at://".length) : did;
+    return { pds: pdsService.serviceEndpoint, handle };
   } catch {
     return null;
   }
 }
 
 /**
- * Persistent cache of DID → PDS endpoint. PDS migrations are rare, so we keep
- * resolutions for 30 days; the in-memory map below dedups within a single run.
+ * Persistent cache of DID → { PDS endpoint, handle }. PDS migrations and
+ * handle changes are rare, so we keep resolutions for 30 days; the in-memory
+ * map below dedups within a single run.
  *
  * Exported for tests.
  */
 export const PDS_CACHE_KEY = "shelfcheck:pds-cache";
-export const PDS_CACHE_VERSION = 1;
+export const PDS_CACHE_VERSION = 2;
 const PDS_CACHE_MAX_AGE = 1000 * 60 * 60 * 24 * 30; // 30 days
 
 interface PdsCacheEntry {
   pds: string;
+  handle: string;
   fetchedAt: number;
 }
 
@@ -113,18 +128,18 @@ function readPdsCache(): PdsCache {
   }
 }
 
-function getCachedPds(did: string): string | null {
+function getCachedActor(did: string): Actor | null {
   const cache = readPdsCache();
   const entry = cache.entries[did];
   if (!entry) return null;
   if (Date.now() - entry.fetchedAt > PDS_CACHE_MAX_AGE) return null;
-  return entry.pds;
+  return { pds: entry.pds, handle: entry.handle };
 }
 
-function setCachedPds(did: string, pds: string): void {
+function setCachedActor(did: string, actor: Actor): void {
   try {
     const cache = readPdsCache();
-    cache.entries[did] = { pds, fetchedAt: Date.now() };
+    cache.entries[did] = { pds: actor.pds, handle: actor.handle, fetchedAt: Date.now() };
     localStorage.setItem(PDS_CACHE_KEY, JSON.stringify(cache));
   } catch {
     // Ignore quota / unavailable storage
@@ -132,28 +147,28 @@ function setCachedPds(did: string, pds: string): void {
 }
 
 /** In-memory dedup so a single discovery run never resolves the same DID twice. */
-const pdsRunCache = new Map<string, string | null>();
+const actorRunCache = new Map<string, Actor | null>();
 
 /** Test-only: drop the in-memory dedup map so tests start with a clean slate. */
 export function _resetPdsRunCacheForTests(): void {
-  pdsRunCache.clear();
+  actorRunCache.clear();
 }
 
-async function getPds(did: string): Promise<string | null> {
-  if (pdsRunCache.has(did)) return pdsRunCache.get(did)!;
+async function getActor(did: string): Promise<Actor | null> {
+  if (actorRunCache.has(did)) return actorRunCache.get(did)!;
 
-  const cached = getCachedPds(did);
+  const cached = getCachedActor(did);
   if (cached) {
-    pdsRunCache.set(did, cached);
+    actorRunCache.set(did, cached);
     return cached;
   }
 
-  const pds = await resolvePds(did);
-  pdsRunCache.set(did, pds);
+  const actor = await resolveActor(did);
+  actorRunCache.set(did, actor);
   // Only persist successful resolutions — null means resolution failed and
   // we should retry on the next page load.
-  if (pds) setCachedPds(did, pds);
-  return pds;
+  if (actor) setCachedActor(did, actor);
+  return actor;
 }
 
 /**
@@ -169,15 +184,15 @@ async function listPdsRecords<T>(
   collection: string,
   opts?: { limit?: number },
 ): Promise<T[]> {
-  const pds = await getPds(did);
-  if (!pds) return [];
+  const actor = await getActor(did);
+  if (!actor) return [];
 
   const limit = opts?.limit ?? Infinity;
   const out: T[] = [];
   let cursor: string | undefined;
 
   do {
-    const url = new URL(`${pds}/xrpc/com.atproto.repo.listRecords`);
+    const url = new URL(`${actor.pds}/xrpc/com.atproto.repo.listRecords`);
     url.searchParams.set("repo", did);
     url.searchParams.set("collection", collection);
     url.searchParams.set("limit", String(Math.min(limit - out.length, 100)));
@@ -231,10 +246,16 @@ export async function fetchFriendShelf(
 
 /**
  * Discover which of the user's Bluesky follows also use ShelfCheck.
- * Checks each follow for org.shelfcheck.shelf.entry records.
+ * Reads `app.bsky.graph.follow` records from the user's own PDS, then for
+ * each followed DID resolves the actor (PDS + handle) and checks for
+ * `org.shelfcheck.shelf.entry` records on their PDS.
  *
  * Pass `excludeDids` to skip follows we've already discovered as friends —
  * those should be refreshed via {@link fetchFriendShelf} instead.
+ *
+ * Note: the returned `FriendProfile` only carries `did` + `handle`. Display
+ * name and avatar are not populated by discovery — callers that need them
+ * should preserve cached values across refreshes.
  */
 export async function discoverFriends(
   session: OAuthSession,
@@ -244,19 +265,24 @@ export async function discoverFriends(
     excludeDids?: Iterable<string>;
   },
 ): Promise<FriendShelf[]> {
-  const allFollows = await getFollows(session);
+  const allFollowDids = await getFollows(session);
   const exclude = new Set(opts?.excludeDids ?? []);
-  const follows = exclude.size > 0 ? allFollows.filter((f) => !exclude.has(f.did)) : allFollows;
+  const followDids =
+    exclude.size > 0 ? allFollowDids.filter((d) => !exclude.has(d)) : allFollowDids;
   const friends: FriendShelf[] = [];
 
-  // Check follows in batches of 5 to avoid overwhelming the appview
+  // Check follows in batches of 5 to avoid hammering plc.directory and PDSes.
   const BATCH_SIZE = 5;
-  for (let i = 0; i < follows.length; i += BATCH_SIZE) {
+  for (let i = 0; i < followDids.length; i += BATCH_SIZE) {
     if (opts?.signal?.aborted) break;
 
-    const batch = follows.slice(i, i + BATCH_SIZE);
+    const batch = followDids.slice(i, i + BATCH_SIZE);
     const results = await Promise.allSettled(
-      batch.map((follow) => fetchFriendShelf(follow, { signal: opts?.signal })),
+      batch.map(async (did) => {
+        const actor = await getActor(did);
+        if (!actor) return null;
+        return fetchFriendShelf({ did, handle: actor.handle }, { signal: opts?.signal });
+      }),
     );
 
     for (const result of results) {
@@ -265,7 +291,7 @@ export async function discoverFriends(
       }
     }
 
-    opts?.onProgress?.(Math.min(i + BATCH_SIZE, follows.length), follows.length);
+    opts?.onProgress?.(Math.min(i + BATCH_SIZE, followDids.length), followDids.length);
   }
 
   return friends;
