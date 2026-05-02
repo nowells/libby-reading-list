@@ -2,6 +2,7 @@
   "name": "shelfcheck",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "scripts": {
     "build": "react-router build",
     "dev": "BASENAME=/ react-router dev",
