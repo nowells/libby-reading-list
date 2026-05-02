@@ -1,8 +1,8 @@
-import { Agent } from "@atproto/api";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { NSID, type ShelfEntryRecord, type AuthorFollowRecord } from "./lexicon";
 
 const PLCDIR = "https://plc.directory";
+const PUBLIC_APPVIEW = "https://public.api.bsky.app";
 
 export interface FriendProfile {
   did: string;
@@ -19,19 +19,28 @@ export interface FriendShelf {
 
 /**
  * Get the authenticated user's Bluesky follows.
+ *
+ * Routed through the public AppView (unauthenticated) so we don't need an
+ * `rpc:app.bsky.graph.getFollows` scope on the user's OAuth session — follow
+ * lists are public data anyway.
  */
 async function getFollows(session: OAuthSession): Promise<FriendProfile[]> {
-  const agent = new Agent(session);
   const follows: FriendProfile[] = [];
   let cursor: string | undefined;
 
   do {
-    const res = await agent.app.bsky.graph.getFollows({
-      actor: session.did,
-      limit: 100,
-      cursor,
-    });
-    for (const f of res.data.follows) {
+    const url = new URL(`${PUBLIC_APPVIEW}/xrpc/app.bsky.graph.getFollows`);
+    url.searchParams.set("actor", session.did);
+    url.searchParams.set("limit", "100");
+    if (cursor) url.searchParams.set("cursor", cursor);
+
+    const res = await fetch(url.toString());
+    if (!res.ok) break;
+    const data: {
+      follows?: { did: string; handle: string; displayName?: string; avatar?: string }[];
+      cursor?: string;
+    } = await res.json();
+    for (const f of data.follows ?? []) {
       follows.push({
         did: f.did,
         handle: f.handle,
@@ -39,7 +48,7 @@ async function getFollows(session: OAuthSession): Promise<FriendProfile[]> {
         avatar: f.avatar,
       });
     }
-    cursor = res.data.cursor;
+    cursor = data.cursor;
   } while (cursor);
 
   return follows;
