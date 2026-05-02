@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   discoverFriends,
+  fetchFriendShelf,
   PDS_CACHE_KEY,
   PDS_CACHE_VERSION,
   _resetPdsRunCacheForTests,
@@ -288,6 +289,114 @@ describe("friends", () => {
 
       const result = await discoverFriends(fakeSession);
       expect(result).toEqual([]);
+
+      fetchSpy.mockRestore();
+    });
+
+    it("enriches friend profile with displayName and avatar from PDS profile record", async () => {
+      currentFollowDids = [fakeFollow.did];
+      const avatarCid = "bafyfakeavataracidstring";
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (isOwnFollowsListUrl(url)) return ownFollowsResponse();
+        if (url.includes("plc.directory")) {
+          const did = url.split("/").pop()!;
+          return new Response(JSON.stringify(didDoc(did)));
+        }
+        if (url.includes(NSID.shelfEntry)) {
+          return new Response(
+            JSON.stringify({ records: [{ uri: "at://test/entry/1", value: makeShelfEntry() }] }),
+          );
+        }
+        if (url.includes("getRecord") && url.includes("app.bsky.actor.profile")) {
+          return new Response(
+            JSON.stringify({
+              uri: `at://${fakeFollow.did}/app.bsky.actor.profile/self`,
+              cid: "fakeprofilecid",
+              value: {
+                displayName: "Friend One",
+                avatar: { ref: { $link: avatarCid }, mimeType: "image/jpeg" },
+              },
+            }),
+          );
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      const result = await discoverFriends(fakeSession);
+      expect(result).toHaveLength(1);
+      expect(result[0].profile.displayName).toBe("Friend One");
+      expect(result[0].profile.avatar).toContain("com.atproto.sync.getBlob");
+      expect(result[0].profile.avatar).toContain(avatarCid);
+      expect(result[0].profile.avatar).toContain(encodeURIComponent(fakeFollow.did));
+
+      fetchSpy.mockRestore();
+    });
+
+    it("treats RecordNotFound on profile lookup as no-profile, not failure", async () => {
+      currentFollowDids = [fakeFollow.did];
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (isOwnFollowsListUrl(url)) return ownFollowsResponse();
+        if (url.includes("plc.directory")) {
+          const did = url.split("/").pop()!;
+          return new Response(JSON.stringify(didDoc(did)));
+        }
+        if (url.includes(NSID.shelfEntry)) {
+          return new Response(
+            JSON.stringify({ records: [{ uri: "at://test/entry/1", value: makeShelfEntry() }] }),
+          );
+        }
+        if (url.includes("getRecord") && url.includes("app.bsky.actor.profile")) {
+          return new Response(JSON.stringify({ error: "RecordNotFound" }), { status: 400 });
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      const result = await discoverFriends(fakeSession);
+      expect(result).toHaveLength(1);
+      expect(result[0].profile.handle).toBe(fakeFollow.handle);
+      expect(result[0].profile.displayName).toBeUndefined();
+      expect(result[0].profile.avatar).toBeUndefined();
+
+      fetchSpy.mockRestore();
+    });
+
+    it("preserves caller-supplied profile fields when profile fetch errors transiently", async () => {
+      // Caller (use-friends.ts on refresh) passes a cached FriendProfile
+      // with displayName + avatar. If the friend's PDS is having issues
+      // we should not clobber those cached values.
+      const cachedProfile: FriendProfile = {
+        did: "did:plc:cachedfriend",
+        handle: "cachedfriend.bsky.social",
+        displayName: "Cached Display",
+        avatar: "https://cached.example.com/avatar.jpg",
+      };
+      currentFollowDids = [];
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          const did = url.split("/").pop()!;
+          return new Response(JSON.stringify(didDoc(did)));
+        }
+        if (url.includes(NSID.shelfEntry)) {
+          return new Response(
+            JSON.stringify({ records: [{ uri: "at://test/entry/1", value: makeShelfEntry() }] }),
+          );
+        }
+        if (url.includes("getRecord") && url.includes("app.bsky.actor.profile")) {
+          return new Response("Bad Gateway", { status: 502 });
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      const result = await fetchFriendShelf(cachedProfile);
+      expect(result).not.toBeNull();
+      expect(result!.profile.displayName).toBe("Cached Display");
+      expect(result!.profile.avatar).toBe("https://cached.example.com/avatar.jpg");
 
       fetchSpy.mockRestore();
     });

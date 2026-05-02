@@ -3,6 +3,7 @@ import { NSID, type ShelfEntryRecord, type AuthorFollowRecord } from "./lexicon"
 
 const PLCDIR = "https://plc.directory";
 const BSKY_FOLLOW_COLLECTION = "app.bsky.graph.follow";
+const BSKY_PROFILE_COLLECTION = "app.bsky.actor.profile";
 
 export interface FriendProfile {
   did: string;
@@ -229,6 +230,47 @@ async function listUserAuthors(did: string): Promise<AuthorFollowRecord[]> {
 }
 
 /**
+ * Fetch a user's `app.bsky.actor.profile/self` record from their PDS to
+ * pull out displayName and a public avatar URL.
+ *
+ * Returns null on transport / parse failure — caller preserves whatever
+ * cached values the friend already has. Returns {} when the user has no
+ * profile record (or it has neither field) — caller treats those as
+ * cleared.
+ */
+async function fetchActorProfile(
+  did: string,
+  actor: Actor,
+): Promise<{ displayName?: string; avatar?: string } | null> {
+  try {
+    const url = new URL(`${actor.pds}/xrpc/com.atproto.repo.getRecord`);
+    url.searchParams.set("repo", did);
+    url.searchParams.set("collection", BSKY_PROFILE_COLLECTION);
+    url.searchParams.set("rkey", "self");
+    const res = await fetch(url.toString());
+    // getRecord returns 400 with `error: "RecordNotFound"` when the rkey
+    // doesn't exist; 404 from some implementations. Treat both as "user
+    // has no profile" rather than a transport failure.
+    if (res.status === 400 || res.status === 404) return {};
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      value?: { displayName?: string; avatar?: { ref?: { $link?: string } } };
+    };
+    const record = data.value;
+    if (!record) return {};
+    const cid = record.avatar?.ref?.$link;
+    return {
+      displayName: record.displayName,
+      avatar: cid
+        ? `${actor.pds}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(cid)}`
+        : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetch a single friend's shelf entries and followed authors.
  * Returns null if the user no longer has any shelf entries.
  */
@@ -240,8 +282,21 @@ export async function fetchFriendShelf(
   const entries = await listUserShelfEntries(profile.did);
   if (entries.length === 0) return null;
   if (opts?.signal?.aborted) return null;
-  const authors = await listUserAuthors(profile.did);
-  return { profile, entries, authors };
+
+  // The actor was already resolved by listUserShelfEntries → the in-memory
+  // cache makes this free. Use it to fetch the profile in parallel with
+  // the author list so enrichment doesn't add a serial round-trip.
+  const actor = await getActor(profile.did);
+  const [authors, enrichment] = await Promise.all([
+    listUserAuthors(profile.did),
+    actor ? fetchActorProfile(profile.did, actor) : Promise.resolve(null),
+  ]);
+
+  return {
+    profile: enrichment ? { did: profile.did, handle: profile.handle, ...enrichment } : profile,
+    entries,
+    authors,
+  };
 }
 
 /**
