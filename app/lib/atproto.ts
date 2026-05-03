@@ -11,6 +11,17 @@ const PRODUCTION_CLIENT_ID = "https://www.shelfcheck.org/client-metadata.json";
 const BOOKHIVE_COLLECTION = "buzz.bookhive.book";
 const HANDLE_RESOLVER = "https://bsky.social";
 const PUBLIC_APPVIEW = "https://public.api.bsky.app";
+/**
+ * AT Proto OAuth scope. Granular `repo:<NSID>` scopes per the AT Proto OAuth
+ * scopes spec — grants create/update/delete on each shelfcheck collection only.
+ * Repo *reads* (listRecords, getRecord) are public XRPC and don't require any
+ * scope, so the bookhive import and own-repo reads work without listing
+ * `buzz.bookhive.book` here. AppView calls (getProfile, getFollows) are routed
+ * through `public.api.bsky.app` unauthenticated, so we don't need `rpc:app.bsky.*`
+ * scopes either.
+ */
+const OAUTH_SCOPE =
+  "atproto repo:org.shelfcheck.shelf.entry repo:org.shelfcheck.author.follow repo:org.shelfcheck.book.dismissed";
 /** Per-DID flag tracking whether we've already pulled the user's BookHive shelf into ShelfCheck. */
 const BOOKHIVE_IMPORTED_PREFIX = "shelfcheck:bookhive-imported:";
 /** Per-DID timestamp of the last successful PDS reconcile. */
@@ -38,7 +49,7 @@ function getClient(): Promise<BrowserOAuthClient> {
   let clientId: string;
   if (isLoopback()) {
     const redirectUri = `${window.location.origin}/setup`;
-    clientId = `http://localhost?redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent("atproto transition:generic")}`;
+    clientId = `http://localhost?redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(OAUTH_SCOPE)}`;
   } else {
     clientId = PRODUCTION_CLIENT_ID;
   }
@@ -111,18 +122,29 @@ export function initSession(): Promise<InitResult | null> {
       console.error("[atproto] failed to attach sync session", err);
     }
 
-    const agent = new Agent(session);
-    let handle: string | undefined;
-    try {
-      const profile = await agent.getProfile({ actor: session.did });
-      handle = profile.data.handle;
-    } catch {
-      // Profile lookup is best-effort; the DID alone is enough to continue.
-    }
+    // Resolve the handle via the public AppView to avoid requiring an
+    // `rpc:app.bsky.actor.getProfile` scope on the user's session.
+    const handle = await fetchHandleForDid(session.did);
     setLastSignedInAccount({ did: session.did, handle });
     return { session, info: { did: session.did, handle }, fresh };
   })();
   return initPromise;
+}
+
+/**
+ * Look up the handle for a DID via the public AppView. Best-effort —
+ * returns undefined on any failure; the DID alone is enough to continue.
+ */
+async function fetchHandleForDid(did: string): Promise<string | undefined> {
+  try {
+    const url = `${PUBLIC_APPVIEW}/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`;
+    const res = await fetch(url);
+    if (!res.ok) return undefined;
+    const data: { handle?: string } = await res.json();
+    return typeof data.handle === "string" ? data.handle : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface HandleSuggestion {
@@ -161,7 +183,7 @@ export async function signInWithBluesky(handleOrPds: string): Promise<never> {
     throw new Error("test-mode reload");
   }
   const client = await getClient();
-  await client.signIn(handleOrPds, { scope: "atproto transition:generic" });
+  await client.signIn(handleOrPds, { scope: OAUTH_SCOPE });
   throw new Error("signIn should have redirected");
 }
 
