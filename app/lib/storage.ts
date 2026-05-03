@@ -27,7 +27,7 @@ export interface Book {
   author: string;
   isbn13?: string;
   imageUrl?: string;
-  source: "goodreads" | "hardcover" | "storygraph" | "bookhive" | "lyndi" | "unknown";
+  source: "goodreads" | "hardcover" | "storygraph" | "bookhive" | "popfeed" | "lyndi" | "unknown";
   sourceUrl?: string;
   manual?: boolean;
   /** Open Library Work ID (e.g. "OL45883W"); edition-independent. */
@@ -141,11 +141,12 @@ function writeBooks(books: Book[]) {
 
 /**
  * Source priority for de-dup tie-breaking. Lower number = higher priority.
- * Bookhive wins because it's a live sync, so its `id` and metadata stay
- * stable when CSV imports add the same work under a different source.
+ * Live-sync sources (Bookhive, Popfeed) win because their `id` and metadata
+ * stay stable when CSV imports add the same work under a different source.
  */
 const SOURCE_PRIORITY: Record<Book["source"], number> = {
   bookhive: 0,
+  popfeed: 0,
   goodreads: 1,
   hardcover: 1,
   storygraph: 1,

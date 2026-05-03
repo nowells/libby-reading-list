@@ -21,6 +21,7 @@ import {
   getSkippedRows,
   setSkippedRows as saveSkippedRows,
   clearSkippedRows,
+  onStorageMutation,
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
@@ -35,8 +36,6 @@ import {
   initSession,
   signInWithBluesky,
   signOut,
-  importFromBookHive,
-  hasImportedFromBookHive,
   refreshPdsSync,
   getLastPdsSync,
   searchHandleSuggestions,
@@ -50,6 +49,7 @@ import type { OAuthSession } from "@atproto/oauth-client-browser";
 
 const SOURCE_LABELS: Record<string, string> = {
   bookhive: "Bookhive",
+  popfeed: "Popfeed",
   goodreads: "Goodreads",
   hardcover: "Hardcover",
   storygraph: "The StoryGraph",
@@ -62,6 +62,7 @@ const SOURCE_LABELS: Record<string, string> = {
 // sources alphabetically, then unknown CSVs, then manual additions.
 const SOURCE_DISPLAY_ORDER = [
   "bookhive",
+  "popfeed",
   "goodreads",
   "hardcover",
   "storygraph",
@@ -261,7 +262,6 @@ export default function Setup() {
   const [bskyHandle, setBskyHandle] = useState("");
   const [bskyImporting, setBskyImporting] = useState(false);
   const [bskyLastSync, setBskyLastSync] = useState<string | null>(null);
-  const [bookhiveImported, setBookhiveImported] = useState(false);
   const [bskySuggestions, setBskySuggestions] = useState<HandleSuggestion[]>([]);
   const [bskySuggestionsOpen, setBskySuggestionsOpen] = useState(false);
   // Mirror of the localStorage-backed last-signed-in account. When the OAuth
@@ -283,6 +283,17 @@ export default function Setup() {
     setSkippedRowsState(getSkippedRows());
   }, []);
 
+  // Auto-sync (BookHive / Popfeed pull, PDS reconcile) writes books in the
+  // background through setImportedBooks. Subscribe so the source breakdown
+  // and book counts refresh without needing a page reload.
+  useEffect(() => {
+    return onStorageMutation((m) => {
+      if (m.kind === "books:bulkSet" || m.kind === "book:added" || m.kind === "book:removed") {
+        setBooksState(getBooks());
+      }
+    });
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     // Read what we remembered from a prior visit before initSession resolves
@@ -298,21 +309,10 @@ export default function Setup() {
           // reauth UI picks it up if the session is later lost on this page.
           setRememberedBskyAccount({ did: result.info.did, handle: result.info.handle });
           setBskyLastSync(getLastPdsSync(result.info.did));
-          setBookhiveImported(hasImportedFromBookHive(result.info.did));
-          // After session attach the local cache already reflects PDS
-          // state. The setBooksState call below picks up any books pulled
-          // down during reconcile.
+          // initSession already attached the sync engine, pulled from
+          // BookHive + Popfeed, and armed the 15-minute auto-resync timer,
+          // so local state already reflects PDS state by the time we render.
           setBooksState(getBooks());
-          // Offer the one-time BookHive import on a fresh sign-in if the
-          // user hasn't imported before and they have no books yet (so we
-          // don't surprise CSV users with a parallel import).
-          if (
-            result.fresh &&
-            !hasImportedFromBookHive(result.info.did) &&
-            getBooks().length === 0
-          ) {
-            void runBookHiveImport(result.session, { silent: true });
-          }
         }
       })
       .catch(() => {
@@ -324,8 +324,6 @@ export default function Setup() {
     return () => {
       cancelled = true;
     };
-    // runBookHiveImport is stable via function declaration; deps intentionally empty for one-shot init.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const booksDone = books.length > 0;
@@ -497,47 +495,6 @@ export default function Setup() {
     startBskySignIn(s.handle);
   }
 
-  async function runBookHiveImport(session: OAuthSession, opts: { silent?: boolean } = {}) {
-    setError(null);
-    setImportInfo(null);
-    setBskyImporting(true);
-    try {
-      const imported = await importFromBookHive(session, { clearManual: clearManualOnImport });
-      setBookhiveImported(true);
-      setBskyLastSync(getLastPdsSync(session.did));
-      if (imported.length === 0) {
-        if (!opts.silent) {
-          setError(
-            'No "want to read" books found in your BookHive shelf. Make sure you have books marked as "wantToRead" on BookHive before importing.',
-          );
-        }
-        posthog?.capture("bookhive_import_failed", { reason: "no_want_to_read" });
-        return;
-      }
-      setBooksState(getBooks());
-      const keptManual = clearManualOnImport ? 0 : manualBookCount;
-      setImportInfo(
-        `Imported ${imported.length} want-to-read book${imported.length === 1 ? "" : "s"} from your BookHive shelf into ShelfCheck.${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
-      );
-      posthog?.capture("bookhive_imported", {
-        book_count: imported.length,
-        trigger: opts.silent ? "auto" : "manual",
-      });
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to import from your BookHive shelf.";
-      setError(message);
-      posthog?.capture("bookhive_import_failed", { reason: "fetch_error", error: message });
-    } finally {
-      setBskyImporting(false);
-    }
-  }
-
-  function handleBookHiveImport() {
-    if (!bskySession) return;
-    void runBookHiveImport(bskySession);
-  }
-
   async function handlePdsResync() {
     if (!bskySession || !bskyInfo) return;
     setBskyImporting(true);
@@ -564,7 +521,6 @@ export default function Setup() {
     setBskyInfo(null);
     clearBookhiveLastSync();
     setBskyLastSync(null);
-    setBookhiveImported(false);
     // Explicit sign-out also forgets the remembered account so the empty
     // sign-in form (not the reauth UI) is what shows up next.
     setRememberedBskyAccount(null);
@@ -778,8 +734,11 @@ export default function Setup() {
                   Sign in with Bluesky to store your reading list on the AT Protocol. ShelfCheck
                   publishes <code className="font-mono">org.shelfcheck.*</code> records to your PDS,
                   so your books, followed authors, and dismissed works follow you across devices and
-                  other compatible clients. Previously used BookHive? You can do a one-time import
-                  of your existing shelf below.
+                  other compatible clients. We also continuously pull your existing BookHive (
+                  <code className="font-mono">buzz.bookhive.book</code>) and Popfeed{" "}
+                  <em>to-read</em> lists (
+                  <code className="font-mono">social.popfeed.feed.list*</code>) every 15 minutes —
+                  no one-time import needed.
                 </p>
                 {bskyInitializing ? (
                   <p className="text-sm text-gray-400">Checking Bluesky session...</p>
@@ -828,21 +787,6 @@ export default function Setup() {
                         {bskyImporting ? "Syncing" : "Resync"}
                       </button>
                     </div>
-                    {!bookhiveImported && (
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-sky-100 dark:border-sky-900/40">
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Migrate from BookHive (one-time import)
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleBookHiveImport}
-                          disabled={bskyImporting}
-                          className="px-3 py-1.5 text-sm border border-sky-300 dark:border-sky-700 bg-white dark:bg-gray-800 hover:bg-sky-50 dark:hover:bg-sky-900/20 disabled:opacity-50 text-sky-700 dark:text-sky-300 rounded-lg font-medium transition-colors"
-                        >
-                          Import from BookHive
-                        </button>
-                      </div>
-                    )}
                   </div>
                 ) : rememberedBskyAccount ? (
                   <div className="space-y-2">

@@ -15,6 +15,7 @@ const KNOWN_SOURCES = new Set([
   "hardcover",
   "storygraph",
   "bookhive",
+  "popfeed",
   "lyndi",
   "manual",
   "unknown",

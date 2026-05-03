@@ -5,15 +5,16 @@ import {
   getLastPdsSync,
   type AtprotoSessionInfo,
 } from "~/lib/atproto";
+import { onStorageMutation } from "~/lib/storage";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { formatRelativeTime } from "../lib/format-relative-time";
 
 /**
  * Small status pill on the books page showing when we last reconciled
- * org.shelfcheck.* records with the user's PDS. The reconcile happens
- * automatically during initSession() (which is called on every page load
- * when a session is restored), so this pill is informational + provides a
- * manual refresh affordance.
+ * org.shelfcheck.* records (and external sources — BookHive, Popfeed) with
+ * the user's PDS. The full reconcile runs on every page load and on a
+ * 15-minute auto-resync timer; this pill surfaces the last-sync timestamp
+ * and provides a manual refresh affordance.
  */
 export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => void }) {
   const [session, setSession] = useState<OAuthSession | null>(null);
@@ -56,6 +57,20 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The 15-minute auto-resync writes books in the background through
+  // setImportedBooks. Subscribe to those mutations so the books page
+  // re-renders with the freshly-pulled list and the pill timestamp updates.
+  useEffect(() => {
+    if (!info) return;
+    return onStorageMutation((m) => {
+      if (m.kind === "books:bulkSet") {
+        setLastSync(getLastPdsSync(info.did));
+        onBooksChanged();
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.did]);
 
   if (!session || !info) return null;
 

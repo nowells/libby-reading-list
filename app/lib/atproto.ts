@@ -2,17 +2,25 @@ import { BrowserOAuthClient } from "@atproto/oauth-client-browser";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { Agent } from "@atproto/api";
 import { bookhiveRecordsToBooks, type BookhiveListEntry } from "./bookhive-mapper";
+import {
+  pickToReadLists,
+  popfeedItemsToBooks,
+  type PopfeedListEntry,
+  type PopfeedListItemEntry,
+} from "./popfeed-mapper";
 import { enrichBooksWithWorkId } from "./openlibrary";
-import { setImportedBooks, type Book } from "./storage";
+import { getBooks, setImportedBooks, type Book } from "./storage";
 import { attachSession as attachSyncSession, detachSession, resync } from "./atproto/sync";
 import { getTestOAuthHook, makeTestOAuthSession } from "./atproto/test-hook";
 
 const PRODUCTION_CLIENT_ID = "https://www.shelfcheck.org/client-metadata.json";
 const BOOKHIVE_COLLECTION = "buzz.bookhive.book";
+const POPFEED_LIST_COLLECTION = "social.popfeed.feed.list";
+const POPFEED_LIST_ITEM_COLLECTION = "social.popfeed.feed.listItem";
 const HANDLE_RESOLVER = "https://bsky.social";
 const PUBLIC_APPVIEW = "https://public.api.bsky.app";
-/** Per-DID flag tracking whether we've already pulled the user's BookHive shelf into ShelfCheck. */
-const BOOKHIVE_IMPORTED_PREFIX = "shelfcheck:bookhive-imported:";
+/** How often to re-pull external sources (BookHive, Popfeed) and reconcile with the PDS. */
+const AUTO_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 /** Per-DID timestamp of the last successful PDS reconcile. */
 const PDS_LAST_SYNC_PREFIX = "shelfcheck:pds-last-sync:";
 /** The last account that successfully signed in, used to offer a one-click reauthenticate when the OAuth session is later lost. */
@@ -63,6 +71,10 @@ interface InitResult {
 }
 
 let initPromise: Promise<InitResult | null> | null = null;
+/** Active 15-min auto-sync timer, cleared on sign-out / detach. */
+let autoSyncTimer: ReturnType<typeof setInterval> | null = null;
+/** Single-flight guard so overlapping invocations of syncEverything coalesce. */
+let activeSyncPromise: Promise<void> | null = null;
 
 /**
  * Initialize the OAuth client. If the current URL is an OAuth callback this
@@ -72,7 +84,9 @@ let initPromise: Promise<InitResult | null> | null = null;
  * the callback out of the URL before the second call could read it.
  *
  * On success, the session is attached to the ATproto sync engine which
- * mirrors org.shelfcheck.* record changes between local cache and the PDS.
+ * mirrors org.shelfcheck.* record changes between local cache and the PDS,
+ * external read-only sources (BookHive, Popfeed) are pulled into local cache,
+ * and a 15-minute auto-resync timer is armed.
  */
 export function initSession(): Promise<InitResult | null> {
   if (initPromise) return initPromise;
@@ -85,6 +99,8 @@ export function initSession(): Promise<InitResult | null> {
       const fresh = testHook.consumeFresh();
       try {
         await attachSyncSession(session, { bootstrap: fresh });
+        await syncExternalSources(session);
+        scheduleAutoSync(session);
         setLastPdsSync(session.did);
       } catch (err) {
         console.error("[atproto] failed to attach sync session", err);
@@ -106,6 +122,8 @@ export function initSession(): Promise<InitResult | null> {
     // migrate up to an empty PDS (the typical first-sign-in case).
     try {
       await attachSyncSession(session, { bootstrap: fresh });
+      await syncExternalSources(session);
+      scheduleAutoSync(session);
       setLastPdsSync(session.did);
     } catch (err) {
       console.error("[atproto] failed to attach sync session", err);
@@ -181,17 +199,61 @@ export async function signOut(did: string): Promise<void> {
 }
 
 function detachSyncSession(): void {
+  cancelAutoSync();
   detachSession();
 }
 
+function cancelAutoSync(): void {
+  if (autoSyncTimer) {
+    clearInterval(autoSyncTimer);
+    autoSyncTimer = null;
+  }
+}
+
+function scheduleAutoSync(session: OAuthSession): void {
+  cancelAutoSync();
+  autoSyncTimer = setInterval(() => {
+    void runFullSync(session, { silent: true });
+  }, AUTO_SYNC_INTERVAL_MS);
+}
+
 /**
- * Manually re-run a full reconcile against the PDS. Useful as a "Refresh"
- * button — after attach this is the same diff/merge that runs during
- * boot. Does NOT alter bookhive-imported state.
+ * Run the org.shelfcheck.* PDS reconcile and pull every external read source
+ * (BookHive, Popfeed). Errors are logged and swallowed when `silent` (the
+ * timer-driven path) so a transient PDS outage doesn't crash the next tick.
+ */
+async function runFullSync(session: OAuthSession, opts: { silent?: boolean } = {}): Promise<void> {
+  if (activeSyncPromise) return activeSyncPromise;
+  activeSyncPromise = (async () => {
+    try {
+      await resync();
+      await syncExternalSources(session);
+      setLastPdsSync(session.did);
+    } catch (err) {
+      if (opts.silent) {
+        console.error("[atproto] auto-sync failed", err);
+      } else {
+        throw err;
+      }
+    } finally {
+      activeSyncPromise = null;
+    }
+  })();
+  return activeSyncPromise;
+}
+
+/**
+ * Manually re-run the full reconcile against the PDS plus a pull of every
+ * external read source. Surfaces errors to the caller so the UI can render
+ * a failure message; the auto-sync timer swallows them instead.
  */
 export async function refreshPdsSync(did: string): Promise<void> {
-  await resync();
-  setLastPdsSync(did);
+  // We don't always have the OAuthSession at the call site (the books page
+  // pill only has the did). Re-grab it from initSession(), which is memoized
+  // for the lifetime of the page load.
+  const init = await initSession();
+  if (!init || init.info.did !== did) return;
+  await runFullSync(init.session);
 }
 
 export function getLastPdsSync(did: string): string | null {
@@ -254,43 +316,89 @@ export function clearLastSignedInAccount(): void {
   }
 }
 
-// --- BookHive one-time import ---
+// --- External read sources (BookHive + Popfeed) ---
 
-export function hasImportedFromBookHive(did: string): boolean {
+/**
+ * Pull every external read source we support and merge each one into local
+ * state under its own source bucket. Sources are independent — if one fails
+ * the others still run. Books that already exist locally keep any
+ * Open-Library enrichment from a prior pass so we don't repeatedly hit the
+ * OL search API for the same titles.
+ */
+async function syncExternalSources(session: OAuthSession): Promise<void> {
+  await Promise.all([safeSyncBookHive(session), safeSyncPopfeed(session)]);
+}
+
+async function safeSyncBookHive(session: OAuthSession): Promise<void> {
   try {
-    return localStorage.getItem(BOOKHIVE_IMPORTED_PREFIX + did) !== null;
-  } catch {
-    return false;
+    await syncFromBookHive(session);
+  } catch (err) {
+    console.error("[atproto] bookhive sync failed", err);
   }
 }
 
-function markImportedFromBookHive(did: string): void {
+async function safeSyncPopfeed(session: OAuthSession): Promise<void> {
   try {
-    localStorage.setItem(BOOKHIVE_IMPORTED_PREFIX + did, new Date().toISOString());
-  } catch {
-    // Ignore quota errors
+    await syncFromPopfeed(session);
+  } catch (err) {
+    console.error("[atproto] popfeed sync failed", err);
   }
 }
 
 /**
- * One-time migration helper: reads the user's existing buzz.bookhive.book
- * "want to read" records and writes them as ShelfCheck books. The active
- * sync engine then mirrors those into org.shelfcheck.shelf.entry records on
- * the same PDS, so subsequent app activity uses ShelfCheck's lexicon
- * exclusively. We do not delete the original BookHive records — those
- * remain readable by BookHive itself.
+ * Read the user's `buzz.bookhive.book` records, map them into Books and
+ * replace the bookhive-source slice of local storage. The active sync engine
+ * mirrors any changes into `org.shelfcheck.shelf.entry` records.
  */
-export async function importFromBookHive(
-  session: OAuthSession,
-  opts: { clearManual?: boolean } = {},
-): Promise<Book[]> {
-  const books = await fetchBookhiveWantToRead(session);
-  const enriched = await enrichBooksWithWorkId(books);
-  markImportedFromBookHive(session.did);
-  if (enriched.length > 0) {
-    setImportedBooks(enriched, "bookhive", { clearManual: opts.clearManual });
-  }
+async function syncFromBookHive(session: OAuthSession): Promise<Book[]> {
+  const fresh = await fetchBookhiveWantToRead(session);
+  const merged = mergeWithPriorEnrichment(fresh, "bookhive");
+  const enriched = await enrichBooksWithWorkId(merged);
+  setImportedBooks(enriched, "bookhive");
   return enriched;
+}
+
+/**
+ * Read the user's `social.popfeed.feed.list*` records, map any to-read book
+ * lists into Books and replace the popfeed-source slice of local storage.
+ */
+async function syncFromPopfeed(session: OAuthSession): Promise<Book[]> {
+  const fresh = await fetchPopfeedToReadBooks(session);
+  const merged = mergeWithPriorEnrichment(fresh, "popfeed");
+  const enriched = await enrichBooksWithWorkId(merged);
+  setImportedBooks(enriched, "popfeed");
+  return enriched;
+}
+
+/**
+ * Carry forward Open-Library enrichment (workId, canonical names, subjects,
+ * page count, publish year, cover) from prior books in the same source so a
+ * 15-minute resync does not re-issue OL lookups for unchanged entries. Books
+ * are matched by their stable id (`bh-<rkey>` / `pf-<rkey>`).
+ */
+function mergeWithPriorEnrichment(fresh: Book[], source: Book["source"]): Book[] {
+  const prior = new Map(
+    getBooks()
+      .filter((b) => b.source === source)
+      .map((b) => [b.id, b]),
+  );
+  if (prior.size === 0) return fresh;
+  return fresh.map((b) => {
+    const prev = prior.get(b.id);
+    if (!prev) return b;
+    return {
+      ...b,
+      workId: b.workId ?? prev.workId,
+      isbn13: b.isbn13 ?? prev.isbn13,
+      imageUrl: b.imageUrl ?? prev.imageUrl,
+      canonicalTitle: b.canonicalTitle ?? prev.canonicalTitle,
+      canonicalAuthor: b.canonicalAuthor ?? prev.canonicalAuthor,
+      subjects: b.subjects ?? prev.subjects,
+      pageCount: b.pageCount ?? prev.pageCount,
+      firstPublishYear: b.firstPublishYear ?? prev.firstPublishYear,
+      pdsRkey: b.pdsRkey ?? prev.pdsRkey,
+    };
+  });
 }
 
 /**
@@ -320,4 +428,64 @@ async function fetchBookhiveWantToRead(session: OAuthSession): Promise<Book[]> {
   } while (cursor);
 
   return bookhiveRecordsToBooks(entries);
+}
+
+async function fetchPopfeedToReadBooks(session: OAuthSession): Promise<Book[]> {
+  const agent = new Agent(session);
+
+  const lists: PopfeedListEntry[] = [];
+  let cursor: string | undefined;
+  do {
+    let res;
+    try {
+      res = await agent.com.atproto.repo.listRecords({
+        repo: session.did,
+        collection: POPFEED_LIST_COLLECTION,
+        limit: 100,
+        cursor,
+      });
+    } catch {
+      // Most users won't have any popfeed records — treat the missing
+      // collection as an empty result rather than failing the whole sync.
+      return [];
+    }
+    for (const r of res.data.records) {
+      lists.push({
+        uri: r.uri,
+        cid: r.cid,
+        value: r.value as unknown as PopfeedListEntry["value"],
+      });
+    }
+    cursor = res.data.cursor;
+  } while (cursor);
+
+  const toRead = pickToReadLists(lists);
+  if (toRead.length === 0) return [];
+  const allowedListUris = new Set(toRead.map((l) => l.uri));
+
+  const items: PopfeedListItemEntry[] = [];
+  cursor = undefined;
+  do {
+    let res;
+    try {
+      res = await agent.com.atproto.repo.listRecords({
+        repo: session.did,
+        collection: POPFEED_LIST_ITEM_COLLECTION,
+        limit: 100,
+        cursor,
+      });
+    } catch {
+      return [];
+    }
+    for (const r of res.data.records) {
+      items.push({
+        uri: r.uri,
+        cid: r.cid,
+        value: r.value as unknown as PopfeedListItemEntry["value"],
+      });
+    }
+    cursor = res.data.cursor;
+  } while (cursor);
+
+  return popfeedItemsToBooks(items, allowedListUris);
 }
