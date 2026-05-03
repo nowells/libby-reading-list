@@ -4,7 +4,7 @@
   "client_uri": "https://www.shelfcheck.org",
   "logo_uri": "https://www.shelfcheck.org/apple-touch-icon.png",
   "redirect_uris": ["https://www.shelfcheck.org/setup"],
-  "scope": "atproto transition:generic",
+  "scope": "atproto repo:org.shelfcheck.shelf.entry repo:org.shelfcheck.author.follow repo:org.shelfcheck.book.dismissed",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",
