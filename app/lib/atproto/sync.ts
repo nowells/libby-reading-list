@@ -168,8 +168,10 @@ async function reconcileShelfEntries(
 
     // New content from the PDS — land everything in the Book collection
     // with its status preserved. /books filters down to want-to-read for
-    // its primary view; /shelf shows the full set.
-    const book = shelfRecordToBook(rec.value, "bookhive");
+    // its primary view; /shelf shows the full set. The fallback source is
+    // "unknown" so a legacy record without a `source` field doesn't get
+    // tagged into a live-sync bucket and wiped by the next external pull.
+    const book = shelfRecordToBook(rec.value);
     book.pdsRkey = rec.rkey;
     newBooks.push(book);
   }
