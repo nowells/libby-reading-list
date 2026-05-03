@@ -27,6 +27,44 @@ Open Library Work ID is the primary correlation key, with ISBN-13 / hiveId / Goo
 
 Lexicon source: [`public/lexicons/`](public/lexicons/).
 
+### Registering the lexicons on the network
+
+Hosting the JSON files on shelfcheck.org is enough for humans, but tools
+like [atproto.at](https://atproto.at) and `lexicon.store` resolve schemas
+through the AT Protocol's lexicon-resolution mechanism instead. Two pieces
+have to be in place for `org.shelfcheck.*` to stop showing up as
+"Unknown Schema":
+
+1. **Publish each lexicon as a `com.atproto.lexicon.schema` record** under
+   a DID we control. The rkey for each record is the NSID itself (e.g.
+   `org.shelfcheck.shelf.entry`). Run:
+
+   ```bash
+   ATPROTO_HANDLE=you.bsky.social \
+   ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
+   npm run publish:lexicons
+   ```
+
+   Create the app password at
+   [bsky.app/settings/app-passwords](https://bsky.app/settings/app-passwords).
+   Override `ATPROTO_PDS` if the account lives on a non-Bluesky PDS. The
+   script reads every `*.json` in `public/lexicons/` and upserts it; re-run
+   it whenever a schema changes.
+
+2. **Add a DNS TXT record** authorizing that DID for the `org.shelfcheck`
+   namespace. At the `shelfcheck.org` registrar, create:
+
+   | Host                   | Type | Value                          |
+   | ---------------------- | ---- | ------------------------------ |
+   | `_lexicon.shelfcheck.org` | TXT  | `did=did:plc:<your-did-here>` |
+
+   The authority part of the NSID (`org.shelfcheck`) is reversed to derive
+   the domain (`shelfcheck.org`), and resolvers look up
+   `_lexicon.<domain>` to find the DID that's allowed to define the
+   schema. The publish script prints the exact value to use after a
+   successful login. Propagation usually takes a few minutes; once it's
+   live, atproto.at will render the schema instead of "Unknown Schema".
+
 ## Exporting your reading list
 
 ### Goodreads
