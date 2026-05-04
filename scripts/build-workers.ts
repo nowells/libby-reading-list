@@ -11,8 +11,9 @@
  *   node --experimental-strip-types scripts/build-workers.ts
  *   node --experimental-strip-types scripts/build-workers.ts --name my-preview-libby-reading-list
  *
- * Environment variables (set by Cloudflare Workers CI):
- *   CF_PAGES_BRANCH       – branch being built
+ * Environment variables:
+ *   CF_PAGES_BRANCH       – branch being built (Cloudflare Pages CI)
+ *   CF_BRANCH             – branch being built (Cloudflare Workers CI)
  *   CF_PRODUCTION_BRANCH  – production branch name (default: main)
  *   CF_WORKERS_SUBDOMAIN  – account workers.dev subdomain (default: nowell.workers.dev)
  */
@@ -30,14 +31,43 @@ function readWorkerName(): string {
 }
 
 function detectBranch(): string | undefined {
-  if (process.env.CF_PAGES_BRANCH) return process.env.CF_PAGES_BRANCH;
-  if (process.env.GITHUB_HEAD_REF) return process.env.GITHUB_HEAD_REF;
-  if (process.env.GITHUB_REF_NAME) return process.env.GITHUB_REF_NAME;
-  try {
-    return execSync("git branch --show-current", { cwd: root, encoding: "utf-8" }).trim();
-  } catch {
-    return undefined;
+  // CI environment variables (try multiple providers)
+  const envVars = [
+    "CF_PAGES_BRANCH",
+    "CF_BRANCH",
+    "WORKERS_CI_BRANCH",
+    "GITHUB_HEAD_REF",
+    "GITHUB_REF_NAME",
+  ];
+  for (const key of envVars) {
+    const val = process.env[key]?.trim();
+    if (val) return val;
   }
+
+  // Git: try current branch first, then fall back to detached HEAD detection
+  try {
+    const current = execSync("git branch --show-current", {
+      cwd: root,
+      encoding: "utf-8",
+    }).trim();
+    if (current) return current;
+  } catch {
+    // ignore
+  }
+
+  // Detached HEAD: parse symbolic ref names pointing at HEAD
+  try {
+    const refs = execSync("git log -1 --format=%D", { cwd: root, encoding: "utf-8" }).trim();
+    // e.g. "HEAD, origin/fix-cloudflare" → extract branch name
+    for (const ref of refs.split(",")) {
+      const match = ref.trim().match(/^origin\/(.+)/);
+      if (match) return match[1];
+    }
+  } catch {
+    // ignore
+  }
+
+  return undefined;
 }
 
 function sanitizeBranch(branch: string): string {
