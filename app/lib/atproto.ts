@@ -13,7 +13,16 @@ import { getBooks, setImportedBooks, type Book } from "./storage";
 import { attachSession as attachSyncSession, detachSession, resync } from "./atproto/sync";
 import { getTestOAuthHook, makeTestOAuthSession } from "./atproto/test-hook";
 
-const PRODUCTION_CLIENT_ID = "https://www.shelfcheck.org/client-metadata.json";
+/**
+ * Build-time origin injected via `VITE_SITE_URL`. The same env var drives the
+ * Vite plugin that writes `client-metadata.json` into the build output, so
+ * the `client_id` the app sends always matches the hosted metadata document.
+ */
+const SITE_ORIGIN = (import.meta.env.VITE_SITE_URL ?? "https://www.shelfcheck.org").replace(
+  /\/$/,
+  "",
+);
+const PRODUCTION_CLIENT_ID = `${SITE_ORIGIN}/client-metadata.json`;
 const BOOKHIVE_COLLECTION = "buzz.bookhive.book";
 const POPFEED_LIST_COLLECTION = "social.popfeed.feed.list";
 const POPFEED_LIST_ITEM_COLLECTION = "social.popfeed.feed.listItem";
