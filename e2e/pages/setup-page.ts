@@ -65,9 +65,15 @@ export class SetupPage {
     return this.page.getByRole("button", { name: "Sign in", exact: true });
   }
 
-  /** Pill shown when a Bluesky session is active. */
+  /**
+   * Pill shown when a Bluesky session is active. The page renders the
+   * "Signed in as @..." string in two places once the panel is expanded
+   * (the collapsed-summary line plus the inner pill), so scope this to
+   * the first match — both contain the same handle, which is all callers
+   * actually assert on.
+   */
   blueskySignedInRow(): Locator {
-    return this.page.getByText(/Signed in as @/);
+    return this.page.getByText(/Signed in as @/).first();
   }
 
   blueskySignOutLink(): Locator {
