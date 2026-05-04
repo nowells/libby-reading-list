@@ -96,8 +96,12 @@ let activeSyncPromise: Promise<void> | null = null;
  *
  * On success, the session is attached to the ATproto sync engine which
  * mirrors org.shelfcheck.* record changes between local cache and the PDS,
- * external read-only sources (BookHive, Popfeed) are pulled into local cache,
- * and a 15-minute auto-resync timer is armed.
+ * external read-only sources (BookHive, Popfeed) are pulled into local cache
+ * in the background, and a 15-minute auto-resync timer is armed.
+ *
+ * The returned promise resolves as soon as the PDS reconcile finishes —
+ * external source pulls don't block UI rendering. Any books they add land
+ * via storage mutations and surface via `onStorageMutation` subscribers.
  */
 export function initSession(): Promise<InitResult | null> {
   if (initPromise) return initPromise;
@@ -110,9 +114,9 @@ export function initSession(): Promise<InitResult | null> {
       const fresh = testHook.consumeFresh();
       try {
         await attachSyncSession(session, { bootstrap: fresh });
-        await syncExternalSources(session);
-        scheduleAutoSync(session);
         setLastPdsSync(session.did);
+        scheduleAutoSync(session);
+        kickOffExternalSync(session);
       } catch (err) {
         console.error("[atproto] failed to attach sync session", err);
       }
@@ -133,9 +137,9 @@ export function initSession(): Promise<InitResult | null> {
     // migrate up to an empty PDS (the typical first-sign-in case).
     try {
       await attachSyncSession(session, { bootstrap: fresh });
-      await syncExternalSources(session);
-      scheduleAutoSync(session);
       setLastPdsSync(session.did);
+      scheduleAutoSync(session);
+      kickOffExternalSync(session);
     } catch (err) {
       console.error("[atproto] failed to attach sync session", err);
     }
@@ -147,6 +151,17 @@ export function initSession(): Promise<InitResult | null> {
     return { session, info: { did: session.did, handle }, fresh };
   })();
   return initPromise;
+}
+
+/**
+ * Pull external sources (BookHive, Popfeed) without blocking the caller.
+ * Errors are logged and swallowed — a transient PDS outage shouldn't keep
+ * the rest of the app from starting up.
+ */
+function kickOffExternalSync(session: OAuthSession): void {
+  void syncExternalSources(session).catch((err) =>
+    console.error("[atproto] external source sync failed", err),
+  );
 }
 
 /**
