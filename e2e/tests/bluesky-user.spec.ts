@@ -117,9 +117,9 @@ test.describe("Bluesky-backed user", () => {
     await setup.signInWithBluesky(ALICE.handle);
     await setup.waitForReady();
     // The reconcile pulls Alice's two shelf entries into local storage
-    // before this expect resolves, which collapses Step 1. Expand the
-    // import panel so the "Signed in as @alice.test" row is visible.
-    await setup.expandImportPanel();
+    // before this expect resolves, which collapses the Bluesky panel.
+    // Expand it so the "Signed in as @alice.test" row is visible.
+    await setup.expandBlueskyPanel();
     await expect(setup.blueskySignedInRow()).toContainText(`@${ALICE.handle}`);
     // Libraries are not stored in the PDS; re-add so /shelf renders.
     await setup.searchAndAddLibrary("Los Angeles", /Los Angeles Public Library/);

@@ -1,4 +1,4 @@
-import type { Book } from "./storage";
+import type { Book, ShelfStatus } from "./storage";
 
 /**
  * Shape of a `buzz.bookhive.book` record as returned by
@@ -34,6 +34,18 @@ function statusToken(status: string | undefined): string | undefined {
   if (!status) return undefined;
   const hash = status.lastIndexOf("#");
   return hash >= 0 ? status.slice(hash + 1) : status;
+}
+
+const BOOKHIVE_STATUS_MAP: Record<string, ShelfStatus> = {
+  wantToRead: "wantToRead",
+  reading: "reading",
+  finished: "finished",
+  abandoned: "abandoned",
+};
+
+function mapBookhiveStatus(raw: string | undefined): ShelfStatus | undefined {
+  const token = statusToken(raw);
+  return token ? BOOKHIVE_STATUS_MAP[token] : undefined;
 }
 
 export interface BookhiveListEntry {
@@ -72,13 +84,15 @@ function normalizeAuthors(authors: string): string {
 
 /**
  * Convert a list of `buzz.bookhive.book` records into shelfcheck Books,
- * keeping only entries whose status is `wantToRead`.
+ * importing all entries that carry a recognized reading status.
  */
 export function bookhiveRecordsToBooks(entries: BookhiveListEntry[]): Book[] {
   const books: Book[] = [];
   for (const entry of entries) {
     const rec = entry.value;
-    if (!rec || statusToken(rec.status) !== "wantToRead") continue;
+    if (!rec) continue;
+    const status = mapBookhiveStatus(rec.status);
+    if (!status) continue;
     if (!rec.title) continue;
 
     const rkey = rkeyFromAtUri(entry.uri);
@@ -89,6 +103,7 @@ export function bookhiveRecordsToBooks(entries: BookhiveListEntry[]): Book[] {
       isbn13: pickIsbn13(rec),
       source: "bookhive",
       sourceUrl: rec.hiveId ? `https://bookhive.buzz/books/${rec.hiveId}` : undefined,
+      status,
     });
   }
   return books;

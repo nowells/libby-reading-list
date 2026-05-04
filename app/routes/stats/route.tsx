@@ -191,6 +191,7 @@ const SOURCE_LABELS: Record<string, string> = {
   hardcover: "Hardcover",
   storygraph: "StoryGraph",
   bookhive: "Bookhive",
+  popfeed: "Popfeed",
   lyndi: "Lyndi CSV",
   unknown: "Other",
 };
@@ -200,6 +201,7 @@ const SOURCE_COLORS: Record<string, string> = {
   hardcover: "#f59e0b",
   storygraph: "#ec4899",
   bookhive: "#06b6d4",
+  popfeed: "#10b981",
   lyndi: "#8b5cf6",
   unknown: "#9ca3af",
 };

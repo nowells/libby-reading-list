@@ -57,6 +57,26 @@ function PrimarySourceLink({ book }: { book: Book }) {
     );
   }
 
+  if (book.source === "popfeed") {
+    return (
+      <a
+        href={
+          book.sourceUrl ??
+          `https://popfeed.social/search?q=${encodeURIComponent(`${book.title} ${book.author}`)}`
+        }
+        target="_blank"
+        rel="noopener noreferrer"
+        className={EXTERNAL_LINK_CLASS}
+        title="View on Popfeed"
+      >
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M4 4h16v4H4V4zm0 6h10v4H4v-4zm0 6h16v4H4v-4z" />
+        </svg>
+        <span className={LABEL_CLASS}>Popfeed</span>
+      </a>
+    );
+  }
+
   return (
     <>
       {(book.source === "goodreads" || book.source === "unknown") && (

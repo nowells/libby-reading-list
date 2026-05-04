@@ -21,6 +21,7 @@ import {
   getSkippedRows,
   setSkippedRows as saveSkippedRows,
   clearSkippedRows,
+  onStorageMutation,
   type Book,
   type LibraryConfig,
 } from "~/lib/storage";
@@ -35,8 +36,6 @@ import {
   initSession,
   signInWithBluesky,
   signOut,
-  importFromBookHive,
-  hasImportedFromBookHive,
   refreshPdsSync,
   getLastPdsSync,
   searchHandleSuggestions,
@@ -50,6 +49,7 @@ import type { OAuthSession } from "@atproto/oauth-client-browser";
 
 const SOURCE_LABELS: Record<string, string> = {
   bookhive: "Bookhive",
+  popfeed: "Popfeed",
   goodreads: "Goodreads",
   hardcover: "Hardcover",
   storygraph: "The StoryGraph",
@@ -62,6 +62,7 @@ const SOURCE_LABELS: Record<string, string> = {
 // sources alphabetically, then unknown CSVs, then manual additions.
 const SOURCE_DISPLAY_ORDER = [
   "bookhive",
+  "popfeed",
   "goodreads",
   "hardcover",
   "storygraph",
@@ -261,7 +262,6 @@ export default function Setup() {
   const [bskyHandle, setBskyHandle] = useState("");
   const [bskyImporting, setBskyImporting] = useState(false);
   const [bskyLastSync, setBskyLastSync] = useState<string | null>(null);
-  const [bookhiveImported, setBookhiveImported] = useState(false);
   const [bskySuggestions, setBskySuggestions] = useState<HandleSuggestion[]>([]);
   const [bskySuggestionsOpen, setBskySuggestionsOpen] = useState(false);
   // Mirror of the localStorage-backed last-signed-in account. When the OAuth
@@ -271,9 +271,10 @@ export default function Setup() {
     null,
   );
 
-  // Step 1 collapses once books are loaded so step 2 becomes the focus.
-  // Tracks whether the user has manually forced it open after that.
+  // Section 1 (Bluesky) collapses once signed in; section 2 (books)
+  // collapses once books are loaded. Tracks manual override.
   const [step1ForceOpen, setStep1ForceOpen] = useState(false);
+  const [step2ForceOpen, setStep2ForceOpen] = useState(false);
   const bskyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bskyAbortRef = useRef<AbortController | null>(null);
 
@@ -281,6 +282,17 @@ export default function Setup() {
     setBooksState(getBooks());
     setLibrariesState(getLibraries());
     setSkippedRowsState(getSkippedRows());
+  }, []);
+
+  // Auto-sync (BookHive / Popfeed pull, PDS reconcile) writes books in the
+  // background through setImportedBooks. Subscribe so the source breakdown
+  // and book counts refresh without needing a page reload.
+  useEffect(() => {
+    return onStorageMutation((m) => {
+      if (m.kind === "books:bulkSet" || m.kind === "book:added" || m.kind === "book:removed") {
+        setBooksState(getBooks());
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -298,21 +310,10 @@ export default function Setup() {
           // reauth UI picks it up if the session is later lost on this page.
           setRememberedBskyAccount({ did: result.info.did, handle: result.info.handle });
           setBskyLastSync(getLastPdsSync(result.info.did));
-          setBookhiveImported(hasImportedFromBookHive(result.info.did));
-          // After session attach the local cache already reflects PDS
-          // state. The setBooksState call below picks up any books pulled
-          // down during reconcile.
+          // initSession already attached the sync engine, pulled from
+          // BookHive + Popfeed, and armed the 15-minute auto-resync timer,
+          // so local state already reflects PDS state by the time we render.
           setBooksState(getBooks());
-          // Offer the one-time BookHive import on a fresh sign-in if the
-          // user hasn't imported before and they have no books yet (so we
-          // don't surprise CSV users with a parallel import).
-          if (
-            result.fresh &&
-            !hasImportedFromBookHive(result.info.did) &&
-            getBooks().length === 0
-          ) {
-            void runBookHiveImport(result.session, { silent: true });
-          }
         }
       })
       .catch(() => {
@@ -324,14 +325,14 @@ export default function Setup() {
     return () => {
       cancelled = true;
     };
-    // runBookHiveImport is stable via function declaration; deps intentionally empty for one-shot init.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const bskyDone = !!(bskySession && bskyInfo);
   const booksDone = books.length > 0;
   const libraryDone = libraries.length > 0;
   const allDone = booksDone && libraryDone;
-  const step1Collapsed = booksDone && !step1ForceOpen;
+  const step1Collapsed = bskyDone && !step1ForceOpen;
+  const step2Collapsed = booksDone && !step2ForceOpen;
   const sourceBreakdown = useMemo(() => summarizeSources(books), [books]);
 
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -497,47 +498,6 @@ export default function Setup() {
     startBskySignIn(s.handle);
   }
 
-  async function runBookHiveImport(session: OAuthSession, opts: { silent?: boolean } = {}) {
-    setError(null);
-    setImportInfo(null);
-    setBskyImporting(true);
-    try {
-      const imported = await importFromBookHive(session, { clearManual: clearManualOnImport });
-      setBookhiveImported(true);
-      setBskyLastSync(getLastPdsSync(session.did));
-      if (imported.length === 0) {
-        if (!opts.silent) {
-          setError(
-            'No "want to read" books found in your BookHive shelf. Make sure you have books marked as "wantToRead" on BookHive before importing.',
-          );
-        }
-        posthog?.capture("bookhive_import_failed", { reason: "no_want_to_read" });
-        return;
-      }
-      setBooksState(getBooks());
-      const keptManual = clearManualOnImport ? 0 : manualBookCount;
-      setImportInfo(
-        `Imported ${imported.length} want-to-read book${imported.length === 1 ? "" : "s"} from your BookHive shelf into ShelfCheck.${keptManual > 0 ? ` ${keptManual} manually added book${keptManual === 1 ? "" : "s"} preserved.` : ""}`,
-      );
-      posthog?.capture("bookhive_imported", {
-        book_count: imported.length,
-        trigger: opts.silent ? "auto" : "manual",
-      });
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to import from your BookHive shelf.";
-      setError(message);
-      posthog?.capture("bookhive_import_failed", { reason: "fetch_error", error: message });
-    } finally {
-      setBskyImporting(false);
-    }
-  }
-
-  function handleBookHiveImport() {
-    if (!bskySession) return;
-    void runBookHiveImport(bskySession);
-  }
-
   async function handlePdsResync() {
     if (!bskySession || !bskyInfo) return;
     setBskyImporting(true);
@@ -564,7 +524,6 @@ export default function Setup() {
     setBskyInfo(null);
     clearBookhiveLastSync();
     setBskyLastSync(null);
-    setBookhiveImported(false);
     // Explicit sign-out also forgets the remembered account so the empty
     // sign-in form (not the reauth UI) is what shows up next.
     setRememberedBskyAccount(null);
@@ -699,17 +658,213 @@ export default function Setup() {
           </div>
         )}
 
-        {/* Step 1: Upload Reading List */}
+        {/* Step 1: Bluesky Login */}
+        <section className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
+          <div className="flex items-center gap-3 mb-4">
+            <span
+              className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${bskyDone ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" : "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300"}`}
+            >
+              {bskyDone ? "\u2713" : "1"}
+            </span>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Connect Bluesky</h2>
+            <span className="text-xs text-gray-500 dark:text-gray-400 italic">Optional</span>
+          </div>
+
+          {bskyDone && (
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <p className="text-green-600 dark:text-green-400 min-w-0 truncate">
+                Signed in as @{bskyInfo!.handle ?? bskyInfo!.did}
+              </p>
+              <button
+                onClick={() => setStep1ForceOpen((o) => !o)}
+                className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline flex-shrink-0"
+              >
+                {step1Collapsed ? "Manage" : "Hide"}
+              </button>
+            </div>
+          )}
+
+          {!step1Collapsed && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Sign in with Bluesky to sync your reading list via the AT Protocol. Your books,
+                followed authors, and dismissed works are stored on your PDS and follow you across
+                devices. ShelfCheck also pulls your BookHive and Popfeed to-read lists automatically
+                every 15 minutes.
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-500 italic">
+                This is optional — you can skip this step and use ShelfCheck with local storage
+                only. Your data stays in your browser and nothing is sent to any server.
+              </p>
+
+              {bskyInitializing ? (
+                <p className="text-sm text-gray-400">Checking Bluesky session...</p>
+              ) : bskySession && bskyInfo ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 p-3 border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 rounded-lg">
+                    <span className="text-sm text-gray-700 dark:text-gray-200 truncate">
+                      Signed in as{" "}
+                      <span className="font-medium">@{bskyInfo.handle ?? bskyInfo.did}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleBskySignOut}
+                      className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 underline flex-shrink-0"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {bskyImporting
+                        ? "Syncing with PDS..."
+                        : bskyLastSync
+                          ? `Last synced ${formatRelativeTime(bskyLastSync)}`
+                          : "Not yet synced"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handlePdsResync}
+                      disabled={bskyImporting}
+                      className="px-3 py-1.5 text-sm bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
+                    >
+                      <svg
+                        className={`w-3.5 h-3.5 ${bskyImporting ? "animate-spin" : ""}`}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      {bskyImporting ? "Syncing" : "Resync"}
+                    </button>
+                  </div>
+                </div>
+              ) : rememberedBskyAccount ? (
+                <div className="space-y-2">
+                  <div className="p-3 border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 rounded-lg space-y-2">
+                    <p className="text-sm text-gray-700 dark:text-gray-200">
+                      Your Bluesky session expired. Sign back in as{" "}
+                      <span className="font-medium">
+                        @{rememberedBskyAccount.handle ?? rememberedBskyAccount.did}
+                      </span>
+                      .
+                    </p>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const target = rememberedBskyAccount.handle ?? rememberedBskyAccount.did;
+                          posthog?.capture("bsky_reauth_started");
+                          void startBskySignIn(target);
+                        }}
+                        className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-medium transition-colors text-sm"
+                      >
+                        Reauthenticate as @
+                        {rememberedBskyAccount.handle ?? rememberedBskyAccount.did}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSwitchAccounts}
+                        className="text-xs text-sky-700 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-100 underline"
+                      >
+                        Use a different account
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleBskySignIn} className="relative">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={bskyHandle}
+                      onChange={(e) => handleBskyHandleChange(e.target.value)}
+                      onFocus={() => {
+                        if (bskySuggestions.length > 0) setBskySuggestionsOpen(true);
+                      }}
+                      onBlur={() => {
+                        // Delay so clicks on suggestions register before the list hides.
+                        setTimeout(() => setBskySuggestionsOpen(false), 150);
+                      }}
+                      placeholder="your-handle.bsky.social"
+                      autoComplete="off"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      data-1p-ignore="true"
+                      data-lpignore="true"
+                      data-bwignore="true"
+                      data-form-type="other"
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 text-sm"
+                    />
+                    <button
+                      type="submit"
+                      disabled={bskyHandle.trim().length < 3}
+                      className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+                    >
+                      Sign in
+                    </button>
+                  </div>
+                  {bskySuggestionsOpen && bskySuggestions.length > 0 && (
+                    <ul className="absolute left-0 right-0 top-full mt-1 z-10 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg">
+                      {bskySuggestions.map((s) => (
+                        <li key={s.did}>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => {
+                              // Prevent input blur from firing before click.
+                              e.preventDefault();
+                            }}
+                            onClick={() => handlePickBskySuggestion(s)}
+                            className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-sky-50 dark:hover:bg-sky-900/20 transition-colors"
+                          >
+                            {s.avatar ? (
+                              <img
+                                src={s.avatar}
+                                alt=""
+                                className="w-7 h-7 rounded-full flex-shrink-0 bg-gray-100 dark:bg-gray-700"
+                              />
+                            ) : (
+                              <span className="w-7 h-7 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                {s.handle[0]?.toUpperCase()}
+                              </span>
+                            )}
+                            <span className="min-w-0 flex-1">
+                              {s.displayName && (
+                                <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">
+                                  {s.displayName}
+                                </span>
+                              )}
+                              <span className="block text-xs text-gray-500 dark:text-gray-400 truncate">
+                                @{s.handle}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </form>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* Step 2: Import Reading List (CSV / manual) */}
         <section className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
           <div className="flex items-center gap-3 mb-4">
             <span
               className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${booksDone ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" : "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"}`}
             >
-              {booksDone ? "\u2713" : "1"}
+              {booksDone ? "\u2713" : "2"}
             </span>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-              Import Reading List
-            </h2>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Add Books</h2>
           </div>
 
           {booksDone && (
@@ -725,10 +880,10 @@ export default function Setup() {
               </p>
               <div className="flex items-center gap-3 flex-shrink-0">
                 <button
-                  onClick={() => setStep1ForceOpen((o) => !o)}
+                  onClick={() => setStep2ForceOpen((o) => !o)}
                   className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline"
                 >
-                  {step1Collapsed ? "Change" : "Hide"}
+                  {step2Collapsed ? "Change" : "Hide"}
                 </button>
                 <button
                   onClick={handleClearBooks}
@@ -740,7 +895,7 @@ export default function Setup() {
             </div>
           )}
 
-          {step1Collapsed && !libraryDone && (
+          {step2Collapsed && !libraryDone && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-sm text-blue-700 dark:text-blue-300">
               <svg
                 className="w-4 h-4 flex-shrink-0"
@@ -755,206 +910,9 @@ export default function Setup() {
             </div>
           )}
 
-          {!step1Collapsed && (
+          {!step2Collapsed && (
             <div className="space-y-4">
-              {/* Option 1: Bluesky / ATproto (live sync) */}
-              <div className="rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50/60 dark:bg-sky-900/15 p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <svg
-                    className="w-4 h-4 text-sky-600 dark:text-sky-400"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                  >
-                    <path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.649 8.649 0 01-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z" />
-                  </svg>
-                  <h3 className="font-semibold text-sm text-sky-900 dark:text-sky-100">
-                    Sync via ATproto
-                  </h3>
-                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300">
-                    Live
-                  </span>
-                </div>
-                <p className="text-xs text-sky-800/80 dark:text-sky-200/70">
-                  Sign in with Bluesky to store your reading list on the AT Protocol. ShelfCheck
-                  publishes <code className="font-mono">org.shelfcheck.*</code> records to your PDS,
-                  so your books, followed authors, and dismissed works follow you across devices and
-                  other compatible clients. Previously used BookHive? You can do a one-time import
-                  of your existing shelf below.
-                </p>
-                {bskyInitializing ? (
-                  <p className="text-sm text-gray-400">Checking Bluesky session...</p>
-                ) : bskySession && bskyInfo ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2 p-3 border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 rounded-lg">
-                      <span className="text-sm text-gray-700 dark:text-gray-200 truncate">
-                        Signed in as{" "}
-                        <span className="font-medium">@{bskyInfo.handle ?? bskyInfo.did}</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleBskySignOut}
-                        className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 underline flex-shrink-0"
-                      >
-                        Sign out
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {bskyImporting
-                          ? "Syncing with PDS..."
-                          : bskyLastSync
-                            ? `Last synced ${formatRelativeTime(bskyLastSync)}`
-                            : "Not yet synced"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handlePdsResync}
-                        disabled={bskyImporting}
-                        className="px-3 py-1.5 text-sm bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
-                      >
-                        <svg
-                          className={`w-3.5 h-3.5 ${bskyImporting ? "animate-spin" : ""}`}
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                          />
-                        </svg>
-                        {bskyImporting ? "Syncing" : "Resync"}
-                      </button>
-                    </div>
-                    {!bookhiveImported && (
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-sky-100 dark:border-sky-900/40">
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Migrate from BookHive (one-time import)
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleBookHiveImport}
-                          disabled={bskyImporting}
-                          className="px-3 py-1.5 text-sm border border-sky-300 dark:border-sky-700 bg-white dark:bg-gray-800 hover:bg-sky-50 dark:hover:bg-sky-900/20 disabled:opacity-50 text-sky-700 dark:text-sky-300 rounded-lg font-medium transition-colors"
-                        >
-                          Import from BookHive
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ) : rememberedBskyAccount ? (
-                  <div className="space-y-2">
-                    <div className="p-3 border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 rounded-lg space-y-2">
-                      <p className="text-sm text-gray-700 dark:text-gray-200">
-                        Your Bluesky session expired. Sign back in as{" "}
-                        <span className="font-medium">
-                          @{rememberedBskyAccount.handle ?? rememberedBskyAccount.did}
-                        </span>
-                        .
-                      </p>
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const target =
-                              rememberedBskyAccount.handle ?? rememberedBskyAccount.did;
-                            posthog?.capture("bsky_reauth_started");
-                            void startBskySignIn(target);
-                          }}
-                          className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-medium transition-colors text-sm"
-                        >
-                          Reauthenticate as @
-                          {rememberedBskyAccount.handle ?? rememberedBskyAccount.did}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSwitchAccounts}
-                          className="text-xs text-sky-700 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-100 underline"
-                        >
-                          Use a different account
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <form onSubmit={handleBskySignIn} className="relative">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={bskyHandle}
-                        onChange={(e) => handleBskyHandleChange(e.target.value)}
-                        onFocus={() => {
-                          if (bskySuggestions.length > 0) setBskySuggestionsOpen(true);
-                        }}
-                        onBlur={() => {
-                          // Delay so clicks on suggestions register before the list hides.
-                          setTimeout(() => setBskySuggestionsOpen(false), 150);
-                        }}
-                        placeholder="your-handle.bsky.social"
-                        autoComplete="off"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        data-1p-ignore="true"
-                        data-lpignore="true"
-                        data-bwignore="true"
-                        data-form-type="other"
-                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 text-sm"
-                      />
-                      <button
-                        type="submit"
-                        disabled={bskyHandle.trim().length < 3}
-                        className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
-                      >
-                        Sign in
-                      </button>
-                    </div>
-                    {bskySuggestionsOpen && bskySuggestions.length > 0 && (
-                      <ul className="absolute left-0 right-0 top-full mt-1 z-10 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg">
-                        {bskySuggestions.map((s) => (
-                          <li key={s.did}>
-                            <button
-                              type="button"
-                              onMouseDown={(e) => {
-                                // Prevent input blur from firing before click.
-                                e.preventDefault();
-                              }}
-                              onClick={() => handlePickBskySuggestion(s)}
-                              className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-sky-50 dark:hover:bg-sky-900/20 transition-colors"
-                            >
-                              {s.avatar ? (
-                                <img
-                                  src={s.avatar}
-                                  alt=""
-                                  className="w-7 h-7 rounded-full flex-shrink-0 bg-gray-100 dark:bg-gray-700"
-                                />
-                              ) : (
-                                <span className="w-7 h-7 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                                  {s.handle[0]?.toUpperCase()}
-                                </span>
-                              )}
-                              <span className="min-w-0 flex-1">
-                                {s.displayName && (
-                                  <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">
-                                    {s.displayName}
-                                  </span>
-                                )}
-                                <span className="block text-xs text-gray-500 dark:text-gray-400 truncate">
-                                  @{s.handle}
-                                </span>
-                              </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </form>
-                )}
-              </div>
-
-              {/* Option 2: CSV upload */}
+              {/* Option A: CSV upload */}
               <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/10 p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <svg
@@ -1154,7 +1112,7 @@ export default function Setup() {
                 )}
               </div>
 
-              {/* Option 3: Add one book via Libby */}
+              {/* Option B: Add one book via Libby */}
               <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/30 p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <svg
@@ -1188,13 +1146,13 @@ export default function Setup() {
           )}
         </section>
 
-        {/* Step 2: Library Selection */}
+        {/* Step 3: Library Selection */}
         <section className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
           <div className="flex items-center gap-3 mb-4">
             <span
               className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${libraryDone ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" : "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"}`}
             >
-              {libraryDone ? "\u2713" : "2"}
+              {libraryDone ? "\u2713" : "3"}
             </span>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
               Libby {libraries.length === 1 ? "Library" : "Libraries"}

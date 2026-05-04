@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  hasImportedFromBookHive,
   getLastPdsSync,
   searchHandleSuggestions,
   getLastSignedInAccount,
@@ -12,18 +11,6 @@ import { http, HttpResponse } from "msw";
 const TEST_DID = "did:plc:testuser";
 
 describe("atproto", () => {
-  describe("hasImportedFromBookHive", () => {
-    it("returns false when no flag is stored for the DID", () => {
-      expect(hasImportedFromBookHive(TEST_DID)).toBe(false);
-    });
-
-    it("is keyed by DID so different accounts stay independent", () => {
-      localStorage.setItem(`shelfcheck:bookhive-imported:${TEST_DID}`, new Date().toISOString());
-      expect(hasImportedFromBookHive(TEST_DID)).toBe(true);
-      expect(hasImportedFromBookHive("did:plc:someoneelse")).toBe(false);
-    });
-  });
-
   describe("getLastPdsSync", () => {
     it("returns null when no sync has happened for the DID", () => {
       expect(getLastPdsSync(TEST_DID)).toBeNull();

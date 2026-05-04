@@ -15,6 +15,7 @@ const KNOWN_SOURCES = new Set([
   "hardcover",
   "storygraph",
   "bookhive",
+  "popfeed",
   "lyndi",
   "manual",
   "unknown",
@@ -113,20 +114,29 @@ export function readEntryToShelfRecord(
   };
 }
 
-/** Pick the best identifier from the record and reconstruct a Book. */
+/**
+ * Pick the best identifier from the record and reconstruct a Book.
+ *
+ * `source` is a fallback used when the PDS record doesn't carry a known
+ * `source` field (e.g. legacy entries written by an older client). When the
+ * record itself records a recognized source, that wins — otherwise a
+ * round-trip through the PDS would re-tag every book under a single bucket
+ * and the next external-source resync would wipe them out.
+ */
 export function shelfRecordToBook(
   record: ShelfEntryRecord,
   source: Book["source"] = "unknown",
 ): Book {
   const id = bookIdFromRecord(record);
   const authorName = record.authors.map((a) => a.name).join(", ") || "Unknown";
+  const recordedSource = recognizedSource(record.source);
   return {
     id,
     title: record.title,
     author: authorName,
     isbn13: record.ids.isbn13,
     imageUrl: record.coverUrl,
-    source: source,
+    source: recordedSource ?? source,
     sourceUrl: record.sourceUrl,
     workId: record.ids.olWorkId,
     canonicalTitle: record.title,
@@ -141,6 +151,21 @@ export function shelfRecordToBook(
     startedAt: record.startedAt,
     finishedAt: record.finishedAt,
   };
+}
+
+function recognizedSource(value: string | undefined): Book["source"] | undefined {
+  switch (value) {
+    case "goodreads":
+    case "hardcover":
+    case "storygraph":
+    case "bookhive":
+    case "popfeed":
+    case "lyndi":
+    case "unknown":
+      return value;
+    default:
+      return undefined;
+  }
 }
 
 function tokenToBookStatus(token: string | undefined): Book["status"] {

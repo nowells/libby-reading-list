@@ -23,7 +23,7 @@ export class SetupPage {
   }
 
   importHeading(): Locator {
-    return this.page.getByRole("heading", { name: "Import Reading List" });
+    return this.page.getByRole("heading", { name: "Add Books" });
   }
 
   librarySectionHeading(): Locator {
@@ -39,7 +39,15 @@ export class SetupPage {
     return this.page.locator(".bg-red-50, .bg-red-900\\/30").first();
   }
 
-  /** Reveal the (collapsed) Step 1 panel after books are loaded. */
+  /** Reveal the (collapsed) Bluesky panel after sign-in. */
+  async expandBlueskyPanel() {
+    const button = this.page.getByRole("button", { name: "Manage" });
+    if (await button.isVisible().catch(() => false)) {
+      await button.click();
+    }
+  }
+
+  /** Reveal the (collapsed) Step 2 panel after books are loaded. */
   async expandImportPanel() {
     const button = this.page.getByRole("button", { name: "Change" });
     if (await button.isVisible().catch(() => false)) {
@@ -57,9 +65,15 @@ export class SetupPage {
     return this.page.getByRole("button", { name: "Sign in", exact: true });
   }
 
-  /** Pill shown when a Bluesky session is active. */
+  /**
+   * Pill shown when a Bluesky session is active. The page renders the
+   * "Signed in as @..." string in two places once the panel is expanded
+   * (the collapsed-summary line plus the inner pill), so scope this to
+   * the first match — both contain the same handle, which is all callers
+   * actually assert on.
+   */
   blueskySignedInRow(): Locator {
-    return this.page.getByText(/Signed in as @/);
+    return this.page.getByText(/Signed in as @/).first();
   }
 
   blueskySignOutLink(): Locator {
@@ -71,7 +85,6 @@ export class SetupPage {
   }
 
   async signInWithBluesky(handle: string) {
-    await this.expandImportPanel();
     const input = this.blueskyHandleInput();
     await input.fill(handle);
     await this.blueskySignInButton().click();
@@ -81,10 +94,11 @@ export class SetupPage {
 
   async signOutOfBluesky() {
     await this.waitForReady();
-    await this.expandImportPanel();
     // The Bluesky pane is rendered async (initSession resolves after a
-    // brief "Checking Bluesky session..." state). Wait for the Sign out
-    // affordance instead of relying on the default action timeout.
+    // brief "Checking Bluesky session..." state). Wait for the signed-in
+    // indicator before trying to expand the (now collapsed) panel.
+    await this.blueskySignedInRow().waitFor({ state: "visible", timeout: 10_000 });
+    await this.expandBlueskyPanel();
     const signOut = this.blueskySignOutLink();
     await signOut.waitFor({ state: "visible", timeout: 10_000 });
     await signOut.click();
