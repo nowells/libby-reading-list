@@ -64,9 +64,8 @@ describe("cache", () => {
     expect(getCached("book-2")).toBeNull();
   });
 
-  it("returns default cache TTL when results have no estimatedWaitDays", () => {
+  it("returns 1h cache TTL when a result is available now", () => {
     const data = makeAvailability();
-    // Add a result without estimatedWaitDays
     data.results = [
       {
         mediaItem: {
@@ -83,6 +82,34 @@ describe("cache", () => {
           copiesAvailable: 1,
           numberOfHolds: 0,
           isAvailable: true,
+        },
+        matchScore: 0.9,
+        formatType: "ebook",
+        libraryKey: "test-lib",
+      },
+    ];
+    const maxAge = cacheMaxAge({ data, fetchedAt: Date.now() });
+    expect(maxAge).toBe(1 * 60 * 60 * 1000); // AVAILABLE_NOW_CACHE_MS = 1h
+  });
+
+  it("returns default cache TTL when results have no estimatedWaitDays and not available", () => {
+    const data = makeAvailability();
+    data.results = [
+      {
+        mediaItem: {
+          id: "1",
+          title: "Test Book",
+          sortTitle: "test book",
+          type: { id: "ebook", name: "eBook" },
+          formats: [],
+          creators: [],
+        },
+        availability: {
+          id: "1",
+          copiesOwned: 1,
+          copiesAvailable: 0,
+          numberOfHolds: 5,
+          isAvailable: false,
         },
         matchScore: 0.9,
         formatType: "ebook",
