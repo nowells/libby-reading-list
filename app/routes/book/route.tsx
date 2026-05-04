@@ -153,9 +153,9 @@ export default function BookDetails() {
   const fallbackAuthor = existingBook?.canonicalAuthor ?? existingBook?.author;
   const displayTitle = details?.title ?? fallbackTitle ?? "Loading…";
   const displayAuthor =
-    details?.authors[0]?.name && authorNames[details.authors[0].key]
-      ? authorNames[details.authors[0].key]
-      : (fallbackAuthor ?? "Unknown author");
+    (details?.authors[0]?.key && authorNames[details.authors[0].key]) ??
+    fallbackAuthor ??
+    "Unknown author";
   const primaryAuthorKey = details?.authors[0]?.key;
 
   // Initial fetch — work details (description, subjects, etc.)

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import type { FriendShelf } from "~/lib/atproto/friends";
 import type { ShelfEntryRecord } from "~/lib/atproto/lexicon";
 import { statusTokenName } from "~/lib/atproto/lexicon";
@@ -48,7 +49,7 @@ export function FriendCard({
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Header */}
-      <div className="relative flex items-stretch hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+      <div className="relative flex items-stretch hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
@@ -156,7 +157,7 @@ export function FriendCard({
                   return (
                     <div
                       key={key}
-                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-750"
+                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50"
                     >
                       <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
                         {author.name}
@@ -192,11 +193,9 @@ export function FriendCard({
                 const key = entryKey(entry);
                 const alreadyAdded = addedBookIds.has(key);
                 const status = statusTokenName(entry.status);
-                return (
-                  <div
-                    key={key}
-                    className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750"
-                  >
+                const bookLink = entry.ids.olWorkId ? `/book/${entry.ids.olWorkId}` : undefined;
+                const bookContent = (
+                  <>
                     {entry.coverUrl ? (
                       <img
                         src={entry.coverUrl}
@@ -236,6 +235,20 @@ export function FriendCard({
                         )}
                       </div>
                     </div>
+                  </>
+                );
+                return (
+                  <div
+                    key={key}
+                    className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                  >
+                    {bookLink ? (
+                      <Link to={bookLink} className="flex items-start gap-3 flex-1 min-w-0">
+                        {bookContent}
+                      </Link>
+                    ) : (
+                      <div className="flex items-start gap-3 flex-1 min-w-0">{bookContent}</div>
+                    )}
                     <button
                       type="button"
                       onClick={() => onAddBook(entry)}

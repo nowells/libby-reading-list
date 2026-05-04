@@ -1,8 +1,18 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { MemoryRouter } from "react-router";
 import { FriendCard } from "./friend-card";
 import { STATUS, type ShelfEntryRecord, type AuthorFollowRecord } from "~/lib/atproto/lexicon";
 import type { FriendShelf } from "~/lib/atproto/friends";
+
+// FriendCard uses <Link> which requires a router context.
+function renderCard(props: React.ComponentProps<typeof FriendCard>) {
+  return render(
+    <MemoryRouter>
+      <FriendCard {...props} />
+    </MemoryRouter>,
+  );
+}
 
 function makeEntry(overrides: Partial<ShelfEntryRecord> = {}): ShelfEntryRecord {
   return {
@@ -35,15 +45,13 @@ const baseFriend: FriendShelf = {
 
 describe("FriendCard", () => {
   it("renders friend profile info", async () => {
-    const screen = await render(
-      <FriendCard
-        friend={baseFriend}
-        onAddBook={vi.fn()}
-        onAddAuthor={vi.fn()}
-        addedBookIds={new Set()}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend: baseFriend,
+      onAddBook: vi.fn(),
+      onAddAuthor: vi.fn(),
+      addedBookIds: new Set(),
+      addedAuthorKeys: new Set(),
+    });
 
     await expect.element(screen.getByText("Friend One")).toBeInTheDocument();
     await expect.element(screen.getByText("@friend1.bsky.social")).toBeInTheDocument();
@@ -51,15 +59,13 @@ describe("FriendCard", () => {
   });
 
   it("expands to show books when clicked", async () => {
-    const screen = await render(
-      <FriendCard
-        friend={baseFriend}
-        onAddBook={vi.fn()}
-        onAddAuthor={vi.fn()}
-        addedBookIds={new Set()}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend: baseFriend,
+      onAddBook: vi.fn(),
+      onAddAuthor: vi.fn(),
+      addedBookIds: new Set(),
+      addedAuthorKeys: new Set(),
+    });
 
     // Click to expand
     await screen.getByText("Friend One").click();
@@ -70,15 +76,13 @@ describe("FriendCard", () => {
 
   it("calls onAddBook when add button is clicked", async () => {
     const onAddBook = vi.fn();
-    const screen = await render(
-      <FriendCard
-        friend={baseFriend}
-        onAddBook={onAddBook}
-        onAddAuthor={vi.fn()}
-        addedBookIds={new Set()}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend: baseFriend,
+      onAddBook,
+      onAddAuthor: vi.fn(),
+      addedBookIds: new Set(),
+      addedAuthorKeys: new Set(),
+    });
 
     // Expand
     await screen.getByText("Friend One").click();
@@ -90,15 +94,13 @@ describe("FriendCard", () => {
   });
 
   it("shows 'Added' for already-added books", async () => {
-    const screen = await render(
-      <FriendCard
-        friend={baseFriend}
-        onAddBook={vi.fn()}
-        onAddAuthor={vi.fn()}
-        addedBookIds={new Set(["OL1W"])}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend: baseFriend,
+      onAddBook: vi.fn(),
+      onAddAuthor: vi.fn(),
+      addedBookIds: new Set(["OL1W"]),
+      addedAuthorKeys: new Set(),
+    });
 
     await screen.getByText("Friend One").click();
 
@@ -107,15 +109,13 @@ describe("FriendCard", () => {
 
   it("shows author tab and calls onAddAuthor", async () => {
     const onAddAuthor = vi.fn();
-    const screen = await render(
-      <FriendCard
-        friend={baseFriend}
-        onAddBook={vi.fn()}
-        onAddAuthor={onAddAuthor}
-        addedBookIds={new Set()}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend: baseFriend,
+      onAddBook: vi.fn(),
+      onAddAuthor,
+      addedBookIds: new Set(),
+      addedAuthorKeys: new Set(),
+    });
 
     await screen.getByText("Friend One").click();
     await screen.getByText(/Authors \(1\)/).click();
@@ -134,15 +134,13 @@ describe("FriendCard", () => {
       ],
     };
 
-    const screen = await render(
-      <FriendCard
-        friend={friend}
-        onAddBook={vi.fn()}
-        onAddAuthor={vi.fn()}
-        addedBookIds={new Set()}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend,
+      onAddBook: vi.fn(),
+      onAddAuthor: vi.fn(),
+      addedBookIds: new Set(),
+      addedAuthorKeys: new Set(),
+    });
 
     await screen.getByText("Friend One").click();
 
@@ -160,15 +158,13 @@ describe("FriendCard", () => {
       profile: { ...baseFriend.profile, avatar: undefined },
     };
 
-    const screen = await render(
-      <FriendCard
-        friend={noAvatarFriend}
-        onAddBook={vi.fn()}
-        onAddAuthor={vi.fn()}
-        addedBookIds={new Set()}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend: noAvatarFriend,
+      onAddBook: vi.fn(),
+      onAddAuthor: vi.fn(),
+      addedBookIds: new Set(),
+      addedAuthorKeys: new Set(),
+    });
 
     // The avatar initial "F" is rendered inside a purple circle
     const initial = screen.container.querySelector(".text-purple-600");
@@ -182,15 +178,13 @@ describe("FriendCard", () => {
       entries: [makeEntry({ rating: 80 })], // 4 stars
     };
 
-    const screen = await render(
-      <FriendCard
-        friend={friend}
-        onAddBook={vi.fn()}
-        onAddAuthor={vi.fn()}
-        addedBookIds={new Set()}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend,
+      onAddBook: vi.fn(),
+      onAddAuthor: vi.fn(),
+      addedBookIds: new Set(),
+      addedAuthorKeys: new Set(),
+    });
 
     await screen.getByText("Friend One").click();
     await expect.element(screen.getByText("★★★★")).toBeInTheDocument();
@@ -198,16 +192,14 @@ describe("FriendCard", () => {
 
   it("calls onRefresh without expanding when refresh button is clicked", async () => {
     const onRefresh = vi.fn();
-    const screen = await render(
-      <FriendCard
-        friend={baseFriend}
-        onAddBook={vi.fn()}
-        onAddAuthor={vi.fn()}
-        onRefresh={onRefresh}
-        addedBookIds={new Set()}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend: baseFriend,
+      onAddBook: vi.fn(),
+      onAddAuthor: vi.fn(),
+      onRefresh,
+      addedBookIds: new Set(),
+      addedAuthorKeys: new Set(),
+    });
 
     await screen.getByLabelText(/Refresh Friend One's reading list/).click();
 
@@ -218,17 +210,15 @@ describe("FriendCard", () => {
 
   it("disables refresh button while a refresh is in flight", async () => {
     const onRefresh = vi.fn();
-    const screen = await render(
-      <FriendCard
-        friend={baseFriend}
-        onAddBook={vi.fn()}
-        onAddAuthor={vi.fn()}
-        onRefresh={onRefresh}
-        isRefreshing
-        addedBookIds={new Set()}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend: baseFriend,
+      onAddBook: vi.fn(),
+      onAddAuthor: vi.fn(),
+      onRefresh,
+      isRefreshing: true,
+      addedBookIds: new Set(),
+      addedAuthorKeys: new Set(),
+    });
 
     const button = screen.container.querySelector<HTMLButtonElement>(
       'button[aria-label*="Refresh Friend One"]',
@@ -247,15 +237,13 @@ describe("FriendCard", () => {
       authors: [],
     };
 
-    const screen = await render(
-      <FriendCard
-        friend={friend}
-        onAddBook={vi.fn()}
-        onAddAuthor={vi.fn()}
-        addedBookIds={new Set()}
-        addedAuthorKeys={new Set()}
-      />,
-    );
+    const screen = await renderCard({
+      friend,
+      onAddBook: vi.fn(),
+      onAddAuthor: vi.fn(),
+      addedBookIds: new Set(),
+      addedAuthorKeys: new Set(),
+    });
 
     await screen.getByText("Friend One").click();
 
