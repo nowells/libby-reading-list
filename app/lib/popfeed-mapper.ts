@@ -1,4 +1,4 @@
-import type { Book } from "./storage";
+import type { Book, ShelfStatus } from "./storage";
 
 /**
  * Shape of a `social.popfeed.feed.list` record. We only model the fields we
@@ -95,6 +95,39 @@ export function isToReadList(record: PopfeedListRecord): boolean {
 }
 
 /**
+ * Match a "currently reading" list. Accepts common variants of the label.
+ */
+export function isReadingList(record: PopfeedListRecord): boolean {
+  const listType = (record.listType ?? "").trim().toLowerCase();
+  if (/^(currently[-_ ]reading([-_ ]books?)?|reading|in[-_ ]progress)$/.test(listType)) return true;
+  const name = (record.name ?? "").trim().toLowerCase();
+  if (/^(currently\s+reading|reading|in\s+progress)$/.test(name)) return true;
+  return false;
+}
+
+/**
+ * Match a "read" / "finished" list. Accepts common variants.
+ */
+export function isFinishedList(record: PopfeedListRecord): boolean {
+  const listType = (record.listType ?? "").trim().toLowerCase();
+  if (/^(read([-_ ]books?)?|finished([-_ ]books?)?)$/.test(listType)) return true;
+  const name = (record.name ?? "").trim().toLowerCase();
+  if (/^(read|finished|books\s+read|completed)$/.test(name)) return true;
+  return false;
+}
+
+/**
+ * Classify a list record into a ShelfStatus, or return undefined if it's not
+ * a book-related list we recognise.
+ */
+export function classifyList(record: PopfeedListRecord): ShelfStatus | undefined {
+  if (isToReadList(record)) return "wantToRead";
+  if (isReadingList(record)) return "reading";
+  if (isFinishedList(record)) return "finished";
+  return undefined;
+}
+
+/**
  * Find every popfeed list whose listType (or name) marks it as a "to-read"
  * collection. Returns the original entries so callers can read AT-URIs +
  * record metadata.
@@ -104,29 +137,59 @@ export function pickToReadLists(entries: PopfeedListEntry[]): PopfeedListEntry[]
 }
 
 /**
+ * Find every popfeed list that maps to a recognised book shelf status.
+ * Returns entries paired with their default ShelfStatus.
+ */
+export function pickBookLists(
+  entries: PopfeedListEntry[],
+): { entry: PopfeedListEntry; defaultStatus: ShelfStatus }[] {
+  const result: { entry: PopfeedListEntry; defaultStatus: ShelfStatus }[] = [];
+  for (const e of entries) {
+    const status = classifyList(e.value);
+    if (status) result.push({ entry: e, defaultStatus: status });
+  }
+  return result;
+}
+
+/** Map a popfeed item-level status token to a ShelfStatus. */
+function mapItemStatus(raw: string | undefined): ShelfStatus | undefined {
+  if (!raw) return undefined;
+  const token = raw.replace(/^.*#/, "").toLowerCase();
+  switch (token) {
+    case "in_progress":
+      return "reading";
+    case "finished":
+      return "finished";
+    case "abandoned":
+      return "abandoned";
+    case "backlog":
+      return "wantToRead";
+    default:
+      return undefined;
+  }
+}
+
+/**
  * Convert popfeed listItem records into shelfcheck Books, keeping only items
- * that look like wantToRead books on one of the provided list URIs.
+ * that belong to one of the provided list URIs.
  *
- * `listUris` should be the AT-URIs of the user's identified to-read lists;
- * this filters out items that belong to unrelated lists (movies, watchlists,
- * favorites, etc.) sharing the same collection.
+ * `listStatusMap` maps each list AT-URI to its default ShelfStatus (derived
+ * from the list type). An item's own status overrides the list default.
  */
 export function popfeedItemsToBooks(
   entries: PopfeedListItemEntry[],
-  listUris: Set<string>,
+  listStatusMap: Map<string, ShelfStatus>,
 ): Book[] {
   const books: Book[] = [];
   for (const entry of entries) {
     const rec = entry.value;
     if (!rec) continue;
     if (rec.creativeWorkType !== "book" && rec.creativeWorkType !== "book_series") continue;
-    if (!listUris.has(rec.listUri)) continue;
+    const listDefault = listStatusMap.get(rec.listUri);
+    if (listDefault === undefined) continue;
     if (!rec.title) continue;
 
-    // Skip items the user has marked finished / abandoned — those don't
-    // belong on the want-to-read shelf even if they're on a "to-read" list.
-    const statusToken = (rec.status ?? "").replace(/^.*#/, "").toLowerCase();
-    if (statusToken === "finished" || statusToken === "abandoned") continue;
+    const status = mapItemStatus(rec.status) ?? listDefault;
 
     const rkey = rkeyFromAtUri(entry.uri);
     const isbn13 = normalizeIsbn(rec.identifiers?.isbn13) ?? normalizeIsbn(rec.identifiers?.isbn10);
@@ -141,6 +204,7 @@ export function popfeedItemsToBooks(
       sourceUrl: rec.identifiers?.hiveId
         ? `https://bookhive.buzz/books/${rec.identifiers.hiveId}`
         : undefined,
+      status,
     });
   }
   return books;

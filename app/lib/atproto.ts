@@ -3,7 +3,7 @@ import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { Agent } from "@atproto/api";
 import { bookhiveRecordsToBooks, type BookhiveListEntry } from "./bookhive-mapper";
 import {
-  pickToReadLists,
+  pickBookLists,
   popfeedItemsToBooks,
   type PopfeedListEntry,
   type PopfeedListItemEntry,
@@ -388,7 +388,7 @@ async function safeSyncPopfeed(session: OAuthSession): Promise<void> {
  * mirrors any changes into `org.shelfcheck.shelf.entry` records.
  */
 async function syncFromBookHive(session: OAuthSession): Promise<Book[]> {
-  const fresh = await fetchBookhiveWantToRead(session);
+  const fresh = await fetchBookhiveBooks(session);
   const merged = mergeWithPriorEnrichment(fresh, "bookhive");
   const enriched = await enrichBooksWithWorkId(merged);
   setImportedBooks(enriched, "bookhive");
@@ -396,11 +396,11 @@ async function syncFromBookHive(session: OAuthSession): Promise<Book[]> {
 }
 
 /**
- * Read the user's `social.popfeed.feed.list*` records, map any to-read book
+ * Read the user's `social.popfeed.feed.list*` records, map any book-related
  * lists into Books and replace the popfeed-source slice of local storage.
  */
 async function syncFromPopfeed(session: OAuthSession): Promise<Book[]> {
-  const fresh = await fetchPopfeedToReadBooks(session);
+  const fresh = await fetchPopfeedBooks(session);
   const merged = mergeWithPriorEnrichment(fresh, "popfeed");
   const enriched = await enrichBooksWithWorkId(merged);
   setImportedBooks(enriched, "popfeed");
@@ -440,9 +440,9 @@ function mergeWithPriorEnrichment(fresh: Book[], source: Book["source"]): Book[]
 
 /**
  * Fetch all `buzz.bookhive.book` records for the authenticated user and
- * return the ones marked `wantToRead`, mapped into shelfcheck's `Book` shape.
+ * map them into shelfcheck's `Book` shape with their reading status.
  */
-async function fetchBookhiveWantToRead(session: OAuthSession): Promise<Book[]> {
+async function fetchBookhiveBooks(session: OAuthSession): Promise<Book[]> {
   const agent = new Agent(session);
   const entries: BookhiveListEntry[] = [];
   let cursor: string | undefined;
@@ -467,7 +467,7 @@ async function fetchBookhiveWantToRead(session: OAuthSession): Promise<Book[]> {
   return bookhiveRecordsToBooks(entries);
 }
 
-async function fetchPopfeedToReadBooks(session: OAuthSession): Promise<Book[]> {
+async function fetchPopfeedBooks(session: OAuthSession): Promise<Book[]> {
   const agent = new Agent(session);
 
   const lists: PopfeedListEntry[] = [];
@@ -496,9 +496,11 @@ async function fetchPopfeedToReadBooks(session: OAuthSession): Promise<Book[]> {
     cursor = res.data.cursor;
   } while (cursor);
 
-  const toRead = pickToReadLists(lists);
-  if (toRead.length === 0) return [];
-  const allowedListUris = new Set(toRead.map((l) => l.uri));
+  const bookLists = pickBookLists(lists);
+  if (bookLists.length === 0) return [];
+  const listStatusMap = new Map(
+    bookLists.map(({ entry, defaultStatus }) => [entry.uri, defaultStatus]),
+  );
 
   const items: PopfeedListItemEntry[] = [];
   cursor = undefined;
@@ -524,5 +526,5 @@ async function fetchPopfeedToReadBooks(session: OAuthSession): Promise<Book[]> {
     cursor = res.data.cursor;
   } while (cursor);
 
-  return popfeedItemsToBooks(items, allowedListUris);
+  return popfeedItemsToBooks(items, listStatusMap);
 }

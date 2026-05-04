@@ -60,5 +60,17 @@ for (const doc of lexicons) {
 }
 
 console.log("Done.");
-console.log("\nNext: add this DNS TXT record at the shelfcheck.org registrar.");
-console.log(`  _lexicon.shelfcheck.org  TXT  "did=${did}"`);
+console.log("\nNext: add these DNS TXT records at the shelfcheck.org registrar.");
+console.log("Lexicon DNS does NOT work transitively — each sub-namespace needs its own record.");
+console.log();
+// Collect unique namespaces (all NSID segments except the last, reversed into DNS form).
+const namespaces = new Set<string>();
+for (const doc of lexicons) {
+  const parts = doc.id.split(".");
+  // Namespace = everything except the final segment, reversed into DNS order.
+  const ns = parts.slice(0, -1).reverse().join(".");
+  namespaces.add(ns);
+}
+for (const ns of [...namespaces].sort()) {
+  console.log(`  _lexicon.${ns}  TXT  "did=${did}"`);
+}

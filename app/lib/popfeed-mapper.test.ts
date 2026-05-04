@@ -1,13 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
   isToReadList,
+  isReadingList,
+  isFinishedList,
+  classifyList,
   pickToReadLists,
+  pickBookLists,
   popfeedItemsToBooks,
   type PopfeedListEntry,
   type PopfeedListItemEntry,
   type PopfeedListItemRecord,
   type PopfeedListRecord,
 } from "./popfeed-mapper";
+import type { ShelfStatus } from "./storage";
 
 const DID = "did:plc:exampleuser";
 const LIST_URI = `at://${DID}/social.popfeed.feed.list/3lst`;
@@ -72,8 +77,75 @@ describe("pickToReadLists", () => {
   });
 });
 
+describe("isReadingList", () => {
+  it("matches 'currently-reading' listType", () => {
+    expect(isReadingList({ name: "x", listType: "currently-reading" })).toBe(true);
+    expect(isReadingList({ name: "x", listType: "currently_reading" })).toBe(true);
+    expect(isReadingList({ name: "x", listType: "reading" })).toBe(true);
+    expect(isReadingList({ name: "x", listType: "in-progress" })).toBe(true);
+  });
+
+  it("falls back to name", () => {
+    expect(isReadingList({ name: "Currently Reading" })).toBe(true);
+    expect(isReadingList({ name: "Reading" })).toBe(true);
+  });
+
+  it("does not match unrelated lists", () => {
+    expect(isReadingList({ name: "Want to Read" })).toBe(false);
+    expect(isReadingList({ name: "Finished" })).toBe(false);
+  });
+});
+
+describe("isFinishedList", () => {
+  it("matches 'read' and 'finished' listType variants", () => {
+    expect(isFinishedList({ name: "x", listType: "read" })).toBe(true);
+    expect(isFinishedList({ name: "x", listType: "read_books" })).toBe(true);
+    expect(isFinishedList({ name: "x", listType: "finished" })).toBe(true);
+    expect(isFinishedList({ name: "x", listType: "finished-books" })).toBe(true);
+  });
+
+  it("falls back to name", () => {
+    expect(isFinishedList({ name: "Read" })).toBe(true);
+    expect(isFinishedList({ name: "Finished" })).toBe(true);
+    expect(isFinishedList({ name: "Books Read" })).toBe(true);
+    expect(isFinishedList({ name: "Completed" })).toBe(true);
+  });
+
+  it("does not match unrelated lists", () => {
+    expect(isFinishedList({ name: "Want to Read" })).toBe(false);
+    expect(isFinishedList({ name: "Currently Reading" })).toBe(false);
+  });
+});
+
+describe("classifyList", () => {
+  it("classifies to-read, reading, and finished lists", () => {
+    expect(classifyList({ name: "x", listType: "to-read" })).toBe("wantToRead");
+    expect(classifyList({ name: "x", listType: "currently-reading" })).toBe("reading");
+    expect(classifyList({ name: "x", listType: "read" })).toBe("finished");
+  });
+
+  it("returns undefined for unrecognised lists", () => {
+    expect(classifyList({ name: "Watchlist", listType: "watchlist" })).toBeUndefined();
+  });
+});
+
+describe("pickBookLists", () => {
+  it("returns all book-related lists with their default status", () => {
+    const result = pickBookLists([
+      listEntry({ name: "Want to Read", listType: "to-read" }, "a"),
+      listEntry({ name: "My Watchlist", listType: "watchlist" }, "b"),
+      listEntry({ name: "Currently Reading", listType: "currently-reading" }, "c"),
+      listEntry({ name: "Read", listType: "read" }, "d"),
+    ]);
+    expect(result).toHaveLength(3);
+    expect(result[0].defaultStatus).toBe("wantToRead");
+    expect(result[1].defaultStatus).toBe("reading");
+    expect(result[2].defaultStatus).toBe("finished");
+  });
+});
+
 describe("popfeedItemsToBooks", () => {
-  const allowed = new Set([LIST_URI]);
+  const allowed = new Map<string, ShelfStatus>([[LIST_URI, "wantToRead"]]);
 
   it("maps a basic book listItem into a Book", () => {
     const books = popfeedItemsToBooks(
@@ -98,6 +170,7 @@ describe("popfeedItemsToBooks", () => {
       isbn13: "9781447273288",
       imageUrl: "https://covers.example/ct.jpg",
       source: "popfeed",
+      status: "wantToRead",
     });
   });
 
@@ -135,18 +208,41 @@ describe("popfeedItemsToBooks", () => {
     expect(books[0].title).toBe("The Expanse");
   });
 
-  it("skips items marked finished or abandoned", () => {
+  it("maps item-level statuses to ShelfStatus", () => {
     const books = popfeedItemsToBooks(
       [
         itemEntry({ title: "Done Book", mainCredit: "x", status: "#finished" }, "rk-done"),
         itemEntry({ title: "Quit Book", mainCredit: "x", status: "#abandoned" }, "rk-abandoned"),
         itemEntry({ title: "Backlog Book", mainCredit: "x", status: "#backlog" }, "rk-backlog"),
         itemEntry({ title: "Reading Book", mainCredit: "x", status: "#in_progress" }, "rk-prog"),
+        itemEntry({ title: "No Status Book", mainCredit: "x" }, "rk-none"),
       ],
       allowed,
     );
-    const titles = books.map((b) => b.title).sort();
-    expect(titles).toEqual(["Backlog Book", "Reading Book"]);
+    expect(books).toHaveLength(5);
+    expect(books.find((b) => b.title === "Done Book")?.status).toBe("finished");
+    expect(books.find((b) => b.title === "Quit Book")?.status).toBe("abandoned");
+    expect(books.find((b) => b.title === "Backlog Book")?.status).toBe("wantToRead");
+    expect(books.find((b) => b.title === "Reading Book")?.status).toBe("reading");
+    expect(books.find((b) => b.title === "No Status Book")?.status).toBe("wantToRead");
+  });
+
+  it("inherits status from list when item has no status", () => {
+    const readingList = new Map<string, ShelfStatus>([[LIST_URI, "reading"]]);
+    const books = popfeedItemsToBooks(
+      [itemEntry({ title: "A Book", mainCredit: "x" }, "rk1")],
+      readingList,
+    );
+    expect(books[0].status).toBe("reading");
+  });
+
+  it("item status overrides list default", () => {
+    const readingList = new Map<string, ShelfStatus>([[LIST_URI, "reading"]]);
+    const books = popfeedItemsToBooks(
+      [itemEntry({ title: "A Book", mainCredit: "x", status: "#finished" }, "rk1")],
+      readingList,
+    );
+    expect(books[0].status).toBe("finished");
   });
 
   it("normalizes the ISBN13 from identifiers, stripping non-digits", () => {
@@ -198,7 +294,10 @@ describe("popfeedItemsToBooks", () => {
   });
 
   it("matches multiple selected list URIs", () => {
-    const allowedTwo = new Set([LIST_URI, OTHER_LIST_URI]);
+    const allowedTwo = new Map<string, ShelfStatus>([
+      [LIST_URI, "wantToRead"],
+      [OTHER_LIST_URI, "finished"],
+    ]);
     const books = popfeedItemsToBooks(
       [
         itemEntry({ title: "From List A", mainCredit: "a", listUri: LIST_URI }, "ra"),
@@ -207,5 +306,7 @@ describe("popfeedItemsToBooks", () => {
       allowedTwo,
     );
     expect(books.map((b) => b.title).sort()).toEqual(["From List A", "From List B"]);
+    expect(books.find((b) => b.title === "From List A")?.status).toBe("wantToRead");
+    expect(books.find((b) => b.title === "From List B")?.status).toBe("finished");
   });
 });

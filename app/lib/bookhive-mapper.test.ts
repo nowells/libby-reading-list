@@ -9,7 +9,7 @@ function entry(value: BookhiveListEntry["value"], rkey = "abc123"): BookhiveList
 }
 
 describe("bookhiveRecordsToBooks", () => {
-  it("keeps only wantToRead records", () => {
+  it("imports all recognised statuses", () => {
     const books = bookhiveRecordsToBooks([
       entry(
         {
@@ -35,12 +35,26 @@ describe("bookhiveRecordsToBooks", () => {
         },
         "rk3",
       ),
+      entry(
+        {
+          title: "Current Book",
+          authors: "Someone",
+          status: "reading",
+        },
+        "rk4",
+      ),
     ]);
 
-    expect(books).toHaveLength(1);
-    expect(books[0].title).toBe("The Great Gatsby");
-    expect(books[0].id).toBe("bh-rk1");
-    expect(books[0].source).toBe("bookhive");
+    expect(books).toHaveLength(4);
+    expect(books[0]).toMatchObject({
+      title: "The Great Gatsby",
+      id: "bh-rk1",
+      source: "bookhive",
+      status: "wantToRead",
+    });
+    expect(books[1]).toMatchObject({ title: "1984", status: "finished" });
+    expect(books[2]).toMatchObject({ title: "Abandoned Book", status: "abandoned" });
+    expect(books[3]).toMatchObject({ title: "Current Book", status: "reading" });
   });
 
   it("joins tab-separated authors with commas", () => {
@@ -125,7 +139,7 @@ describe("bookhiveRecordsToBooks", () => {
     expect(books[0].sourceUrl).toBeUndefined();
   });
 
-  it("skips ref-form statuses that aren't wantToRead", () => {
+  it("maps ref-form statuses correctly", () => {
     const books = bookhiveRecordsToBooks([
       entry({
         title: "Done",
@@ -134,7 +148,8 @@ describe("bookhiveRecordsToBooks", () => {
       }),
     ]);
 
-    expect(books).toHaveLength(0);
+    expect(books).toHaveLength(1);
+    expect(books[0].status).toBe("finished");
   });
 
   it("falls back to the generic isbn field when isbn13 is missing", () => {
