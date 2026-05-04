@@ -6,6 +6,7 @@
   "ignore": [
     "scripts/**",
     "e2e/**",
-    ".claude/**"
+    ".claude/**",
+    "public/sw.js"
   ]
 }
