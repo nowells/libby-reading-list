@@ -8,6 +8,7 @@ import {
   ScrollRestoration,
 } from "react-router";
 
+import { SwUpdateNotification } from "~/components/sw-update-notification";
 import { ThemeSelector } from "~/components/theme-selector";
 import { Logo } from "~/components/logo";
 import type { Route } from "./+types/root";
@@ -38,6 +39,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <meta name="theme-color" content="#d97706" />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://www.shelfcheck.org" />
         <meta
@@ -65,6 +68,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body className="min-h-screen flex flex-col">
+        <SwUpdateNotification />
         <div className="flex-1">{children}</div>
         <footer className="py-4 text-center text-sm text-gray-400 dark:text-gray-500">
           <div className="flex items-center justify-center gap-2 flex-wrap">
@@ -87,6 +91,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </footer>
         <ScrollRestoration />
         <Scripts />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if("serviceWorker"in navigator){window.addEventListener("load",()=>{navigator.serviceWorker.register("/sw.js")})}`,
+          }}
+        />
       </body>
     </html>
   );
