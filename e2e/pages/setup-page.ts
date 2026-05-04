@@ -94,10 +94,11 @@ export class SetupPage {
 
   async signOutOfBluesky() {
     await this.waitForReady();
-    await this.expandBlueskyPanel();
     // The Bluesky pane is rendered async (initSession resolves after a
-    // brief "Checking Bluesky session..." state). Wait for the Sign out
-    // affordance instead of relying on the default action timeout.
+    // brief "Checking Bluesky session..." state). Wait for the signed-in
+    // indicator before trying to expand the (now collapsed) panel.
+    await this.blueskySignedInRow().waitFor({ state: "visible", timeout: 10_000 });
+    await this.expandBlueskyPanel();
     const signOut = this.blueskySignOutLink();
     await signOut.waitFor({ state: "visible", timeout: 10_000 });
     await signOut.click();

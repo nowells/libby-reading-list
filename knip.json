@@ -5,6 +5,7 @@
   ],
   "ignore": [
     "scripts/**",
-    "e2e/**"
+    "e2e/**",
+    ".claude/**"
   ]
 }
