@@ -1,5 +1,5 @@
-import { Link, useParams, redirect } from "react-router";
-import { useEffect, useMemo, useState } from "react";
+import { Link, redirect, useLoaderData } from "react-router";
+import { useEffect, useState } from "react";
 import {
   getAuthors,
   getLibraries,
@@ -12,16 +12,35 @@ import { getAuthorDetails, getAuthorWorks, type AuthorDetails } from "~/lib/open
 import { Logo } from "~/components/logo";
 import { Markdown, truncateMarkdown } from "~/components/markdown";
 
-export function meta({ params }: { params: { authorKey?: string } }) {
-  return [{ title: `Author ${params.authorKey ?? ""} | ShelfCheck` }];
+type LoaderData = {
+  libraries: LibraryConfig[];
+  authorKey: string;
+  validKey: boolean;
+  details: AuthorDetails | null;
+};
+
+export function meta({ data }: { data?: LoaderData }) {
+  const name = data?.details?.name;
+  return [{ title: name ? `${name} | ShelfCheck` : "Author | ShelfCheck" }];
 }
 
-export function clientLoader() {
+export async function clientLoader({
+  params,
+}: {
+  params: { authorKey?: string };
+}): Promise<LoaderData> {
   const libraries = getLibraries();
   if (libraries.length === 0) {
     throw redirect("/setup");
   }
-  return { libraries };
+
+  const authorKey = params.authorKey ?? "";
+  const validKey = /^OL[A-Z0-9]+A$/.test(authorKey);
+  // Pre-fetch author details so meta() can show the real name in the tab.
+  // Errors fall back to a null record; the component-level effect will retry.
+  const details = validKey ? await getAuthorDetails(authorKey).catch(() => null) : null;
+
+  return { libraries, authorKey, validKey, details };
 }
 
 interface DisplayWork {
@@ -32,24 +51,19 @@ interface DisplayWork {
 }
 
 export default function AuthorDetailsPage() {
-  const params = useParams<{ authorKey: string }>();
-  const authorKey = params.authorKey ?? "";
-  const validKey = /^OL[A-Z0-9]+A$/.test(authorKey);
+  const { authorKey, validKey, details: initialDetails } = useLoaderData() as LoaderData;
 
-  const [details, setDetails] = useState<AuthorDetails | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(true);
+  const [details, setDetails] = useState<AuthorDetails | null>(initialDetails);
+  const [detailsLoading, setDetailsLoading] = useState(initialDetails === null && validKey);
   const [works, setWorks] = useState<DisplayWork[]>([]);
   const [worksLoading, setWorksLoading] = useState(true);
   const [bioExpanded, setBioExpanded] = useState(false);
   const [followed, setFollowed] = useState<AuthorEntry | undefined>();
 
-  // Libraries are accepted via clientLoader but not used here; kept stable for
-  // the "Find at my library" jumps from each work card.
-  const libraries = useMemo<LibraryConfig[]>(() => getLibraries(), []);
-  void libraries;
-
+  // Re-fetch author details if the loader didn't provide them (transient OL
+  // failure during the loader call).
   useEffect(() => {
-    if (!validKey) {
+    if (!validKey || details) {
       setDetailsLoading(false);
       return;
     }
@@ -63,7 +77,7 @@ export default function AuthorDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [authorKey, validKey]);
+  }, [authorKey, validKey, details]);
 
   useEffect(() => {
     if (!validKey) return;
