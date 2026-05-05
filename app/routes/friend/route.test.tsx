@@ -36,6 +36,23 @@ vi.mock("~/routes/friends/hooks/use-friends", () => ({
   useFriends: (...args: unknown[]) => mockUseFriends(...args),
 }));
 
+// Stub the availability checker — the tests don't care about Libby network
+// behaviour (covered in use-availability-checker.test) and mocking keeps the
+// run fast and deterministic.
+const mockRefreshBook = vi.fn();
+vi.mock("~/routes/books/hooks/use-availability-checker", () => ({
+  useAvailabilityChecker: () => ({
+    availMap: {},
+    checkedCount: 0,
+    loadingCount: 0,
+    totalBooks: 0,
+    refreshBook: mockRefreshBook,
+    refreshAll: vi.fn(),
+    oldestFetchedAt: null,
+    enrichmentProgress: null,
+  }),
+}));
+
 const { default: FriendDetail } = await import("./route");
 
 const fakeFriend: FriendShelf = {
@@ -217,6 +234,51 @@ describe("FriendDetail", () => {
 
     await expect.element(screen.getByText(/Friend not found/i)).toBeVisible();
     await expect.element(screen.getByText(/@missing\.bsky\.social/)).toBeVisible();
+  });
+
+  it("paginates the shelf when there are more entries than the page size", async () => {
+    // 12 finished books → with FRIEND_PAGE_SIZE=10, expect 2 pages.
+    const manyFinished: FriendShelf = {
+      profile: {
+        did: "did:plc:friend1",
+        handle: "alice.bsky.social",
+        displayName: "Alice Reader",
+      },
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        status: STATUS.finished,
+        title: `Book ${String(i + 1).padStart(2, "0")}`,
+        authors: [{ name: "Friend Author" }],
+        ids: { olWorkId: `OL${i + 1}W` },
+        createdAt: new Date().toISOString(),
+      })),
+      authors: [],
+    };
+
+    mockInitSession.mockResolvedValue({ session, info: session, fresh: false });
+    mockUseFriends.mockReturnValue({
+      friends: [manyFinished],
+      status: "done",
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
+    });
+
+    // Switch to the finished filter so the long shelf is the active list.
+    const screen = await renderAt("/friends/alice.bsky.social?status=finished");
+
+    await expect.element(screen.getByText("Page 1 of 2")).toBeVisible();
+    await expect.element(screen.getByText("Book 01")).toBeVisible();
+    await expect.element(screen.getByText("Book 10")).toBeVisible();
+    // Book 11 lives on page 2 and shouldn't render on page 1.
+    expect(screen.container.textContent).not.toContain("Book 11");
+
+    // Advance to page 2.
+    await screen.getByTitle("Next page").click();
+
+    await expect.element(screen.getByText("Page 2 of 2")).toBeVisible();
+    await expect.element(screen.getByText("Book 11")).toBeVisible();
+    await expect.element(screen.getByText("Book 12")).toBeVisible();
+    expect(screen.container.textContent).not.toContain("Book 01");
   });
 
   it("invokes refreshFriend when the header refresh button is clicked", async () => {

@@ -1,12 +1,9 @@
-import { Link, redirect, useParams } from "react-router";
-import { useEffect, useMemo, useState } from "react";
+import { Link, redirect, useParams, useSearchParams } from "react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
+import { usePostHog } from "@posthog/react";
 import { initSession } from "~/lib/atproto";
-import {
-  statusTokenName,
-  type ShelfEntryRecord,
-  type ShelfStatusToken,
-} from "~/lib/atproto/lexicon";
+import { statusTokenName, type ShelfEntryRecord } from "~/lib/atproto/lexicon";
 import {
   addBook,
   addAuthor,
@@ -17,6 +14,7 @@ import {
   readBookKey,
   type AuthorEntry,
   type Book,
+  type LibraryConfig,
   type ShelfStatus,
 } from "~/lib/storage";
 import { bookKey } from "~/lib/dedupe";
@@ -24,7 +22,9 @@ import { effectiveStatus, statusLabel } from "~/components/shelf-status";
 import { useFriends } from "~/routes/friends/hooks/use-friends";
 import type { FriendShelf } from "~/lib/atproto/friends";
 import { BookCard } from "~/routes/books/components/book-card";
-import { fuzzyMatch } from "~/routes/books/lib/utils";
+import { fuzzyMatch, PAGE_SIZE } from "~/routes/books/lib/utils";
+import { useAvailabilityChecker } from "~/routes/books/hooks/use-availability-checker";
+import type { BookAvailState } from "~/routes/books/lib/categorize";
 
 export const handle = {
   navActive: "friends",
@@ -51,6 +51,15 @@ export function clientLoader() {
 
 type StatusFilter = "all" | ShelfStatus;
 const STATUS_FILTERS: StatusFilter[] = ["wantToRead", "reading", "finished", "abandoned", "all"];
+
+/**
+ * Each card on this page kicks off a Libby availability check against the
+ * viewer's libraries — possibly several requests per book if the work has
+ * alternate-edition ISBNs. Cap the page size lower than /books so a friend
+ * with hundreds of finished reads doesn't trigger a fan-out of network
+ * requests just for browsing one shelf.
+ */
+const FRIEND_PAGE_SIZE = Math.min(PAGE_SIZE, 10);
 
 const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
@@ -112,6 +121,7 @@ function findOwnedBook(entry: ShelfEntryRecord, byKey: Map<string, Book>): Book 
 }
 
 export default function FriendDetail() {
+  const posthog = usePostHog();
   const { handle: handleParam } = useParams();
   const [session, setSession] = useState<OAuthSession | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -125,6 +135,7 @@ export default function FriendDetail() {
 
   const { friends, status, refreshing, refreshFriend, refreshingDids } = useFriends(session);
 
+  const [libraries] = useState<LibraryConfig[]>(() => getLibraries());
   const [myBooks, setMyBooks] = useState<Book[]>(() => getBooks());
   const [myAuthors, setMyAuthors] = useState<AuthorEntry[]>(() => getAuthors());
   const myReadKeys = useMemo(() => new Set(getReadBooks().map((r) => r.key)), [myBooks]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -149,8 +160,46 @@ export default function FriendDetail() {
     [friends, handleParam],
   );
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("wantToRead");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter: StatusFilter =
+    (STATUS_FILTERS.find((s) => s === searchParams.get("status")) as StatusFilter) ?? "wantToRead";
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
   const [searchQuery, setSearchQuery] = useState("");
+
+  const updateSearchParams = useCallback(
+    (updates: Record<string, string | null>) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          for (const [k, v] of Object.entries(updates)) {
+            if (v === null) next.delete(k);
+            else next.set(k, v);
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const handleStatusFilter = (s: StatusFilter) => {
+    if (s === "wantToRead") {
+      updateSearchParams({ status: null, page: "1" });
+    } else {
+      updateSearchParams({ status: s, page: "1" });
+    }
+  };
+
+  const goToPage = (p: number) => {
+    updateSearchParams({ page: String(p) });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleSearchChange = (q: string) => {
+    setSearchQuery(q);
+    updateSearchParams({ page: "1" });
+  };
 
   // Friend's own status counts — drives the status pill labels.
   const friendStatusCounts = useMemo(() => {
@@ -211,6 +260,47 @@ export default function FriendDetail() {
     }
     return list;
   }, [rows, statusFilter, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / FRIEND_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedRows = useMemo(
+    () => filteredRows.slice((safePage - 1) * FRIEND_PAGE_SIZE, safePage * FRIEND_PAGE_SIZE),
+    [filteredRows, safePage],
+  );
+
+  /**
+   * Only the visible page's books are sent to the availability checker — the
+   * whole reason for paginating this view is so a friend with hundreds of
+   * finished reads doesn't fan out into hundreds of Libby lookups. The
+   * checker caches per book.id in localStorage, so flipping pages back to a
+   * previously-loaded one rehydrates from cache without re-fetching.
+   *
+   * For owned books, displayBook.id is the viewer's local Book id, which
+   * means the cache hit is shared with /books — already-checked want-to-read
+   * books appear instantly here.
+   */
+  const visibleBooks = useMemo(() => paginatedRows.map((r) => r.displayBook), [paginatedRows]);
+
+  const handleBookEnriched = useCallback((bookId: string, updates: Partial<Book>) => {
+    // Friend's synthesized books have ids like `friend-OL...` and won't
+    // match any local Book — the map is a no-op for those. For owned
+    // books, the id matches and we update the local cache so the next
+    // render sees the enriched workId / canonicalTitle / etc.
+    setMyBooks((prev) => prev.map((b) => (b.id === bookId ? { ...b, ...updates } : b)));
+  }, []);
+
+  const { availMap, refreshBook } = useAvailabilityChecker(visibleBooks, libraries, {
+    onBookEnriched: handleBookEnriched,
+  });
+
+  const handleLibbyClick = (bookTitle: string, formatType: string, isAvailable: boolean) => {
+    posthog?.capture("friend_libby_link_clicked", {
+      friend_handle: handleParam,
+      book_title: bookTitle,
+      format_type: formatType,
+      is_available: isAvailable,
+    });
+  };
 
   /**
    * Adopt one of the friend's entries onto my own shelf as want-to-read. We
@@ -396,7 +486,7 @@ export default function FriendDetail() {
               <button
                 key={s}
                 type="button"
-                onClick={() => setStatusFilter(s)}
+                onClick={() => handleStatusFilter(s)}
                 aria-pressed={active}
                 className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
                   active
@@ -428,13 +518,13 @@ export default function FriendDetail() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Search title or author..."
               className="w-full pl-10 pr-9 py-2.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-400 dark:focus:ring-purple-500 focus:border-transparent"
             />
             {searchQuery && (
               <button
-                onClick={() => setSearchQuery("")}
+                onClick={() => handleSearchChange("")}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <svg
@@ -461,15 +551,19 @@ export default function FriendDetail() {
           </div>
         ) : (
           <ul className="space-y-3">
-            {filteredRows.map((row) => (
+            {paginatedRows.map((row) => (
               <FriendBookRow
                 key={row.key}
                 row={row}
+                state={availMap[row.displayBook.id] ?? { status: "pending" }}
+                libraries={libraries}
                 friendStatus={statusTokenName(row.entry.status)}
                 onAdd={() => handleAdd(row.entry)}
                 onFollowAuthor={
                   row.entry.authors?.[0]?.name ? () => handleFollowAuthor(row.entry) : undefined
                 }
+                onRefresh={() => refreshBook(row.displayBook)}
+                onLibbyClick={handleLibbyClick}
                 isAuthorFollowed={
                   row.entry.authors?.[0]
                     ? myAuthorNames.has(row.entry.authors[0].name.toLowerCase())
@@ -486,6 +580,90 @@ export default function FriendDetail() {
             ))}
           </ul>
         )}
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-1.5 mt-8">
+            <button
+              onClick={() => goToPage(1)}
+              disabled={safePage <= 1}
+              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="First page"
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5"
+                />
+              </svg>
+            </button>
+            <button
+              onClick={() => goToPage(safePage - 1)}
+              disabled={safePage <= 1}
+              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Previous page"
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 19.5L8.25 12l7.5-7.5"
+                />
+              </svg>
+            </button>
+            <span className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+              Page {safePage} of {totalPages}
+            </span>
+            <button
+              onClick={() => goToPage(safePage + 1)}
+              disabled={safePage >= totalPages}
+              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Next page"
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+            <button
+              onClick={() => goToPage(totalPages)}
+              disabled={safePage >= totalPages}
+              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Last page"
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5.25 4.5l7.5 7.5-7.5 7.5m6-15l7.5 7.5-7.5 7.5"
+                />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
     </main>
   );
@@ -497,25 +675,35 @@ interface FriendBookRowProps {
     mine?: Book;
     displayBook: Book;
   };
+  state: BookAvailState;
+  libraries: LibraryConfig[];
   friendStatus: string | undefined;
   onAdd: () => void;
   onFollowAuthor?: () => void;
+  onRefresh?: () => void;
+  onLibbyClick?: (bookTitle: string, formatType: string, isAvailable: boolean) => void;
   isAuthorFollowed: boolean;
   isRead: boolean;
 }
 
 /**
  * One row on the friend detail page. Reuses BookCard for visual continuity
- * with /books, but the action set is restricted: no Libby availability, no
- * edit / find / remove on someone else's record. The `headerExtras` slot
- * carries the "+ Add" CTA (for unowned books) or the "On your shelf" badge
- * (for owned books).
+ * with /books — the only restrictions are on edit-style actions, which the
+ * viewer obviously can't do on someone else's record. Libby availability
+ * IS shown (paginated, page-bounded so we don't fan out hundreds of
+ * lookups for a single browse), because the most useful question on this
+ * page is "can I borrow this from MY library right now?" — and the answer
+ * is independent of the friend's status on the book.
  */
 function FriendBookRow({
   row,
+  state,
+  libraries,
   friendStatus,
   onAdd,
   onFollowAuthor,
+  onRefresh,
+  onLibbyClick,
   isAuthorFollowed,
   isRead,
 }: FriendBookRowProps) {
@@ -599,13 +787,15 @@ function FriendBookRow({
   return (
     <BookCard
       book={row.displayBook}
-      state={{ status: "pending" }}
-      libraries={[]}
+      state={state}
+      libraries={libraries}
       formatFilter="all"
       isRead={isRead}
       isAuthorFollowed={isAuthorFollowed}
       onFollowAuthor={onFollowAuthor}
-      showAvailability={false}
+      onRefresh={onRefresh}
+      onLibbyClick={onLibbyClick}
+      showAvailability={libraries.length > 0}
       hideStatusPill={!owned}
       headerExtras={headerExtras}
       belowStatusExtras={friendBadge}

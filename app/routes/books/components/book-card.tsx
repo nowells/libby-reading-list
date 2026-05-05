@@ -348,8 +348,11 @@ export function BookCard({
   );
 
   const status = effectiveStatus(book);
-  const isWantToRead = status === "wantToRead";
-  const renderAvailability = showAvailability && isWantToRead;
+  // The parent route decides when to render availability — the /books page
+  // only flips this on for the want-to-read filter; the friend detail page
+  // flips it on regardless of the friend's status because the question is
+  // "can I borrow it from MY library?", not "are they reading it?".
+  const renderAvailability = showAvailability;
 
   // Sort by ETA: available first (0), then by estimatedWaitDays ascending
   const results = useMemo(() => {
