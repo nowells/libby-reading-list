@@ -19,12 +19,21 @@ const HeaderActionContext = createContext<HTMLDivElement | null>(null);
 /**
  * Renders its children into the shared header's per-page action slot.
  * Used by routes that want a contextual button (e.g. "+ Add" on /books)
- * to live inside the sticky header rather than in the page body.
+ * to live inside the sticky header rather than in the page body. We
+ * also emit a thin vertical divider after the action so the page-action
+ * zone reads as visually separate from the global nav — and pages that
+ * don't render a HeaderAction have neither button nor divider.
  */
 export function HeaderAction({ children }: { children: ReactNode }) {
   const slot = useContext(HeaderActionContext);
   if (!slot) return null;
-  return createPortal(children, slot);
+  return createPortal(
+    <>
+      {children}
+      <span aria-hidden className="w-px h-5 bg-gray-300 dark:bg-gray-600 flex-shrink-0" />
+    </>,
+    slot,
+  );
 }
 
 const NAV_ITEMS: { key: string; to: string; label: string; icon: React.ReactNode }[] = [
@@ -188,7 +197,7 @@ export default function MainLayout() {
             </h1>
           )}
           <div ref={setActionSlot} className="ml-auto flex items-center gap-3" />
-          <nav className="flex items-center gap-3 sm:gap-4">
+          <nav className="flex items-center gap-1 sm:gap-2">
             {NAV_ITEMS.map((item) => {
               const active = navActive === item.key;
               return (
@@ -196,10 +205,13 @@ export default function MainLayout() {
                   key={item.key}
                   to={item.to}
                   aria-current={active ? "page" : undefined}
+                  // Active state uses a neutral pill rather than amber
+                  // text — amber is the action color (Add buttons), and
+                  // it shouldn't double as the "you are here" indicator.
                   className={
                     active
-                      ? "inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 dark:text-amber-400"
-                      : "inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                      ? "inline-flex items-center gap-1.5 text-sm font-medium px-2 py-1 rounded-full text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700/70"
+                      : "inline-flex items-center gap-1.5 text-sm px-2 py-1 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100/70 dark:hover:bg-gray-700/40"
                   }
                 >
                   {item.icon}
