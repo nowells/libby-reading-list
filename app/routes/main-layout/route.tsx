@@ -197,7 +197,7 @@ export default function MainLayout() {
             </h1>
           )}
           <div ref={setActionSlot} className="ml-auto flex items-center gap-3" />
-          <nav className="flex items-center gap-1 sm:gap-2">
+          <nav className="flex items-center gap-3 sm:gap-4">
             {NAV_ITEMS.map((item) => {
               const active = navActive === item.key;
               return (
@@ -205,13 +205,15 @@ export default function MainLayout() {
                   key={item.key}
                   to={item.to}
                   aria-current={active ? "page" : undefined}
-                  // Active state uses a neutral pill rather than amber
-                  // text — amber is the action color (Add buttons), and
-                  // it shouldn't double as the "you are here" indicator.
+                  // Active vs inactive is just text weight + color
+                  // contrast — no padded pill background, since amber
+                  // owns the "action" affordance and the header has
+                  // limited horizontal room (page title would otherwise
+                  // get truncated on mobile).
                   className={
                     active
-                      ? "inline-flex items-center gap-1.5 text-sm font-medium px-2 py-1 rounded-full text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700/70"
-                      : "inline-flex items-center gap-1.5 text-sm px-2 py-1 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100/70 dark:hover:bg-gray-700/40"
+                      ? "inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-white"
+                      : "inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                   }
                 >
                   {item.icon}
