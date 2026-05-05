@@ -252,6 +252,7 @@ export function authorRecordToEntry(record: AuthorFollowRecord, rkey: string): A
     name: record.name,
     olKey: record.olAuthorKey,
     imageUrl: record.imageUrl,
+    pdsRkey: rkey,
   };
 }
 

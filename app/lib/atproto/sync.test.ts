@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { attachSession, detachSession, resync } from "./sync";
 import * as records from "./records";
+import type { ListedRecord } from "./records";
 import * as storage from "../storage";
 import {
   NSID,
@@ -95,7 +96,7 @@ describe("sync", () => {
       expect(remote?.pdsRkey).toBe("r1");
     });
 
-    it("pulls new authors from PDS", async () => {
+    it("pulls new authors from PDS and tags them with pdsRkey for later deletes", async () => {
       const authorRecord: AuthorFollowRecord = {
         name: "Remote Author",
         createdAt: new Date().toISOString(),
@@ -113,6 +114,58 @@ describe("sync", () => {
       const authors = storage.getAuthors();
       const remote = authors.find((a) => a.name === "Remote Author");
       expect(remote).toBeDefined();
+      // Without pdsRkey on the local entry, removeAuthor() can't tell the
+      // sync engine which record to delete from the PDS — and a subsequent
+      // resync would silently re-pull the same record.
+      expect(remote?.pdsRkey).toBe("a1");
+    });
+
+    it("merges a locally-added author with PDS records on bootstrap without deleting either side", async () => {
+      // Reproduces the user-reported scenario: 1 manually-added author on
+      // this device + 6 different authors already on the PDS from another
+      // device. After sign-in, local should hold all 7 and the only PDS
+      // write should be a single createRecord for the manual author —
+      // never a delete.
+      storage.addAuthor({ name: "Local Manual Author" });
+
+      const remoteAuthors: ListedRecord<AuthorFollowRecord>[] = Array.from(
+        { length: 6 },
+        (_, i) => ({
+          uri: `at://test/col/r${i}`,
+          rkey: `r${i}`,
+          value: {
+            name: `Remote Author ${i}`,
+            olAuthorKey: `OL${1000 + i}A`,
+            createdAt: new Date().toISOString(),
+          },
+        }),
+      );
+
+      vi.mocked(records.listRecords).mockImplementation(async (_session, collection) => {
+        if (collection === NSID.authorFollow) return remoteAuthors;
+        return [];
+      });
+      vi.mocked(records.putRecord).mockResolvedValue({
+        uri: "at://test/col/manual",
+        rkey: "manual-rkey",
+      });
+      vi.mocked(records.deleteRecord).mockResolvedValue();
+
+      await attachSession(fakeSession, { bootstrap: true });
+
+      // All 7 authors are now in local storage.
+      const authors = storage.getAuthors();
+      expect(authors).toHaveLength(7);
+      expect(authors.find((a) => a.name === "Local Manual Author")?.pdsRkey).toBe("manual-rkey");
+      for (let i = 0; i < 6; i++) {
+        expect(authors.find((a) => a.name === `Remote Author ${i}`)?.pdsRkey).toBe(`r${i}`);
+      }
+
+      // Exactly one putRecord — the manual author being pushed up. The 6
+      // remote authors must not be re-pushed (they already exist in the
+      // PDS) and absolutely no delete should fire.
+      expect(records.putRecord).toHaveBeenCalledTimes(1);
+      expect(records.deleteRecord).not.toHaveBeenCalled();
     });
 
     it("pulls new dismissed works from PDS", async () => {
