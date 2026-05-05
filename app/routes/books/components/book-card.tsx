@@ -2,18 +2,17 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router";
 import type { Book, LibraryConfig, ShelfStatus } from "~/lib/storage";
 import { FormatIcon } from "~/components/format-icon";
-import { LibraryIcon, LibraryName } from "~/components/library-icon";
 import { CoverImage } from "~/components/cover-image";
 import { SourceLinks } from "~/components/source-links";
 import { StarRating } from "~/components/star-rating";
 import { SHELF_STATUSES, statusLabel, effectiveStatus } from "~/components/shelf-status";
-import { EtaBadge } from "./eta-badge";
+import { AvailabilityTable } from "./availability-table";
 import {
   categorizeBookWithFormat,
   type BookAvailState,
   type FormatFilter,
 } from "../lib/categorize";
-import { timeAgo, libbyTitleUrl, formatAudiobookDuration } from "../lib/utils";
+import { timeAgo, formatAudiobookDuration } from "../lib/utils";
 
 const STATUS_PILL_CLASSES: Record<ShelfStatus, string> = {
   wantToRead:
@@ -331,8 +330,6 @@ export function BookCard({
   headerExtras,
   belowStatusExtras,
 }: BookCardProps) {
-  const [showAll, setShowAll] = useState(false);
-  const multiLibrary = libraries.length > 1;
   const hasData = !!state.data;
   const category = categorizeBookWithFormat(state, formatFilter);
   const isLoading = (state.status === "pending" || state.status === "loading") && !hasData;
@@ -363,9 +360,9 @@ export function BookCard({
     });
   }, [filteredRaw]);
 
+  // Cap visible rows in the per-card table — anything past this collapses
+  // behind a "Show N more" affordance that AvailabilityTable owns.
   const MAX_VISIBLE = 4;
-  const hasMore = results.length > MAX_VISIBLE;
-  const visibleResults = showAll ? results : results.slice(0, MAX_VISIBLE);
 
   // Left border tints by availability category for want-to-read books, by
   // status for everything else. The reading-history-style cards don't have
@@ -543,100 +540,18 @@ export function BookCard({
         </div>
       </div>
 
-      {/* Libby availability detail table — only for want-to-read */}
+      {/* Libby availability detail table — only when the parent flips on
+          showAvailability. AvailabilityTable handles the "Show N more" toggle
+          internally so we only need to pass the row data + cap. */}
       {renderAvailability && isDone && results.length > 0 && (
         <div className="border-t border-gray-100 dark:border-gray-700">
-          <div
-            className={`grid gap-x-2 sm:gap-x-3 px-4 py-2 text-[10px] sm:text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider ${
-              multiLibrary
-                ? "grid-cols-[28px_40px_1fr_1fr_1fr] sm:grid-cols-[24px_1fr_1fr_70px_70px_60px]"
-                : "grid-cols-[28px_1fr_1fr_1fr] sm:grid-cols-[24px_1fr_70px_70px_60px]"
-            }`}
-          >
-            <span></span>
-            {multiLibrary && (
-              <span>
-                <span className="hidden sm:inline">Library</span>
-              </span>
-            )}
-            <span className="hidden sm:block">Publisher</span>
-            <span className="text-right">Holds</span>
-            <span className="text-right">Copies</span>
-            <span className="text-right">ETA</span>
-          </div>
-          {visibleResults.map((r) => {
-            const preferredKey =
-              libraries.find((l) => l.key === r.libraryKey)?.preferredKey ?? r.libraryKey;
-            const url = libbyTitleUrl(preferredKey, r.mediaItem.id);
-            return (
-              <a
-                key={`${r.libraryKey}-${r.mediaItem.id}`}
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => onLibbyClick?.(book.title, r.formatType, r.availability.isAvailable)}
-                className={`grid gap-x-2 sm:gap-x-3 px-4 py-2.5 items-center border-t border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group ${
-                  multiLibrary
-                    ? "grid-cols-[28px_40px_1fr_1fr_1fr] sm:grid-cols-[24px_1fr_1fr_70px_70px_60px]"
-                    : "grid-cols-[28px_1fr_1fr_1fr] sm:grid-cols-[24px_1fr_70px_70px_60px]"
-                }`}
-              >
-                <span className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                  <FormatIcon type={r.formatType} />
-                </span>
-                {multiLibrary && (
-                  <span className="flex items-center gap-2 min-w-0 text-sm text-gray-700 dark:text-gray-300">
-                    <LibraryIcon libraryKey={r.libraryKey} libraries={libraries} />
-                    <span className="hidden sm:inline truncate">
-                      <LibraryName libraryKey={r.libraryKey} libraries={libraries} />
-                    </span>
-                  </span>
-                )}
-                <span className="hidden sm:block text-sm text-gray-600 dark:text-gray-400 truncate">
-                  {r.mediaItem.publisher?.name ? (
-                    <>
-                      {r.mediaItem.publisher.name}
-                      {r.mediaItem.publishDate && (
-                        <span className="text-gray-400 dark:text-gray-500">
-                          {" "}
-                          ({r.mediaItem.publishDate.slice(0, 4)})
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-gray-400 dark:text-gray-500">&mdash;</span>
-                  )}
-                </span>
-                <span
-                  className={`text-right text-sm tabular-nums ${r.availability.numberOfHolds > 100 ? "text-red-500 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}
-                >
-                  {r.availability.isAvailable ? (
-                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">0</span>
-                  ) : (
-                    r.availability.numberOfHolds
-                  )}
-                </span>
-                <span className="text-right text-sm text-gray-700 dark:text-gray-300 tabular-nums">
-                  {r.availability.copiesAvailable}/{r.availability.copiesOwned}
-                </span>
-                <span className="text-right text-sm">
-                  {r.availability.isAvailable ? (
-                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">Now</span>
-                  ) : (
-                    <EtaBadge days={r.availability.estimatedWaitDays} />
-                  )}
-                </span>
-              </a>
-            );
-          })}
-          {hasMore && (
-            <button
-              onClick={() => setShowAll((s) => !s)}
-              className="w-full text-center py-2 border-t border-gray-50 dark:border-gray-700/50 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-            >
-              {showAll ? "Show less" : `Show ${results.length - MAX_VISIBLE} more`}
-            </button>
-          )}
+          <AvailabilityTable
+            bookTitle={book.title}
+            results={results}
+            libraries={libraries}
+            onLibbyClick={onLibbyClick}
+            maxVisible={MAX_VISIBLE}
+          />
           <div className="flex items-center justify-between px-4 py-2 border-t border-gray-50 dark:border-gray-700/50">
             <div className="flex items-center gap-3">
               <SourceLinks book={book} />

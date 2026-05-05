@@ -25,13 +25,10 @@ import {
   type SeriesBook,
 } from "~/lib/openlibrary";
 import { CoverImage } from "~/components/cover-image";
-import { FormatIcon } from "~/components/format-icon";
-import { LibraryIcon, LibraryName } from "~/components/library-icon";
 import { Logo } from "~/components/logo";
 import { Markdown, truncateMarkdown } from "~/components/markdown";
 import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
-import { libbyTitleUrl } from "~/routes/books/lib/utils";
-import { EtaBadge } from "~/routes/books/components/eta-badge";
+import { AvailabilityTable } from "~/routes/books/components/availability-table";
 
 type LoaderData = {
   libraries: LibraryConfig[];
@@ -606,53 +603,12 @@ export default function BookDetails() {
             </p>
           )}
           {availability && availability.results.length > 0 && (
-            <div className="space-y-1">
-              {availability.results.map((r) => {
-                const preferredKey =
-                  libraries.find((l) => l.key === r.libraryKey)?.preferredKey ?? r.libraryKey;
-                return (
-                  <a
-                    key={`${r.libraryKey}-${r.mediaItem.id}`}
-                    href={libbyTitleUrl(preferredKey, r.mediaItem.id)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm"
-                  >
-                    <span className="text-gray-500 dark:text-gray-400 [&_svg]:w-4 [&_svg]:h-4">
-                      <FormatIcon type={r.formatType} />
-                    </span>
-                    <span className="flex items-center gap-2 min-w-0 flex-1">
-                      <LibraryIcon libraryKey={r.libraryKey} libraries={libraries} />
-                      <span className="truncate text-gray-700 dark:text-gray-200">
-                        <LibraryName libraryKey={r.libraryKey} libraries={libraries} />
-                      </span>
-                    </span>
-                    <span
-                      className={`text-xs tabular-nums ${
-                        r.availability.numberOfHolds > 100
-                          ? "text-red-500"
-                          : "text-gray-500 dark:text-gray-400"
-                      }`}
-                    >
-                      {r.availability.isAvailable
-                        ? "0 holds"
-                        : `${r.availability.numberOfHolds} holds`}
-                    </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-                      {r.availability.copiesAvailable}/{r.availability.copiesOwned}
-                    </span>
-                    <span className="text-xs">
-                      {r.availability.isAvailable ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                          Now
-                        </span>
-                      ) : (
-                        <EtaBadge days={r.availability.estimatedWaitDays} />
-                      )}
-                    </span>
-                  </a>
-                );
-              })}
+            <div className="-mx-5">
+              <AvailabilityTable
+                bookTitle={availability.bookTitle}
+                results={availability.results}
+                libraries={libraries}
+              />
             </div>
           )}
         </section>
