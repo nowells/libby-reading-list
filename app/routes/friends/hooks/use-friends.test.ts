@@ -180,6 +180,39 @@ describe("useFriends", () => {
     await expect.element(screen.getByText("count:0")).toBeInTheDocument();
   });
 
+  it("keeps a known friend cached when their PDS errors during refresh", async () => {
+    // The user-reported scenario: a self-hosted PDS goes down between
+    // signins. The friend we already discovered shouldn't disappear; we
+    // keep showing the cached entry (which the FriendCard surfaces with a
+    // "stale" indicator off the unchanged refreshedAt).
+    const staleFriend: friendsModule.FriendShelf = {
+      ...fakeFriend,
+      refreshedAt: Date.now() - 2 * 24 * HOUR, // 2 days old
+    };
+    const cached = {
+      version: CACHE_VERSION,
+      friends: [staleFriend],
+      fetchedAt: Date.now() - 3 * HOUR,
+    };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
+
+    vi.mocked(friendsModule.fetchFriendShelf).mockRejectedValue(
+      new Error("PdsUnavailableError: 503"),
+    );
+    vi.mocked(friendsModule.discoverFriends).mockResolvedValue([]);
+
+    const screen = await render(createElement(HookHarness, { session: fakeSession }));
+
+    await expect.element(screen.getByText("refreshing:false")).toBeInTheDocument();
+    await expect.element(screen.getByText("count:1")).toBeInTheDocument();
+
+    // The cache should still hold the friend with their original refreshedAt
+    // intact — the failed refresh must not advance the timestamp.
+    const written = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "null");
+    expect(written.friends).toHaveLength(1);
+    expect(written.friends[0].refreshedAt).toBe(staleFriend.refreshedAt);
+  });
+
   it("skips discovery when the cache is fresher than the 2h discovery window", async () => {
     const cached = {
       version: CACHE_VERSION,

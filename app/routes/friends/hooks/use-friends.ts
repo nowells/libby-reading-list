@@ -115,8 +115,20 @@ export function useFriends(session: OAuthSession | null) {
             const results = await Promise.allSettled(
               batch.map((f) => fetchFriendShelf(f.profile, { signal: controller.signal })),
             );
-            for (const r of results) {
-              if (r.status === "fulfilled" && r.value) refreshed.push(r.value);
+            for (let j = 0; j < results.length; j++) {
+              const result = results[j];
+              const original = batch[j];
+              if (result.status === "fulfilled") {
+                // null = the friend genuinely has no shelf entries anymore
+                // (they removed every book, or never had any). Drop them.
+                if (result.value) refreshed.push(result.value);
+              } else {
+                // Rejected = PDS unreachable / transport error. Keep the
+                // previously-cached shelf so a transient outage on a self-
+                // hosted PDS doesn't wipe the friend; refreshedAt stays put
+                // so the UI can render a "stale since" indicator.
+                refreshed.push(original);
+              }
             }
             if (controller.signal.aborted) return;
             const checked = Math.min(i + REFRESH_BATCH_SIZE, current.length);
