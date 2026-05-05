@@ -55,26 +55,6 @@ const NAV_ITEMS: { key: string; to: string; label: string; icon: React.ReactNode
     ),
   },
   {
-    key: "shelf",
-    to: "/shelf",
-    label: "Shelf",
-    icon: (
-      <svg
-        className="w-4 h-4"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M3.75 19.5h16.5M4.5 6.75h15M5.25 4.5v15M18.75 4.5v15M9 4.5v15M15 4.5v15"
-        />
-      </svg>
-    ),
-  },
-  {
     key: "friends",
     to: "/friends",
     label: "Friends",
