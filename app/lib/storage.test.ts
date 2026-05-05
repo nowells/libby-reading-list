@@ -589,6 +589,48 @@ describe("clearAll", () => {
     clearAll();
     expect(getLibraries()).toEqual([]);
   });
+
+  it("emits NO mutations — Reset all is local-only and must not delete from the PDS", () => {
+    // The user-reported data-loss bug: with the sync engine attached,
+    // any mutation emitted from clearAll cascaded into deleteRecord
+    // calls that wiped the user's PDS shelf. clearAll must purge the
+    // local cache silently so a follow-up resync can re-pull from PDS.
+    addLibrary({ key: "lapl", preferredKey: "lapl", name: "LAPL" });
+    addBook({ title: "Book", author: "Author", source: "unknown" });
+    addAuthor({ name: "Author" });
+    addReadBook({ key: "work:OL1W", title: "B", author: "A" });
+    addDismissedWork({ key: "work:OL2W" });
+    // Pretend each entity was previously synced so a stray mutation
+    // would translate into a PDS delete by the sync engine.
+    const seededId = getBooks()[0].id;
+    _setBookPdsRkey(seededId, "book-rkey");
+
+    const seen: string[] = [];
+    const unsubscribe = onStorageMutation((m) => seen.push(m.kind));
+
+    clearAll();
+
+    unsubscribe();
+    expect(seen).toEqual([]);
+  });
+
+  it("clearBooks is local-only and emits no mutation", () => {
+    addBook({ title: "Book", author: "Author", source: "unknown" });
+    const seen: string[] = [];
+    const unsubscribe = onStorageMutation((m) => seen.push(m.kind));
+    clearBooks();
+    unsubscribe();
+    expect(seen).toEqual([]);
+  });
+
+  it("clearAuthors is local-only and emits no mutation", () => {
+    addAuthor({ name: "Author" });
+    const seen: string[] = [];
+    const unsubscribe = onStorageMutation((m) => seen.push(m.kind));
+    clearAuthors();
+    unsubscribe();
+    expect(seen).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

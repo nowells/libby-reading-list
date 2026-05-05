@@ -231,10 +231,18 @@ export function removeBook(id: string) {
   emitMutation({ kind: "book:removed", book: removed });
 }
 
+/**
+ * Reset the local books cache. This is a LOCAL-ONLY operation — it does
+ * NOT propagate to the PDS via the sync engine. Reset-all and similar
+ * UI flows expect the PDS to remain authoritative so the user can
+ * re-pull their data with a resync; cascading every book in cache to a
+ * PDS deleteRecord here would be a destructive surprise.
+ *
+ * To delete a single record from the PDS use `removeBook` instead, and
+ * for shrinking-import semantics use `setImportedBooks`.
+ */
 export function clearBooks() {
-  const previous = getBooks();
   remove("books");
-  emitMutation({ kind: "books:bulkSet", previous, next: [] });
 }
 
 export function getBookhiveLastSync(): string | null {
@@ -425,10 +433,12 @@ export function removeAuthor(id: string) {
   emitMutation({ kind: "author:removed", author: removed });
 }
 
+/**
+ * Reset the local authors cache. LOCAL-ONLY — see {@link clearBooks} for
+ * the rationale. Use `removeAuthor` to delete a specific PDS record.
+ */
 export function clearAuthors() {
-  const previous = getAuthors();
   remove("authors");
-  for (const a of previous) emitMutation({ kind: "author:removed", author: a });
 }
 
 // --- Notification Settings ---
@@ -465,6 +475,14 @@ export function setPreviousAvailabilityState(state: Record<string, boolean>) {
   set("previous-availability", state);
 }
 
+/**
+ * Reset the entire local cache. LOCAL-ONLY — does not delete anything
+ * from the user's PDS. The intended "Reset all" flow on /setup is to
+ * dump the local cache and let a subsequent resync pull the PDS state
+ * back down; if we propagated these clears to the sync engine, the
+ * PDS-as-source-of-truth contract would be reversed and the user's
+ * remote data would be wiped.
+ */
 export function clearAll() {
   clearLibraries();
   clearBooks();
@@ -475,14 +493,8 @@ export function clearAll() {
   remove("author-availability");
   remove("notification-settings");
   remove("previous-availability");
-  // Emit removals for read + dismissed so any active sync engine can
-  // propagate the deletion to the PDS.
-  const reads = getReadBooks();
   remove("read-books");
-  for (const r of reads) emitMutation({ kind: "read:removed", entry: r });
-  const dismissals = getDismissedWorks();
   remove("dismissed-works");
-  for (const d of dismissals) emitMutation({ kind: "dismissed:removed", entry: d });
 }
 
 // --- Mutation event bus (for the ATproto sync engine) ---
