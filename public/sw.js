@@ -13,6 +13,45 @@ self.addEventListener("message", (event) => {
   }
 });
 
+// Handle push notifications (for future server-sent push support)
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  const payload = event.data.json();
+  const title = payload.title || "ShelfCheck";
+  const options = {
+    body: payload.body || "A book is now available!",
+    icon: "/apple-touch-icon.png",
+    badge: "/favicon-48x48.png",
+    tag: payload.tag || "availability-update",
+    renotify: true,
+    data: { url: payload.url || "/books" },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Open the app when clicking a notification
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  const url = event.notification.data?.url || "/books";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      // Focus existing window if open
+      for (const client of clientList) {
+        if (new URL(client.url).pathname === url && "focus" in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise open a new one
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(url);
+      }
+    }),
+  );
+});
+
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>

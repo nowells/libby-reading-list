@@ -32,6 +32,7 @@ import {
   type LibbyMediaItem,
 } from "~/lib/libby";
 import { BookSearchPicker } from "~/components/book-search-picker";
+import { NotificationSettingsPanel } from "~/components/notification-settings";
 import {
   initSession,
   signInWithBluesky,
@@ -869,12 +870,17 @@ export default function Setup() {
 
           {booksDone && (
             <div className="flex items-center justify-between gap-3 mb-4">
-              <p className="text-green-600 dark:text-green-400 min-w-0 truncate">
+              <p className="text-green-600 dark:text-green-400 min-w-0">
                 {books.length} books loaded
                 {sourceBreakdown.length > 0 && (
                   <span className="text-gray-500 dark:text-gray-400">
                     {" \u2014 "}
-                    {sourceBreakdown.join(" \u00b7 ")}
+                    {sourceBreakdown.map((s, i) => (
+                      <span key={s}>
+                        {i > 0 && " \u00b7 "}
+                        <span className="whitespace-nowrap">{s}</span>
+                      </span>
+                    ))}
                   </span>
                 )}
               </p>
@@ -1287,6 +1293,20 @@ export default function Setup() {
             </p>
           )}
         </section>
+
+        {/* Step 4: Notifications (optional) */}
+        {allDone && (
+          <section className="bg-white dark:bg-gray-800 rounded-xl shadow p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                4
+              </span>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Notifications</h2>
+              <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">Optional</span>
+            </div>
+            <NotificationSettingsPanel />
+          </section>
+        )}
 
         {/* Actions */}
         <div className="flex gap-3">
