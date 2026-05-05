@@ -1,7 +1,7 @@
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const OAUTH_SCOPE =
@@ -40,9 +40,31 @@ function atprotoClientMetadata(): Plugin {
   };
 }
 
+/**
+ * Stamps `public/sw.js` with a unique build ID so every deploy ships
+ * byte-distinct service-worker source. The browser detects SW updates by
+ * byte-comparing the served file against the installed one; without a
+ * per-build change the `updatefound` event never fires and clients never see
+ * the "new version available" banner.
+ */
+function serviceWorkerBuildId(): Plugin {
+  return {
+    name: "service-worker-build-id",
+    apply: "build",
+    writeBundle(options) {
+      const outDir = options.dir ?? resolve("build/client");
+      // Only stamp the client output; the SSR build doesn't ship sw.js.
+      if (!outDir.replace(/[\\/]+$/, "").endsWith("client")) return;
+      const buildId = process.env.SW_BUILD_ID ?? Date.now().toString(36);
+      const source = readFileSync(resolve("public/sw.js"), "utf8");
+      writeFileSync(resolve(outDir, "sw.js"), source.replace(/__SW_BUILD_ID__/g, buildId));
+    },
+  };
+}
+
 export default defineConfig({
   base: process.env.BASENAME ?? "/",
-  plugins: [tailwindcss(), reactRouter(), atprotoClientMetadata()],
+  plugins: [tailwindcss(), reactRouter(), atprotoClientMetadata(), serviceWorkerBuildId()],
   resolve: {
     tsconfigPaths: true,
   },

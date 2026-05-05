@@ -1,4 +1,4 @@
-const CACHE_NAME = "shelfcheck-v1";
+const CACHE_NAME = "shelfcheck-__SW_BUILD_ID__";
 const PRECACHE_URLS = ["/", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
