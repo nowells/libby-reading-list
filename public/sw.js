@@ -61,14 +61,21 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
+  // Run the cache cleanup AND clients.claim() inside waitUntil so the
+  // browser doesn't consider the activation finished before existing pages
+  // have been claimed. Without claim() awaited, controllerchange in the
+  // page can race the activate event and never fire — the page sits on
+  // the old SW even though the new one is technically active.
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
+    Promise.all([
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
+        ),
       ),
-    ),
+      self.clients.claim(),
+    ]),
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
