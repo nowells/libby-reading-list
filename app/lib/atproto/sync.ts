@@ -415,6 +415,20 @@ function handleMutation(session: OAuthSession, m: StorageMutation): void {
     case "author:added":
       void safePushAuthor(session, m.author);
       return;
+    case "author:updated":
+      if (m.author.pdsRkey) {
+        // putRecord with rkey replaces the existing PDS record in place.
+        void putRecord(
+          session,
+          NSID.authorFollow,
+          authorEntryToRecord(m.author),
+          m.author.pdsRkey,
+        ).catch((err) => console.error("[sync] failed to update author follow", err));
+      } else {
+        // Local entry never made it up before — push as a new record.
+        void safePushAuthor(session, m.author);
+      }
+      return;
     case "author:removed":
       if (m.author.pdsRkey) {
         void deleteRecord(session, NSID.authorFollow, m.author.pdsRkey).catch((err) =>

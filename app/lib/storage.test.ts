@@ -146,6 +146,69 @@ describe("mergeImportForSource", () => {
     expect(result[0].id).toBe("gr-1");
     expect(result[0].manual).toBe(true);
   });
+
+  it("preserves PDS-backed books across an external-source resync that no longer carries them", () => {
+    // Reproduces the "100 books on initial signin" symptom: PDS pull-down
+    // hydrates 3 bookhive-tagged books with pdsRkey set, then the bookhive
+    // collection itself only returns 1. The 2 PDS-only books must survive.
+    const existing: Book[] = [
+      book({
+        id: "bh-1",
+        source: "bookhive",
+        title: "Foundation",
+        author: "Asimov",
+        workId: "OL1W",
+        pdsRkey: "rkey-1",
+      }),
+      book({
+        id: "bh-2",
+        source: "bookhive",
+        title: "Dune",
+        author: "Herbert",
+        workId: "OL2W",
+        pdsRkey: "rkey-2",
+      }),
+      book({
+        id: "bh-3",
+        source: "bookhive",
+        title: "Neuromancer",
+        author: "Gibson",
+        workId: "OL3W",
+        pdsRkey: "rkey-3",
+      }),
+    ];
+    const imported: Book[] = [
+      book({
+        id: "bh-1-fresh",
+        source: "bookhive",
+        title: "Foundation",
+        author: "Asimov",
+        workId: "OL1W",
+      }),
+    ];
+
+    const result = mergeImportForSource(existing, imported, "bookhive");
+
+    expect(result).toHaveLength(3);
+    const byWork = new Map(result.map((b) => [b.workId, b]));
+    // Foundation: present in both — deduped, fresh wins on id, but the
+    // pre-existing pdsRkey survives via mergeBooks.
+    expect(byWork.get("OL1W")?.pdsRkey).toBe("rkey-1");
+    // Dune & Neuromancer: PDS-only, preserved as-is.
+    expect(byWork.get("OL2W")?.pdsRkey).toBe("rkey-2");
+    expect(byWork.get("OL3W")?.pdsRkey).toBe("rkey-3");
+  });
+
+  it("still replaces source-tagged books that have no pdsRkey", () => {
+    const existing: Book[] = [
+      book({ id: "bh-stale", source: "bookhive", title: "Stale Book", workId: "OL9W" }),
+    ];
+    const imported: Book[] = [book({ id: "bh-fresh", source: "bookhive", title: "Fresh Book" })];
+
+    const result = mergeImportForSource(existing, imported, "bookhive");
+
+    expect(result.map((b) => b.id)).toEqual(["bh-fresh"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -446,6 +509,36 @@ describe("Authors", () => {
     expect(getAuthors()).toHaveLength(1);
   });
 
+  it("upgrades a name-only entry with the OL key when re-added with one", () => {
+    // Reproduces the user-reported "follow author does nothing" symptom:
+    // a legacy local entry has the right name but no olKey. Re-adding via
+    // the author detail page (which knows the OL key) should fold the key
+    // into the existing record so subsequent follow-checks succeed.
+    addAuthor({ name: "Brandon Sanderson" });
+    addAuthor({ name: "Brandon Sanderson", olKey: "OL2700751A" });
+    const authors = getAuthors();
+    expect(authors).toHaveLength(1);
+    expect(authors[0].olKey).toBe("OL2700751A");
+  });
+
+  it("emits an author:updated mutation when upgrading metadata", () => {
+    addAuthor({ name: "Author X" });
+    const seen: string[] = [];
+    const unsubscribe = onStorageMutation((m) => seen.push(m.kind));
+    addAuthor({ name: "Author X", olKey: "OL999A" });
+    unsubscribe();
+    expect(seen).toEqual(["author:updated"]);
+  });
+
+  it("does not re-emit when the upgrade brings nothing new", () => {
+    addAuthor({ name: "Author X", olKey: "OL999A" });
+    const seen: string[] = [];
+    const unsubscribe = onStorageMutation((m) => seen.push(m.kind));
+    addAuthor({ name: "Author X", olKey: "OL999A" });
+    unsubscribe();
+    expect(seen).toEqual([]);
+  });
+
   it("stores optional fields", () => {
     addAuthor({ name: "Author", olKey: "OL123A", imageUrl: "https://example.com/photo.jpg" });
     const author = getAuthors()[0];
@@ -495,6 +588,48 @@ describe("clearAll", () => {
   it("is safe on empty storage", () => {
     clearAll();
     expect(getLibraries()).toEqual([]);
+  });
+
+  it("emits NO mutations — Reset all is local-only and must not delete from the PDS", () => {
+    // The user-reported data-loss bug: with the sync engine attached,
+    // any mutation emitted from clearAll cascaded into deleteRecord
+    // calls that wiped the user's PDS shelf. clearAll must purge the
+    // local cache silently so a follow-up resync can re-pull from PDS.
+    addLibrary({ key: "lapl", preferredKey: "lapl", name: "LAPL" });
+    addBook({ title: "Book", author: "Author", source: "unknown" });
+    addAuthor({ name: "Author" });
+    addReadBook({ key: "work:OL1W", title: "B", author: "A" });
+    addDismissedWork({ key: "work:OL2W" });
+    // Pretend each entity was previously synced so a stray mutation
+    // would translate into a PDS delete by the sync engine.
+    const seededId = getBooks()[0].id;
+    _setBookPdsRkey(seededId, "book-rkey");
+
+    const seen: string[] = [];
+    const unsubscribe = onStorageMutation((m) => seen.push(m.kind));
+
+    clearAll();
+
+    unsubscribe();
+    expect(seen).toEqual([]);
+  });
+
+  it("clearBooks is local-only and emits no mutation", () => {
+    addBook({ title: "Book", author: "Author", source: "unknown" });
+    const seen: string[] = [];
+    const unsubscribe = onStorageMutation((m) => seen.push(m.kind));
+    clearBooks();
+    unsubscribe();
+    expect(seen).toEqual([]);
+  });
+
+  it("clearAuthors is local-only and emits no mutation", () => {
+    addAuthor({ name: "Author" });
+    const seen: string[] = [];
+    const unsubscribe = onStorageMutation((m) => seen.push(m.kind));
+    clearAuthors();
+    unsubscribe();
+    expect(seen).toEqual([]);
   });
 });
 

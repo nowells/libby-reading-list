@@ -1,5 +1,5 @@
-import { Link, useParams, redirect } from "react-router";
-import { useEffect, useMemo, useState } from "react";
+import { Link, redirect, useLoaderData } from "react-router";
+import { useEffect, useState } from "react";
 import {
   getAuthors,
   getLibraries,
@@ -12,16 +12,40 @@ import { getAuthorDetails, getAuthorWorks, type AuthorDetails } from "~/lib/open
 import { Logo } from "~/components/logo";
 import { Markdown, truncateMarkdown } from "~/components/markdown";
 
-export function meta({ params }: { params: { authorKey?: string } }) {
-  return [{ title: `Author ${params.authorKey ?? ""} | ShelfCheck` }];
+type LoaderData = {
+  libraries: LibraryConfig[];
+  authorKey: string;
+  validKey: boolean;
+  details: AuthorDetails | null;
+};
+
+export const handle = {
+  navActive: "authors",
+  pageTitle: (data: unknown) => (data as LoaderData | undefined)?.details?.name,
+};
+
+export function meta({ data }: { data?: LoaderData }) {
+  const name = data?.details?.name;
+  return [{ title: name ? `${name} | ShelfCheck` : "Author | ShelfCheck" }];
 }
 
-export function clientLoader() {
+export async function clientLoader({
+  params,
+}: {
+  params: { authorKey?: string };
+}): Promise<LoaderData> {
   const libraries = getLibraries();
   if (libraries.length === 0) {
     throw redirect("/setup");
   }
-  return { libraries };
+
+  const authorKey = params.authorKey ?? "";
+  const validKey = /^OL[A-Z0-9]+A$/.test(authorKey);
+  // Pre-fetch author details so meta() can show the real name in the tab.
+  // Errors fall back to a null record; the component-level effect will retry.
+  const details = validKey ? await getAuthorDetails(authorKey).catch(() => null) : null;
+
+  return { libraries, authorKey, validKey, details };
 }
 
 interface DisplayWork {
@@ -32,24 +56,19 @@ interface DisplayWork {
 }
 
 export default function AuthorDetailsPage() {
-  const params = useParams<{ authorKey: string }>();
-  const authorKey = params.authorKey ?? "";
-  const validKey = /^OL[A-Z0-9]+A$/.test(authorKey);
+  const { authorKey, validKey, details: initialDetails } = useLoaderData() as LoaderData;
 
-  const [details, setDetails] = useState<AuthorDetails | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(true);
+  const [details, setDetails] = useState<AuthorDetails | null>(initialDetails);
+  const [detailsLoading, setDetailsLoading] = useState(initialDetails === null && validKey);
   const [works, setWorks] = useState<DisplayWork[]>([]);
   const [worksLoading, setWorksLoading] = useState(true);
   const [bioExpanded, setBioExpanded] = useState(false);
   const [followed, setFollowed] = useState<AuthorEntry | undefined>();
 
-  // Libraries are accepted via clientLoader but not used here; kept stable for
-  // the "Find at my library" jumps from each work card.
-  const libraries = useMemo<LibraryConfig[]>(() => getLibraries(), []);
-  void libraries;
-
+  // Re-fetch author details if the loader didn't provide them (transient OL
+  // failure during the loader call).
   useEffect(() => {
-    if (!validKey) {
+    if (!validKey || details) {
       setDetailsLoading(false);
       return;
     }
@@ -63,7 +82,7 @@ export default function AuthorDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [authorKey, validKey]);
+  }, [authorKey, validKey, details]);
 
   useEffect(() => {
     if (!validKey) return;
@@ -93,17 +112,32 @@ export default function AuthorDetailsPage() {
     };
   }, [authorKey, validKey]);
 
-  // Stay in sync with the local follow list.
+  // Stay in sync with the local follow list. Match by olKey first, then
+  // fall back to a name match for legacy entries that were added before
+  // we collected the OL author key — otherwise the user would see a
+  // "Follow author" button on someone they're already following, and
+  // clicking it would no-op since addAuthor would dedupe by name.
   useEffect(() => {
     const refresh = () => {
       const list = getAuthors();
-      setFollowed(list.find((a) => a.olKey === authorKey));
+      const byOl = list.find((a) => a.olKey === authorKey);
+      if (byOl) {
+        setFollowed(byOl);
+        return;
+      }
+      const name = details?.name;
+      if (!name) {
+        setFollowed(undefined);
+        return;
+      }
+      const lower = name.toLowerCase();
+      setFollowed(list.find((a) => !a.olKey && a.name.toLowerCase() === lower));
     };
     refresh();
     const onStorage = () => refresh();
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [authorKey]);
+  }, [authorKey, details?.name]);
 
   if (!validKey) {
     return (
@@ -133,6 +167,10 @@ export default function AuthorDetailsPage() {
 
   const handleFollow = () => {
     if (followed || !details) return;
+    // addAuthor either creates a new entry, or — for an existing name-only
+    // entry — upgrades it with the OL key and emits author:updated so the
+    // sync engine patches the PDS record. Either way, the entry now has an
+    // olKey and lookup-by-olKey will succeed.
     addAuthor({ name: details.name, olKey: details.key });
     const list = getAuthors();
     setFollowed(list.find((a) => a.olKey === authorKey));
@@ -151,19 +189,6 @@ export default function AuthorDetailsPage() {
   return (
     <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
-        {/* Header / nav */}
-        <div className="mb-6 flex items-center gap-3">
-          <Link to="/authors" className="flex items-center gap-2">
-            <Logo className="w-9 h-9 flex-shrink-0" />
-          </Link>
-          <Link
-            to="/authors"
-            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            ← Back to authors
-          </Link>
-        </div>
-
         {/* Author hero */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 sm:p-6 flex flex-col sm:flex-row gap-5">

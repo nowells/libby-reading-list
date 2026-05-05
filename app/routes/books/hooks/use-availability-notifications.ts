@@ -19,6 +19,7 @@ export function useAvailabilityNotifications(
 
     const currentAvailability: Record<string, boolean> = {};
     const titleMap: Record<string, string> = {};
+    const workIdMap: Record<string, string | undefined> = {};
     let availableCount = 0;
 
     for (const book of books) {
@@ -26,6 +27,7 @@ export function useAvailabilityNotifications(
       const isAvailable = categorizeBook(state) === "available";
       currentAvailability[book.id] = isAvailable;
       titleMap[book.id] = book.title;
+      workIdMap[book.id] = book.workId;
       if (isAvailable) availableCount++;
     }
 
@@ -33,6 +35,6 @@ export function useAvailabilityNotifications(
     updateBadgeCount(availableCount);
 
     // Check for state transitions and notify
-    checkAndNotifyAvailabilityChanges(currentAvailability, titleMap);
+    checkAndNotifyAvailabilityChanges(currentAvailability, titleMap, workIdMap);
   }, [books, availMap, checkedCount, totalBooks]);
 }

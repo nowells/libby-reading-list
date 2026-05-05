@@ -16,6 +16,13 @@ export interface FriendShelf {
   profile: FriendProfile;
   entries: ShelfEntryRecord[];
   authors: AuthorFollowRecord[];
+  /**
+   * Epoch ms of the most recent successful fetch from the friend's PDS.
+   * Used by the UI to show a staleness indicator when a friend's PDS has
+   * been unreachable across one or more refresh attempts and we're keeping
+   * the previously-fetched data on screen.
+   */
+  refreshedAt?: number;
 }
 
 interface Actor {
@@ -173,12 +180,31 @@ async function getActor(did: string): Promise<Actor | null> {
 }
 
 /**
+ * Thrown by {@link listPdsRecords} (and the helpers that use it) when the
+ * remote PDS can't be reached — DID won't resolve, the PDS endpoint is
+ * down, or it returns a non-OK response. Callers can use this to preserve
+ * stale cached data instead of treating the friend as having vanished.
+ */
+class PdsUnavailableError extends Error {
+  readonly did: string;
+  constructor(did: string, message: string) {
+    super(message);
+    this.name = "PdsUnavailableError";
+    this.did = did;
+  }
+}
+
+/**
  * List records from a collection on a user's PDS.
  * Queries the user's PDS directly (resolved from their DID doc).
  *
  * When `limit` is omitted we page through every record using the cursor
  * the PDS hands back; the page size hard-caps at 100 (the XRPC max).
  * Friends with large shelves shouldn't get truncated to a single page.
+ *
+ * Throws {@link PdsUnavailableError} on transport failures (DID resolution
+ * fails, fetch rejects, non-OK status) so callers can distinguish those
+ * from a successful response that is genuinely empty.
  */
 async function listPdsRecords<T>(
   did: string,
@@ -186,7 +212,9 @@ async function listPdsRecords<T>(
   opts?: { limit?: number },
 ): Promise<T[]> {
   const actor = await getActor(did);
-  if (!actor) return [];
+  if (!actor) {
+    throw new PdsUnavailableError(did, `Could not resolve PDS for ${did}`);
+  }
 
   const limit = opts?.limit ?? Infinity;
   const out: T[] = [];
@@ -199,8 +227,21 @@ async function listPdsRecords<T>(
     url.searchParams.set("limit", String(Math.min(limit - out.length, 100)));
     if (cursor) url.searchParams.set("cursor", cursor);
 
-    const res = await fetch(url.toString());
-    if (!res.ok) break;
+    let res: Response;
+    try {
+      res = await fetch(url.toString());
+    } catch (err) {
+      throw new PdsUnavailableError(
+        did,
+        `listRecords fetch failed for ${did}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (!res.ok) {
+      throw new PdsUnavailableError(
+        did,
+        `listRecords returned ${res.status} for ${did}/${collection}`,
+      );
+    }
     const data = await res.json();
     for (const r of data.records ?? []) {
       out.push(r.value as T);
@@ -296,6 +337,7 @@ export async function fetchFriendShelf(
     profile: enrichment ? { did: profile.did, handle: profile.handle, ...enrichment } : profile,
     entries,
     authors,
+    refreshedAt: Date.now(),
   };
 }
 

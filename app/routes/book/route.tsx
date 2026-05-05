@@ -1,5 +1,5 @@
-import { Link, useParams, redirect } from "react-router";
-import { useEffect, useMemo, useState } from "react";
+import { Link, redirect, useLoaderData } from "react-router";
+import { useEffect, useState } from "react";
 import {
   getBooks,
   getLibraries,
@@ -33,16 +33,48 @@ import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
 import { libbyTitleUrl } from "~/routes/books/lib/utils";
 import { EtaBadge } from "~/routes/books/components/eta-badge";
 
-export function meta({ params }: { params: { workId?: string } }) {
-  return [{ title: `Book ${params.workId ?? ""} | ShelfCheck` }];
+type LoaderData = {
+  libraries: LibraryConfig[];
+  workId: string;
+  validWorkId: boolean;
+  existingBook: Book | undefined;
+  details: WorkDetails | null;
+};
+
+export const handle = {
+  navActive: "books",
+  pageTitle: (data: unknown) => {
+    const d = data as LoaderData | undefined;
+    return d?.details?.title ?? d?.existingBook?.canonicalTitle ?? d?.existingBook?.title;
+  },
+};
+
+export function meta({ data }: { data?: LoaderData }) {
+  const title =
+    data?.details?.title ?? data?.existingBook?.canonicalTitle ?? data?.existingBook?.title;
+  return [{ title: title ? `${title} | ShelfCheck` : "Book | ShelfCheck" }];
 }
 
-export function clientLoader() {
+export async function clientLoader({
+  params,
+}: {
+  params: { workId?: string };
+}): Promise<LoaderData> {
   const libraries = getLibraries();
   if (libraries.length === 0) {
     throw redirect("/setup");
   }
-  return { libraries };
+
+  const workId = params.workId ?? "";
+  const validWorkId = /^OL[A-Z0-9]+W$/.test(workId);
+  const existingBook = validWorkId ? findExistingBook(workId) : undefined;
+  // Pre-fetch work details so meta() can show the real title in the tab.
+  // Errors are swallowed — the page still renders with whatever fallback we
+  // can derive from the local existing-book entry, and the component-level
+  // effects will retry on its own dependencies.
+  const details = validWorkId ? await getWorkDetails(workId).catch(() => null) : null;
+
+  return { libraries, workId, validWorkId, existingBook, details };
 }
 
 interface EditionSummary {
@@ -126,13 +158,17 @@ function isAuthorFollowed(name: string): boolean {
 }
 
 export default function BookDetails() {
-  const params = useParams<{ workId: string }>();
-  const workId = params.workId ?? "";
-  const validWorkId = /^OL[A-Z0-9]+W$/.test(workId);
-  const libraries = useMemo<LibraryConfig[]>(() => getLibraries(), []);
+  const loaderData = useLoaderData() as LoaderData;
+  const {
+    libraries,
+    workId,
+    validWorkId,
+    existingBook: initialExistingBook,
+    details: initialDetails,
+  } = loaderData;
 
-  const [details, setDetails] = useState<WorkDetails | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(true);
+  const [details, setDetails] = useState<WorkDetails | null>(initialDetails);
+  const [detailsLoading, setDetailsLoading] = useState(initialDetails === null && validWorkId);
   const [ratings, setRatings] = useState<WorkRatings | null>(null);
   const [edSummary, setEdSummary] = useState<EditionSummary | null>(null);
   const [series, setSeries] = useState<SeriesBook[]>([]);
@@ -142,9 +178,7 @@ export default function BookDetails() {
   const [availLoading, setAvailLoading] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
 
-  const [existingBook, setExistingBook] = useState<Book | undefined>(() =>
-    validWorkId ? findExistingBook(workId) : undefined,
-  );
+  const [existingBook, setExistingBook] = useState<Book | undefined>(initialExistingBook);
   const [isRead, setIsRead] = useState(false);
   const [authorFollowed, setAuthorFollowed] = useState(false);
 
@@ -158,9 +192,10 @@ export default function BookDetails() {
     "Unknown author";
   const primaryAuthorKey = details?.authors[0]?.key;
 
-  // Initial fetch — work details (description, subjects, etc.)
+  // Re-fetch work details if the loader didn't provide them (e.g. invalid id
+  // recovered later, or a transient OL failure during the loader call).
   useEffect(() => {
-    if (!validWorkId) {
+    if (!validWorkId || details) {
       setDetailsLoading(false);
       return;
     }
@@ -174,7 +209,7 @@ export default function BookDetails() {
     return () => {
       cancelled = true;
     };
-  }, [workId, validWorkId]);
+  }, [workId, validWorkId, details]);
 
   // Fetch ratings + edition summary + author names in parallel
   useEffect(() => {
@@ -398,19 +433,6 @@ export default function BookDetails() {
   return (
     <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
-        {/* Header / nav */}
-        <div className="mb-6 flex items-center gap-3">
-          <Link to="/books" className="flex items-center gap-2">
-            <Logo className="w-9 h-9 flex-shrink-0" />
-          </Link>
-          <Link
-            to="/books"
-            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            ← Back to books
-          </Link>
-        </div>
-
         {/* Book hero */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 sm:p-6 flex flex-col sm:flex-row gap-5">
@@ -570,55 +592,6 @@ export default function BookDetails() {
           )}
         </div>
 
-        {/* Genres / Subjects */}
-        {subjects.length > 0 && (
-          <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-              Genres &amp; subjects
-            </h2>
-            <div className="flex flex-wrap gap-1.5">
-              {subjects.slice(0, 25).map((s) => (
-                <span
-                  key={s}
-                  className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
-                >
-                  {s}
-                </span>
-              ))}
-            </div>
-            {(details?.subjectPlaces?.length ||
-              details?.subjectPeople?.length ||
-              details?.subjectTimes?.length) && (
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                {details?.subjectPlaces && details.subjectPlaces.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 dark:text-gray-500 mb-1">Places</p>
-                    <p className="text-gray-700 dark:text-gray-300">
-                      {details.subjectPlaces.join(", ")}
-                    </p>
-                  </div>
-                )}
-                {details?.subjectPeople && details.subjectPeople.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 dark:text-gray-500 mb-1">People</p>
-                    <p className="text-gray-700 dark:text-gray-300">
-                      {details.subjectPeople.join(", ")}
-                    </p>
-                  </div>
-                )}
-                {details?.subjectTimes && details.subjectTimes.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 dark:text-gray-500 mb-1">Time periods</p>
-                    <p className="text-gray-700 dark:text-gray-300">
-                      {details.subjectTimes.join(", ")}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        )}
-
         {/* Library availability */}
         <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
@@ -683,6 +656,55 @@ export default function BookDetails() {
             </div>
           )}
         </section>
+
+        {/* Genres / Subjects */}
+        {subjects.length > 0 && (
+          <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+              Genres &amp; subjects
+            </h2>
+            <div className="flex flex-wrap gap-1.5">
+              {subjects.slice(0, 25).map((s) => (
+                <span
+                  key={s}
+                  className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+            {(details?.subjectPlaces?.length ||
+              details?.subjectPeople?.length ||
+              details?.subjectTimes?.length) && (
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                {details?.subjectPlaces && details.subjectPlaces.length > 0 && (
+                  <div>
+                    <p className="text-gray-400 dark:text-gray-500 mb-1">Places</p>
+                    <p className="text-gray-700 dark:text-gray-300">
+                      {details.subjectPlaces.join(", ")}
+                    </p>
+                  </div>
+                )}
+                {details?.subjectPeople && details.subjectPeople.length > 0 && (
+                  <div>
+                    <p className="text-gray-400 dark:text-gray-500 mb-1">People</p>
+                    <p className="text-gray-700 dark:text-gray-300">
+                      {details.subjectPeople.join(", ")}
+                    </p>
+                  </div>
+                )}
+                {details?.subjectTimes && details.subjectTimes.length > 0 && (
+                  <div>
+                    <p className="text-gray-400 dark:text-gray-500 mb-1">Time periods</p>
+                    <p className="text-gray-700 dark:text-gray-300">
+                      {details.subjectTimes.join(", ")}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Edition / publishing details */}
         {edSummary && edSummary.totalEditions > 0 && (

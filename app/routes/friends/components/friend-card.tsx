@@ -14,6 +14,21 @@ interface FriendCardProps {
   addedAuthorKeys: Set<string>;
 }
 
+/** Show a "stale" badge once the friend's data is older than this. */
+const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 1 day
+
+function formatStaleAge(refreshedAt: number, now = Date.now()): string {
+  const diffMs = Math.max(0, now - refreshedAt);
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
+}
+
 type TabFilter = "all" | "wantToRead" | "reading" | "finished";
 
 function entryKey(entry: ShelfEntryRecord): string {
@@ -33,7 +48,8 @@ export function FriendCard({
   const [tab, setTab] = useState<TabFilter>("all");
   const [showAuthors, setShowAuthors] = useState(false);
 
-  const { profile, entries, authors } = friend;
+  const { profile, entries, authors, refreshedAt } = friend;
+  const isStale = refreshedAt != null && Date.now() - refreshedAt > STALE_THRESHOLD_MS;
 
   const filteredEntries = entries.filter((e) => {
     if (tab === "all") return true;
@@ -73,7 +89,20 @@ export function FriendCard({
             <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
               {profile.displayName ?? profile.handle}
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">@{profile.handle}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+              @{profile.handle}
+              {isStale && refreshedAt != null && (
+                <>
+                  {" "}
+                  <span
+                    className="text-amber-600 dark:text-amber-400"
+                    title={`Last refresh from this friend's PDS was ${formatStaleAge(refreshedAt)}. Their server may be unreachable.`}
+                  >
+                    · stale, last seen {formatStaleAge(refreshedAt)}
+                  </span>
+                </>
+              )}
+            </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-xs text-gray-400 dark:text-gray-500">

@@ -2,48 +2,70 @@ import { describe, it, expect } from "vitest";
 import { importBooks } from "./csv-parser";
 
 describe("importBooks", () => {
-  it("parses Goodreads CSV with want-to-read books", () => {
+  it("imports every Goodreads row regardless of shelf, preserving status", () => {
     const csv = `Title,Author,ISBN13,Exclusive Shelf,Book Id
 "The Great Gatsby","F. Scott Fitzgerald","9780743273565","to-read","4671"
-"1984","George Orwell","9780451524935","read","5470"`;
+"1984","George Orwell","9780451524935","read","5470"
+"Brave New World","Aldous Huxley","","currently-reading","6"`;
 
     const result = importBooks(csv);
     expect(result.format).toBe("goodreads");
-    expect(result.books).toHaveLength(1);
-    expect(result.books[0].title).toBe("The Great Gatsby");
-    expect(result.books[0].author).toBe("F. Scott Fitzgerald");
-    expect(result.books[0].isbn13).toBe("9780743273565");
-    expect(result.books[0].source).toBe("goodreads");
-    expect(result.books[0].sourceUrl).toBe("https://www.goodreads.com/book/show/4671");
-    expect(result.totalRows).toBe(2);
+    expect(result.books).toHaveLength(3);
+    const byTitle = new Map(result.books.map((b) => [b.title, b]));
+    expect(byTitle.get("The Great Gatsby")?.status).toBe("wantToRead");
+    expect(byTitle.get("1984")?.status).toBe("finished");
+    expect(byTitle.get("Brave New World")?.status).toBe("reading");
+    expect(byTitle.get("The Great Gatsby")?.sourceUrl).toBe(
+      "https://www.goodreads.com/book/show/4671",
+    );
+    expect(result.totalRows).toBe(3);
   });
 
-  it("parses Hardcover CSV with want-to-read books", () => {
+  it("imports every Hardcover row regardless of status", () => {
     const csv = `Title,Author,ISBN 13,Status,Image
-"Dune","Frank Herbert","9780441013593","Want to Read","https://example.com/dune.jpg"`;
+"Dune","Frank Herbert","9780441013593","Want to Read","https://example.com/dune.jpg"
+"Foundation","Isaac Asimov","","Read",""
+"Hyperion","Dan Simmons","","Currently Reading",""
+"Some DNF","Author","","Did Not Finish",""`;
 
     const result = importBooks(csv);
     expect(result.format).toBe("hardcover");
-    expect(result.books).toHaveLength(1);
-    expect(result.books[0].title).toBe("Dune");
-    expect(result.books[0].source).toBe("hardcover");
-    expect(result.books[0].imageUrl).toBe("https://example.com/dune.jpg");
+    expect(result.books).toHaveLength(4);
+    const byTitle = new Map(result.books.map((b) => [b.title, b]));
+    expect(byTitle.get("Dune")?.status).toBe("wantToRead");
+    expect(byTitle.get("Foundation")?.status).toBe("finished");
+    expect(byTitle.get("Hyperion")?.status).toBe("reading");
+    expect(byTitle.get("Some DNF")?.status).toBe("abandoned");
+    expect(byTitle.get("Dune")?.imageUrl).toBe("https://example.com/dune.jpg");
   });
 
-  it("parses StoryGraph CSV with to-read books", () => {
+  it("pulls rating, review, and dates from a Goodreads row", () => {
+    const csv = `Title,Author,ISBN13,Exclusive Shelf,Book Id,My Rating,My Review,Date Read,Date Added
+"1984","George Orwell","9780451524935","read","5470","4","Loved it.","2024-03-15","2024-01-01"`;
+
+    const result = importBooks(csv);
+    expect(result.books).toHaveLength(1);
+    const b = result.books[0];
+    expect(b.rating).toBe(80); // 4 stars → 80/100
+    expect(b.note).toBe("Loved it.");
+    expect(b.finishedAt).toMatch(/^2024-03-15/);
+  });
+
+  it("imports every StoryGraph row regardless of status", () => {
     const csv = `Title,Authors,Contributors,ISBN/UID,Format,Read Status,Date Added,Last Date Read,Dates Read,Read Count,Moods,Pace,Character- or Plot-Driven?,Strong Character Development?,Loveable Characters?,Diverse Characters?,Flawed Characters?,Star Rating,Review,Content Warnings,Content Warning Description,Tags,Owned?
 "Children of Time","Adrian Tchaikovsky",,"9781447273288","Paperback","to-read","2026-04-01",,,0,,,,,,,,,,,,,
-"Dune","Frank Herbert",,"9780441013593","Hardcover","read","2024-01-01","2024-02-15","2024-02-15",1,,,,,,,,,,,,,`;
+"Dune","Frank Herbert",,"9780441013593","Hardcover","read","2024-01-01","2024-02-15","2024-02-15",1,,,,,,,,4.5,"Excellent",,,,
+"Foundation","Isaac Asimov",,"","Audio","did-not-finish","2025-01-01",,,0,,,,,,,,,,,,,`;
 
     const result = importBooks(csv);
     expect(result.format).toBe("storygraph");
-    expect(result.books).toHaveLength(1);
-    expect(result.books[0].title).toBe("Children of Time");
-    expect(result.books[0].author).toBe("Adrian Tchaikovsky");
-    expect(result.books[0].isbn13).toBe("9781447273288");
-    expect(result.books[0].source).toBe("storygraph");
-    expect(result.books[0].sourceUrl).toContain("app.thestorygraph.com/browse?search_term=");
-    expect(result.books[0].sourceUrl).toContain("Children%20of%20Time");
+    expect(result.books).toHaveLength(3);
+    const byTitle = new Map(result.books.map((b) => [b.title, b]));
+    expect(byTitle.get("Children of Time")?.status).toBe("wantToRead");
+    expect(byTitle.get("Dune")?.status).toBe("finished");
+    expect(byTitle.get("Dune")?.rating).toBe(90); // 4.5 → 90
+    expect(byTitle.get("Dune")?.note).toBe("Excellent");
+    expect(byTitle.get("Foundation")?.status).toBe("abandoned");
   });
 
   it("tolerates 'to read' (no hyphen) in StoryGraph Read Status", () => {
@@ -55,7 +77,9 @@ describe("importBooks", () => {
     expect(result.format).toBe("storygraph");
     expect(result.books).toHaveLength(2);
     expect(result.books[0].isbn13).toBe("9780000000001");
+    expect(result.books[0].status).toBe("wantToRead");
     expect(result.books[1].isbn13).toBeUndefined();
+    expect(result.books[1].status).toBe("wantToRead");
   });
 
   it("returns error for empty input", () => {
@@ -73,15 +97,13 @@ describe("importBooks", () => {
     expect(result.books).toHaveLength(0);
   });
 
-  it("filters out non-want-to-read books from Goodreads", () => {
+  it("imports rows with no recognizable status as undefined (defaults to want-to-read in storage)", () => {
     const csv = `Title,Author,ISBN13,Exclusive Shelf,Book Id
-"Book A","Author A","","to-read","1"
-"Book B","Author B","","currently-reading","2"
-"Book C","Author C","","read","3"`;
+"Book A","Author A","","weird-shelf","1"`;
 
     const result = importBooks(csv);
     expect(result.books).toHaveLength(1);
-    expect(result.books[0].title).toBe("Book A");
+    expect(result.books[0].status).toBeUndefined();
   });
 
   // --- CSV parsing edge cases ---
@@ -101,8 +123,11 @@ describe("importBooks", () => {
 
     const result = importBooks(csv);
     expect(result.format).toBe("goodreads");
-    expect(result.books).toHaveLength(1);
+    expect(result.books).toHaveLength(2);
     expect(result.books[0].title).toBe("Book A");
+    expect(result.books[0].status).toBe("wantToRead");
+    expect(result.books[1].title).toBe("Book B");
+    expect(result.books[1].status).toBe("finished");
   });
 
   // --- Lyndi format ---

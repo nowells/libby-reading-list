@@ -12,7 +12,7 @@ export class BooksPage {
   }
 
   heading(): Locator {
-    return this.page.getByRole("heading", { name: "ShelfCheck", exact: true });
+    return this.page.getByRole("heading", { name: "Your books", exact: true });
   }
 
   /** A book card matched by title; the card root is a list item article. */

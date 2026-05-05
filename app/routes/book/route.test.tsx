@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "vitest-browser-react";
-import { MemoryRouter, Routes, Route } from "react-router";
+import { RouterProvider, createMemoryRouter } from "react-router";
 import { componentLocator } from "~/test/screenshot";
 import BookDetails, { clientLoader } from "./route";
 import { mockLibraries } from "~/test/msw/data";
@@ -10,13 +10,17 @@ function setLibraries() {
 }
 
 function renderRoute(workId: string) {
-  return render(
-    <MemoryRouter initialEntries={[`/book/${workId}`]}>
-      <Routes>
-        <Route path="/book/:workId" element={<BookDetails />} />
-      </Routes>
-    </MemoryRouter>,
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/book/:workId",
+        Component: BookDetails,
+        loader: clientLoader,
+      },
+    ],
+    { initialEntries: [`/book/${workId}`] },
   );
+  return render(<RouterProvider router={router} />);
 }
 
 describe("BookDetails clientLoader", () => {
@@ -24,14 +28,14 @@ describe("BookDetails clientLoader", () => {
     localStorage.clear();
   });
 
-  it("redirects to /setup when no libraries are configured", () => {
-    expect(() => clientLoader()).toThrow();
+  it("redirects to /setup when no libraries are configured", async () => {
+    await expect(clientLoader({ params: { workId: "OL17823492W" } })).rejects.toBeDefined();
   });
 
-  it("returns the libraries when configured", () => {
+  it("returns the libraries when configured", async () => {
     setLibraries();
-    const data = clientLoader();
-    expect(data?.libraries.length).toBeGreaterThan(0);
+    const data = await clientLoader({ params: { workId: "" } });
+    expect(data.libraries.length).toBeGreaterThan(0);
   });
 });
 

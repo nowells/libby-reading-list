@@ -38,13 +38,21 @@ self.addEventListener("notificationclick", (event) => {
   const url = event.notification.data?.url || "/books";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
-      // Focus existing window if open
+      // Prefer a window already on the target URL.
       for (const client of clientList) {
         if (new URL(client.url).pathname === url && "focus" in client) {
           return client.focus();
         }
       }
-      // Otherwise open a new one
+      // Otherwise focus any open window and navigate it to the target URL,
+      // so we don't strand the user on a different page (e.g. /books) when
+      // the notification was for a specific book.
+      for (const client of clientList) {
+        if ("focus" in client && "navigate" in client) {
+          return client.focus().then(() => client.navigate(url).catch(() => undefined));
+        }
+      }
+      // No existing window — open a new one.
       if (self.clients.openWindow) {
         return self.clients.openWindow(url);
       }
@@ -53,14 +61,21 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
+  // Run the cache cleanup AND clients.claim() inside waitUntil so the
+  // browser doesn't consider the activation finished before existing pages
+  // have been claimed. Without claim() awaited, controllerchange in the
+  // page can race the activate event and never fire — the page sits on
+  // the old SW even though the new one is technically active.
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
+    Promise.all([
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
+        ),
       ),
-    ),
+      self.clients.claim(),
+    ]),
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {

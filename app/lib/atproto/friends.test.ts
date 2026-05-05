@@ -400,6 +400,60 @@ describe("friends", () => {
 
       fetchSpy.mockRestore();
     });
+
+    it("throws when the friend's PDS returns a non-OK status", async () => {
+      // Self-hosted PDS down. listPdsRecords now throws so callers can
+      // tell this apart from a successful empty response and preserve
+      // any cached data they already had for this friend.
+      const friend: FriendProfile = {
+        did: "did:plc:offline",
+        handle: "offline.example.com",
+      };
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          const did = url.split("/").pop()!;
+          return new Response(JSON.stringify(didDoc(did)));
+        }
+        if (url.includes(NSID.shelfEntry)) {
+          return new Response("Bad Gateway", { status: 502 });
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      await expect(fetchFriendShelf(friend)).rejects.toThrow();
+
+      fetchSpy.mockRestore();
+    });
+
+    it("attaches refreshedAt to the returned shelf so the UI can show staleness", async () => {
+      const friend: FriendProfile = {
+        did: "did:plc:fresh",
+        handle: "fresh.example.com",
+      };
+      const before = Date.now();
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          const did = url.split("/").pop()!;
+          return new Response(JSON.stringify(didDoc(did)));
+        }
+        if (url.includes(NSID.shelfEntry)) {
+          return new Response(
+            JSON.stringify({ records: [{ uri: "at://test/entry/1", value: makeShelfEntry() }] }),
+          );
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      const result = await fetchFriendShelf(friend);
+      expect(result).not.toBeNull();
+      expect(result!.refreshedAt).toBeGreaterThanOrEqual(before);
+
+      fetchSpy.mockRestore();
+    });
   });
 
   describe("PDS metadata cache", () => {
