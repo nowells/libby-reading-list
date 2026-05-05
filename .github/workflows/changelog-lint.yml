@@ -1,0 +1,24 @@
+name: Changelog lint
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint Changelog block
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node --experimental-strip-types scripts/lint-changelog.ts --body-env PR_BODY

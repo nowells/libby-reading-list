@@ -1,0 +1,35 @@
+name: Changelog publish
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+jobs:
+  publish:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Publish to standard.site
+        env:
+          ATPROTO_HANDLE: ${{ secrets.ATPROTO_HANDLE }}
+          ATPROTO_APP_PASSWORD: ${{ secrets.ATPROTO_APP_PASSWORD }}
+          ATPROTO_PDS: ${{ vars.ATPROTO_PDS }}
+          STANDARD_PUBLICATION_URI: ${{ vars.STANDARD_PUBLICATION_URI }}
+          CHANGELOG_PATH_PREFIX: ${{ vars.CHANGELOG_PATH_PREFIX }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          node --experimental-strip-types scripts/publish-changelog.ts \
+            --body-env PR_BODY \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --pr-url "${{ github.event.pull_request.html_url }}" \
+            --merged-at "${{ github.event.pull_request.merged_at }}"

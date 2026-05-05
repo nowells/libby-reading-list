@@ -189,21 +189,69 @@ differently for them.
   indentation), fix it — the publisher will skip unparseable entries and
   they'll silently miss the next changelog post.
 
-## Standard.site post mapping
+## Tooling
 
-The downstream publisher (run on PR merge) maps the YAML block to a
-standard.site post as follows:
+The skill is enforced and operationalized by two scripts and two CI
+workflows. Both scripts share `scripts/lib/changelog.ts` so the parsing
+and validation rules are defined once.
 
-| YAML field        | standard.site field        |
-|-------------------|----------------------------|
-| `title`           | post title                 |
-| `category`        | post label                 |
-| `body`            | post body (markdown)       |
-| `tags`            | post tags                  |
-| merge timestamp   | post `publishedAt`         |
-| PR URL            | post `sourceUrl` (private) |
+### Lint — `scripts/lint-changelog.ts`
 
-`skip` entries are recorded in the publisher's audit log and **not** posted.
-PRs that ship without any `## Changelog` block also land in the audit log,
-flagged for follow-up — that's the failure mode this skill exists to
-prevent.
+Validates a PR body against the format above. Run locally with the body
+piped in, or in CI via the env var.
+
+```bash
+# local
+gh pr view 42 --json body --jq .body \
+  | npm run lint:changelog
+
+# or against a saved body
+npm run lint:changelog -- --body-file pr.md
+```
+
+CI runs it on every `pull_request` event via
+`.github/workflows/changelog-lint.yml`. A PR cannot merge until the lint
+passes, which is the gate that makes "every PR has a changelog entry"
+true rather than aspirational.
+
+### Publish — `scripts/publish-changelog.ts`
+
+After a PR merges, `.github/workflows/changelog-publish.yml` runs the
+publisher, which extracts the same block, slugifies the title, and
+writes a `site.standard.document` record to the configured PDS via
+`com.atproto.repo.putRecord`. The rkey is `pr-<number>` — re-running on
+the same PR upserts the same record, so retries are safe.
+
+Repository configuration the maintainer needs to set once:
+
+| Kind      | Name                       | Purpose                                              |
+|-----------|----------------------------|------------------------------------------------------|
+| secret    | `ATPROTO_HANDLE`           | PDS account handle (e.g. `shelfcheck.bsky.social`)   |
+| secret    | `ATPROTO_APP_PASSWORD`     | App password from bsky.app/settings/app-passwords    |
+| variable  | `ATPROTO_PDS`              | Optional. PDS service URL; default `https://bsky.social` |
+| variable  | `STANDARD_PUBLICATION_URI` | Optional. `at://` URI of the `site.standard.publication` record this changelog belongs to |
+| variable  | `CHANGELOG_PATH_PREFIX`    | Optional. URL path prefix on the publication; default `/changelog` |
+
+The `site.standard.publication` record itself is a one-time setup — see
+standard.site docs for how to create it (it carries the publication's
+domain, theme, and `.well-known/site.standard.publication` proof).
+
+### Standard.site post mapping
+
+The publisher maps the YAML block to a `site.standard.document` record
+as follows:
+
+| YAML / context         | record field    |
+|------------------------|-----------------|
+| `title`                | `title`         |
+| `body`                 | `content`       |
+| `body` (plain copy)    | `textContent`   |
+| `category` + `tags`    | `tags` (with `changelog` prepended) |
+| PR `merged_at`         | `publishedAt`, `createdAt` |
+| PR URL                 | `source`        |
+| `pr-<number>`          | rkey            |
+| `<prefix>/<n>-<slug>`  | `path`          |
+
+`skip` entries are logged by the publisher and **not** posted. PRs that
+reach merge without a valid block are blocked by the lint job, which is
+the failure mode this skill exists to prevent.
