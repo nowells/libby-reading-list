@@ -1,4 +1,64 @@
-import type { Book, AuthorEntry } from "./storage";
+import type { Book, AuthorEntry, ShelfStatus } from "./storage";
+
+/**
+ * Normalize a CSV "status"/"shelf"/"read status" cell into our internal
+ * ShelfStatus enum. Returns undefined for unknown / empty values so the
+ * caller can decide whether to fall back (Goodreads / StoryGraph default
+ * to want-to-read when no status is set).
+ *
+ * Recognized inputs cover the verbatim values exported by Goodreads
+ * ("to-read" / "currently-reading" / "read"), Hardcover (free-text +
+ * numeric 1..4), and StoryGraph ("to-read" / "currently-reading" /
+ * "read" / "did-not-finish").
+ */
+function normalizeStatus(raw: string): ShelfStatus | undefined {
+  const v = raw.trim().toLowerCase();
+  if (!v) return undefined;
+  if (v === "want to read" || v === "to-read" || v === "to read" || v === "1") {
+    return "wantToRead";
+  }
+  if (v === "currently reading" || v === "currently-reading" || v === "reading" || v === "2") {
+    return "reading";
+  }
+  if (v === "read" || v === "finished" || v === "3") {
+    return "finished";
+  }
+  if (
+    v === "did not finish" ||
+    v === "did-not-finish" ||
+    v === "dnf" ||
+    v === "abandoned" ||
+    v === "4"
+  ) {
+    return "abandoned";
+  }
+  return undefined;
+}
+
+/**
+ * Convert a 0..5 star rating (possibly decimal, possibly empty) into our
+ * 0..100 internal rating. Returns undefined for empty / NaN / out-of-range.
+ */
+function normalizeRating(raw: string): number | undefined {
+  const v = raw.trim();
+  if (!v) return undefined;
+  const stars = Number(v);
+  if (!Number.isFinite(stars) || stars <= 0 || stars > 5) return undefined;
+  return Math.round(stars * 20);
+}
+
+/**
+ * Best-effort conversion of common CSV date formats (YYYY/MM/DD,
+ * YYYY-MM-DD, MM/DD/YYYY) to a stored ISO 8601 string. Empty / unparseable
+ * inputs return undefined so the field stays absent on the Book.
+ */
+function normalizeDate(raw: string): string | undefined {
+  const v = raw.trim();
+  if (!v) return undefined;
+  const ms = Date.parse(v.replace(/\//g, "-"));
+  if (!Number.isFinite(ms)) return undefined;
+  return new Date(ms).toISOString();
+}
 
 interface ParsedCSV {
   headers: string[];
@@ -140,15 +200,17 @@ function parseGoodreadsRows(rows: Record<string, string>[]): Book[] {
   let id = 0;
 
   for (const row of rows) {
-    const shelf = findColumn(row, "Exclusive Shelf");
-    if (shelf !== "to-read") continue;
-
     const title = findColumn(row, "Title");
     if (!title) continue;
 
+    const status = normalizeStatus(findColumn(row, "Exclusive Shelf"));
     const author = findColumn(row, "Author", "Author l-f");
     const isbn13 = findColumn(row, "ISBN13").replace(/[="]/g, "");
     const bookId = findColumn(row, "Book Id");
+    const rating = normalizeRating(findColumn(row, "My Rating", "Rating"));
+    const note = findColumn(row, "My Review", "Review", "Private Notes") || undefined;
+    const finishedAt = normalizeDate(findColumn(row, "Date Read"));
+    const startedAt = normalizeDate(findColumn(row, "Date Started"));
 
     books.push({
       id: `gr-${id++}`,
@@ -157,6 +219,11 @@ function parseGoodreadsRows(rows: Record<string, string>[]): Book[] {
       isbn13: isbn13 || undefined,
       source: "goodreads",
       sourceUrl: bookId ? `https://www.goodreads.com/book/show/${bookId}` : undefined,
+      status,
+      rating,
+      note,
+      startedAt,
+      finishedAt,
     });
   }
 
@@ -168,16 +235,18 @@ function parseHardcoverRows(rows: Record<string, string>[]): Book[] {
   let id = 0;
 
   for (const row of rows) {
-    const status = findColumn(row, "Status", "Reading Status", "Shelf").toLowerCase();
-    if (status !== "want to read" && status !== "to-read" && status !== "1") continue;
-
     const title = findColumn(row, "Title");
     if (!title) continue;
 
+    const status = normalizeStatus(findColumn(row, "Status", "Reading Status", "Shelf"));
     const author = findColumn(row, "Author", "Authors");
     const isbn13 = findColumn(row, "ISBN 13", "ISBN13", "isbn_13").replace(/[="]/g, "");
     const imageUrl = findColumn(row, "Image", "Image URL", "Cover");
     const slug = findColumn(row, "Slug", "Book Slug", "URL");
+    const rating = normalizeRating(findColumn(row, "Rating", "My Rating", "Star Rating"));
+    const note = findColumn(row, "Review", "Notes", "My Review") || undefined;
+    const finishedAt = normalizeDate(findColumn(row, "Read Date", "Date Read", "Finished"));
+    const startedAt = normalizeDate(findColumn(row, "Started", "Date Started"));
 
     books.push({
       id: `hc-${id++}`,
@@ -191,6 +260,11 @@ function parseHardcoverRows(rows: Record<string, string>[]): Book[] {
           ? slug
           : `https://hardcover.app/books/${slug}`
         : undefined,
+      status,
+      rating,
+      note,
+      startedAt,
+      finishedAt,
     });
   }
 
@@ -202,15 +276,16 @@ function parseStorygraphRows(rows: Record<string, string>[]): Book[] {
   let id = 0;
 
   for (const row of rows) {
-    const status = findColumn(row, "Read Status").toLowerCase().trim();
-    if (status !== "to-read" && status !== "to read") continue;
-
     const title = findColumn(row, "Title");
     if (!title) continue;
 
+    const status = normalizeStatus(findColumn(row, "Read Status"));
     const authors = findColumn(row, "Authors", "Author");
     const rawIsbn = findColumn(row, "ISBN/UID", "ISBN13", "ISBN").replace(/\D/g, "");
     const isbn13 = rawIsbn.length === 13 ? rawIsbn : undefined;
+    const rating = normalizeRating(findColumn(row, "Star Rating", "Rating"));
+    const note = findColumn(row, "Review") || undefined;
+    const finishedAt = normalizeDate(findColumn(row, "Last Date Read", "Date Read"));
 
     // StoryGraph's export has no book id/slug, so link back to an in-app search.
     const query = `${title} ${authors}`.trim();
@@ -225,6 +300,10 @@ function parseStorygraphRows(rows: Record<string, string>[]): Book[] {
       isbn13,
       source: "storygraph",
       sourceUrl,
+      status,
+      rating,
+      note,
+      finishedAt,
     });
   }
 

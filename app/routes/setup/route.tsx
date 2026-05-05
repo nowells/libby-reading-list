@@ -362,10 +362,10 @@ export default function Setup() {
         }
 
         if (result.books.length === 0) {
-          const noWantToReadError = `No "want to read" books found in the CSV. Found ${result.totalRows} total rows.`;
-          setError(noWantToReadError);
+          const emptyError = `No book rows found in the CSV. Found ${result.totalRows} total rows.`;
+          setError(emptyError);
           posthog?.capture("csv_upload_failed", {
-            error: noWantToReadError,
+            error: emptyError,
             format: result.format,
             total_rows: result.totalRows,
           });
