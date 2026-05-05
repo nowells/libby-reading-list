@@ -93,7 +93,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Scripts />
         <script
           dangerouslySetInnerHTML={{
-            __html: `if("serviceWorker"in navigator){window.addEventListener("load",()=>{navigator.serviceWorker.register("/sw.js",{updateViaCache:"none"}).then(function(r){setInterval(function(){r.update()},60*60*1000)})})}`,
+            __html: `if("serviceWorker"in navigator){window.addEventListener("load",()=>{navigator.serviceWorker.register("/sw.js",{updateViaCache:"none"}).then(function(r){r.update();setInterval(function(){r.update()},60*60*1000);document.addEventListener("visibilitychange",function(){document.visibilityState==="visible"&&r.update()})})})}`,
           }}
         />
       </body>
