@@ -388,8 +388,28 @@ function writeAuthors(authors: AuthorEntry[]) {
 
 export function addAuthor(author: Omit<AuthorEntry, "id">) {
   const authors = getAuthors();
-  // Dedupe by name (case-insensitive)
-  if (authors.some((a) => a.name.toLowerCase() === author.name.toLowerCase())) return;
+  const lowerName = author.name.toLowerCase();
+  const existingIdx = authors.findIndex((a) => a.name.toLowerCase() === lowerName);
+  if (existingIdx !== -1) {
+    // Already-followed author. If the caller is supplying new metadata
+    // (e.g. an olKey from the author-detail page on a legacy entry that
+    // was originally added without one) merge it in and emit an update so
+    // the PDS record gets patched too — otherwise the user is stuck with a
+    // non-functional "Follow author" button on a name-only follow.
+    const existing = authors[existingIdx];
+    const merged: AuthorEntry = {
+      ...existing,
+      olKey: existing.olKey ?? author.olKey,
+      imageUrl: existing.imageUrl ?? author.imageUrl,
+    };
+    if (merged.olKey === existing.olKey && merged.imageUrl === existing.imageUrl) {
+      return;
+    }
+    authors[existingIdx] = merged;
+    writeAuthors(authors);
+    emitMutation({ kind: "author:updated", author: merged });
+    return;
+  }
   const id = `author-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const newAuthor: AuthorEntry = { ...author, id };
   authors.push(newAuthor);
@@ -477,6 +497,7 @@ export type StorageMutation =
   | { kind: "book:removed"; book: Book }
   | { kind: "books:bulkSet"; previous: Book[]; next: Book[] }
   | { kind: "author:added"; author: AuthorEntry }
+  | { kind: "author:updated"; author: AuthorEntry }
   | { kind: "author:removed"; author: AuthorEntry }
   | { kind: "read:added"; entry: ReadBookEntry }
   | { kind: "read:removed"; entry: ReadBookEntry }

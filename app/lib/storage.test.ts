@@ -509,6 +509,36 @@ describe("Authors", () => {
     expect(getAuthors()).toHaveLength(1);
   });
 
+  it("upgrades a name-only entry with the OL key when re-added with one", () => {
+    // Reproduces the user-reported "follow author does nothing" symptom:
+    // a legacy local entry has the right name but no olKey. Re-adding via
+    // the author detail page (which knows the OL key) should fold the key
+    // into the existing record so subsequent follow-checks succeed.
+    addAuthor({ name: "Brandon Sanderson" });
+    addAuthor({ name: "Brandon Sanderson", olKey: "OL2700751A" });
+    const authors = getAuthors();
+    expect(authors).toHaveLength(1);
+    expect(authors[0].olKey).toBe("OL2700751A");
+  });
+
+  it("emits an author:updated mutation when upgrading metadata", () => {
+    addAuthor({ name: "Author X" });
+    const seen: string[] = [];
+    const unsubscribe = onStorageMutation((m) => seen.push(m.kind));
+    addAuthor({ name: "Author X", olKey: "OL999A" });
+    unsubscribe();
+    expect(seen).toEqual(["author:updated"]);
+  });
+
+  it("does not re-emit when the upgrade brings nothing new", () => {
+    addAuthor({ name: "Author X", olKey: "OL999A" });
+    const seen: string[] = [];
+    const unsubscribe = onStorageMutation((m) => seen.push(m.kind));
+    addAuthor({ name: "Author X", olKey: "OL999A" });
+    unsubscribe();
+    expect(seen).toEqual([]);
+  });
+
   it("stores optional fields", () => {
     addAuthor({ name: "Author", olKey: "OL123A", imageUrl: "https://example.com/photo.jpg" });
     const author = getAuthors()[0];

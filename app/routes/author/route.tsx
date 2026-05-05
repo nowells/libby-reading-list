@@ -112,17 +112,32 @@ export default function AuthorDetailsPage() {
     };
   }, [authorKey, validKey]);
 
-  // Stay in sync with the local follow list.
+  // Stay in sync with the local follow list. Match by olKey first, then
+  // fall back to a name match for legacy entries that were added before
+  // we collected the OL author key — otherwise the user would see a
+  // "Follow author" button on someone they're already following, and
+  // clicking it would no-op since addAuthor would dedupe by name.
   useEffect(() => {
     const refresh = () => {
       const list = getAuthors();
-      setFollowed(list.find((a) => a.olKey === authorKey));
+      const byOl = list.find((a) => a.olKey === authorKey);
+      if (byOl) {
+        setFollowed(byOl);
+        return;
+      }
+      const name = details?.name;
+      if (!name) {
+        setFollowed(undefined);
+        return;
+      }
+      const lower = name.toLowerCase();
+      setFollowed(list.find((a) => !a.olKey && a.name.toLowerCase() === lower));
     };
     refresh();
     const onStorage = () => refresh();
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [authorKey]);
+  }, [authorKey, details?.name]);
 
   if (!validKey) {
     return (
@@ -152,6 +167,10 @@ export default function AuthorDetailsPage() {
 
   const handleFollow = () => {
     if (followed || !details) return;
+    // addAuthor either creates a new entry, or — for an existing name-only
+    // entry — upgrades it with the OL key and emits author:updated so the
+    // sync engine patches the PDS record. Either way, the entry now has an
+    // olKey and lookup-by-olKey will succeed.
     addAuthor({ name: details.name, olKey: details.key });
     const list = getAuthors();
     setFollowed(list.find((a) => a.olKey === authorKey));

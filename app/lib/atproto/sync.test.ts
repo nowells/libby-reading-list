@@ -286,6 +286,39 @@ describe("sync", () => {
       }
     });
 
+    it("upgrades the PDS author record in place when a name-only follow gets an OL key", async () => {
+      // Reproduces the user-reported "follow author does nothing" symptom:
+      // a legacy entry with only a name lives on the PDS. Re-adding the
+      // same author with an olKey should patch the existing PDS record via
+      // putRecord(rkey) — not create a duplicate.
+      vi.mocked(records.listRecords).mockResolvedValue([]);
+      vi.mocked(records.putRecord).mockResolvedValue({
+        uri: "at://test/col/k",
+        rkey: "author-rkey",
+      });
+
+      await attachSession(fakeSession);
+      // Seed a name-only author with a known pdsRkey.
+      storage.addAuthor({ name: "Brandon Sanderson" });
+      await new Promise((r) => setTimeout(r, 50));
+      const seeded = storage.getAuthors().find((a) => a.name === "Brandon Sanderson");
+      expect(seeded).toBeDefined();
+      storage._setAuthorPdsRkey(seeded!.id, "author-rkey");
+
+      vi.mocked(records.putRecord).mockClear();
+
+      // Re-adding with the OL key should upgrade the existing entry…
+      storage.addAuthor({ name: "Brandon Sanderson", olKey: "OL2700751A" });
+      await new Promise((r) => setTimeout(r, 50));
+
+      // …and putRecord should be called WITH the existing rkey, replacing
+      // the PDS record in place rather than creating a second one.
+      expect(records.putRecord).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(records.putRecord).mock.calls[0];
+      expect(call[1]).toBe(NSID.authorFollow);
+      expect(call[3]).toBe("author-rkey");
+    });
+
     it("stops mirroring after detach", async () => {
       vi.mocked(records.listRecords).mockResolvedValue([]);
       vi.mocked(records.putRecord).mockResolvedValue({ uri: "at://test/col/k", rkey: "k" });
