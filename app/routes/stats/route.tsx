@@ -6,7 +6,7 @@ import { updateBook } from "~/lib/storage";
 import { readCache } from "~/routes/books/lib/cache";
 import { categorizeBook, type BookCategory } from "~/routes/books/lib/categorize";
 
-export const handle = { navActive: "stats" };
+export const handle = { navActive: "stats", pageTitle: "Library Stats" };
 
 export function meta() {
   return [{ title: "Stats | ShelfCheck" }];
@@ -505,21 +505,16 @@ export default function Stats() {
   return (
     <main className="min-h-screen py-8 px-4">
       <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white truncate">
-            Library Stats
-          </h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {stats.total} books &middot; {libraries.length}{" "}
-            {libraries.length === 1 ? "library" : "libraries"}
-            {authors.length > 0 && (
-              <>
-                {" "}
-                &middot; {authors.length} {authors.length === 1 ? "author" : "authors"}
-              </>
-            )}
-          </p>
-        </div>
+        <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
+          {stats.total} books &middot; {libraries.length}{" "}
+          {libraries.length === 1 ? "library" : "libraries"}
+          {authors.length > 0 && (
+            <>
+              {" "}
+              &middot; {authors.length} {authors.length === 1 ? "author" : "authors"}
+            </>
+          )}
+        </p>
 
         {/* Metadata loading indicator */}
         {metaProgress && (

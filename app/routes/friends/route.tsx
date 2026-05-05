@@ -15,7 +15,7 @@ import {
 import { useFriends } from "./hooks/use-friends";
 import { FriendCard } from "./components/friend-card";
 
-export const handle = { navActive: "friends" };
+export const handle = { navActive: "friends", pageTitle: "Friends" };
 
 export function meta() {
   return [{ title: "Friends | ShelfCheck" }];
@@ -107,10 +107,7 @@ export default function Friends() {
     <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex-1 min-w-0 truncate">
-            Friends
-          </h1>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {friends.length} {friends.length === 1 ? "friend" : "friends"} on ShelfCheck
             </span>

@@ -41,7 +41,13 @@ type LoaderData = {
   details: WorkDetails | null;
 };
 
-export const handle = { navActive: "books" };
+export const handle = {
+  navActive: "books",
+  pageTitle: (data: unknown) => {
+    const d = data as LoaderData | undefined;
+    return d?.details?.title ?? d?.existingBook?.canonicalTitle ?? d?.existingBook?.title;
+  },
+};
 
 export function meta({ data }: { data?: LoaderData }) {
   const title =

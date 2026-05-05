@@ -20,6 +20,7 @@ import {
 import { enrichBooksWithWorkId } from "~/lib/openlibrary";
 import { getAuthor } from "~/components/book-search-utils";
 import { BookSearchPicker } from "~/components/book-search-picker";
+import { HeaderAction } from "~/routes/main-layout/route";
 import type { LibbyMediaItem } from "~/lib/libby";
 import { useAvailabilityChecker } from "./hooks/use-availability-checker";
 import { useAvailabilityNotifications } from "./hooks/use-availability-notifications";
@@ -37,7 +38,7 @@ import { ProgressBar } from "./components/progress-bar";
 import { BookhiveSyncStatus } from "./components/bookhive-sync-status";
 import { BookEditor, type BookEditorPatch } from "~/components/book-editor";
 
-export const handle = { navActive: "books" };
+export const handle = { navActive: "books", pageTitle: "Your books" };
 
 export function meta() {
   return [{ title: "Your Books | ShelfCheck" }];
@@ -303,67 +304,62 @@ export default function Books() {
   return (
     <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
-        <div className="mb-6">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex-1 min-w-0 truncate">
-              Your books
-            </h1>
-            <button
-              onClick={() => setShowAddBook((s) => !s)}
-              className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+        <HeaderAction>
+          <button
+            onClick={() => setShowAddBook((s) => !s)}
+            className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+          >
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
             >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            <span className="hidden sm:inline">Add</span>
+          </button>
+        </HeaderAction>
+        <div className="mb-6">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {books.length} books &middot; {libraries.length}{" "}
+            {libraries.length === 1 ? "library" : "libraries"}
+          </p>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <BookhiveSyncStatus
+              onBooksChanged={() => setBooksState(getBooks().filter(isWantToRead))}
+            />
+            {oldestFetchedAt && checkedCount > 0 && (
+              <button
+                type="button"
+                onClick={handleRefreshAll}
+                disabled={loadingCount > 0 || enrichmentProgress !== null}
+                title="Refresh Libby availability"
+                className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-70 whitespace-nowrap"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              <span>Add</span>
-            </button>
-          </div>
-          <div className="mt-1">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {books.length} books &middot; {libraries.length}{" "}
-              {libraries.length === 1 ? "library" : "libraries"}
-            </p>
-            <div className="flex flex-wrap items-center gap-2 mt-1">
-              <BookhiveSyncStatus
-                onBooksChanged={() => setBooksState(getBooks().filter(isWantToRead))}
-              />
-              {oldestFetchedAt && checkedCount > 0 && (
-                <button
-                  type="button"
-                  onClick={handleRefreshAll}
-                  disabled={loadingCount > 0 || enrichmentProgress !== null}
-                  title="Refresh Libby availability"
-                  className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-70 whitespace-nowrap"
+                <svg
+                  className={`w-3 h-3 ${loadingCount > 0 || enrichmentProgress ? "animate-spin" : ""}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
                 >
-                  <svg
-                    className={`w-3 h-3 ${loadingCount > 0 || enrichmentProgress ? "animate-spin" : ""}`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                  <span>
-                    {enrichmentProgress
-                      ? `Enriching from Open Library... ${enrichmentProgress.done}/${enrichmentProgress.total}`
-                      : loadingCount > 0
-                        ? `Syncing Libby... ${checkedCount}/${totalBooks}`
-                        : `Synced from Libby ${timeAgo(oldestFetchedAt)}`}
-                  </span>
-                </button>
-              )}
-            </div>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                <span>
+                  {enrichmentProgress
+                    ? `Enriching from Open Library... ${enrichmentProgress.done}/${enrichmentProgress.total}`
+                    : loadingCount > 0
+                      ? `Syncing Libby... ${checkedCount}/${totalBooks}`
+                      : `Synced from Libby ${timeAgo(oldestFetchedAt)}`}
+                </span>
+              </button>
+            )}
           </div>
         </div>
 

@@ -19,7 +19,10 @@ type LoaderData = {
   details: AuthorDetails | null;
 };
 
-export const handle = { navActive: "authors" };
+export const handle = {
+  navActive: "authors",
+  pageTitle: (data: unknown) => (data as LoaderData | undefined)?.details?.name,
+};
 
 export function meta({ data }: { data?: LoaderData }) {
   const name = data?.details?.name;

@@ -1,9 +1,30 @@
+import { createContext, useContext, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link, Outlet, useMatches, useNavigation } from "react-router";
 import { Logo } from "~/components/logo";
 
 interface NavHandle {
   /** Identifier of the active top-level nav item, e.g. "books". */
   navActive?: string;
+  /**
+   * Page title shown in the shared header. Either a static string or a
+   * function that derives it from the route's loader data — useful for
+   * detail pages where the title comes from a fetched record.
+   */
+  pageTitle?: string | ((data: unknown) => string | undefined);
+}
+
+const HeaderActionContext = createContext<HTMLDivElement | null>(null);
+
+/**
+ * Renders its children into the shared header's per-page action slot.
+ * Used by routes that want a contextual button (e.g. "+ Add" on /books)
+ * to live inside the sticky header rather than in the page body.
+ */
+export function HeaderAction({ children }: { children: ReactNode }) {
+  const slot = useContext(HeaderActionContext);
+  if (!slot) return null;
+  return createPortal(children, slot);
 }
 
 const NAV_ITEMS: { key: string; to: string; label: string; icon: React.ReactNode }[] = [
@@ -134,31 +155,40 @@ export default function MainLayout() {
   const matches = useMatches();
   const navigation = useNavigation();
   const isLoading = navigation.state === "loading";
+  const [actionSlot, setActionSlot] = useState<HTMLDivElement | null>(null);
 
-  // Walk matches deepest-first; first match with a navActive wins.
+  // Walk matches deepest-first; first match with a navActive / pageTitle wins.
   let navActive: string | undefined;
+  let pageTitle: string | undefined;
   for (let i = matches.length - 1; i >= 0; i--) {
-    const candidate = (matches[i].handle as NavHandle | undefined)?.navActive;
-    if (candidate) {
-      navActive = candidate;
-      break;
+    const handle = matches[i].handle as NavHandle | undefined;
+    if (!navActive && handle?.navActive) navActive = handle.navActive;
+    if (!pageTitle && handle?.pageTitle) {
+      pageTitle =
+        typeof handle.pageTitle === "function"
+          ? handle.pageTitle(matches[i].data)
+          : handle.pageTitle;
     }
+    if (navActive && pageTitle) break;
   }
 
   return (
-    <>
+    <HeaderActionContext.Provider value={actionSlot}>
       {/* Sticky (rather than fixed) so the header takes its 56px of layout
           space at the top — child <main className="min-h-screen"> blocks
           flow naturally underneath without needing a magic padding spacer. */}
       <header className="sticky top-0 z-30 bg-white/85 dark:bg-gray-900/85 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-3xl mx-auto h-14 px-4 flex items-center gap-3">
-          <Link to="/" className="flex items-center gap-2 flex-shrink-0">
+          <Link to="/" className="flex items-center gap-2 flex-shrink-0" aria-label="ShelfCheck">
             <Logo className="w-8 h-8" />
-            <span className="font-bold text-gray-900 dark:text-white hidden sm:inline">
-              ShelfCheck
-            </span>
           </Link>
-          <nav className="ml-auto flex items-center gap-3 sm:gap-4">
+          {pageTitle && (
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-white truncate min-w-0">
+              {pageTitle}
+            </h1>
+          )}
+          <div ref={setActionSlot} className="ml-auto flex items-center gap-3" />
+          <nav className="flex items-center gap-3 sm:gap-4">
             {NAV_ITEMS.map((item) => {
               const active = navActive === item.key;
               return (
@@ -191,6 +221,6 @@ export default function MainLayout() {
         </div>
       </header>
       <Outlet />
-    </>
+    </HeaderActionContext.Provider>
   );
 }

@@ -18,6 +18,7 @@ import {
   type LibraryConfig,
 } from "~/lib/storage";
 import { searchAuthor, type AuthorSearchResult } from "~/lib/openlibrary-author";
+import { HeaderAction } from "~/routes/main-layout/route";
 import type { AuthorBookResult } from "./hooks/use-author-availability";
 import { useAuthorAvailability } from "./hooks/use-author-availability";
 import {
@@ -34,7 +35,7 @@ import type { BookCategory } from "~/routes/books/lib/categorize";
 import type { FormatFilter } from "~/routes/books/lib/categorize";
 import { timeAgo } from "~/routes/books/lib/utils";
 
-export const handle = { navActive: "authors" };
+export const handle = { navActive: "authors", pageTitle: "Authors" };
 
 export function meta() {
   return [{ title: "Authors | ShelfCheck" }];
@@ -282,28 +283,25 @@ export default function Authors() {
   return (
     <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
-        <div className="mb-6">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex-1 min-w-0 truncate">
-              Authors
-            </h1>
-            <button
-              onClick={() => setShowAddAuthor((s) => !s)}
-              className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+        <HeaderAction>
+          <button
+            onClick={() => setShowAddAuthor((s) => !s)}
+            className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+          >
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
             >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              <span>Add</span>
-            </button>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            <span className="hidden sm:inline">Add</span>
+          </button>
+        </HeaderAction>
+        <div className="mb-6">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {authors.length} {authors.length === 1 ? "author" : "authors"} &middot;{" "}
               {libraries.length} {libraries.length === 1 ? "library" : "libraries"}
