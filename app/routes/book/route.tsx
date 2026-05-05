@@ -33,8 +33,10 @@ import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
 import { libbyTitleUrl } from "~/routes/books/lib/utils";
 import { EtaBadge } from "~/routes/books/components/eta-badge";
 
-export function meta({ params }: { params: { workId?: string } }) {
-  return [{ title: `Book ${params.workId ?? ""} | ShelfCheck` }];
+export function meta() {
+  // The real title is set in a useEffect below once the book details resolve;
+  // this is just a placeholder while the SPA loads.
+  return [{ title: "Book | ShelfCheck" }];
 }
 
 export function clientLoader() {
@@ -300,6 +302,14 @@ export default function BookDetails() {
       setAuthorFollowed(isAuthorFollowed(displayAuthor));
     }
   }, [workId, validWorkId, displayTitle, displayAuthor]);
+
+  // Update the document title with the real book title once it resolves.
+  // The static `meta()` runs before details are fetched, so we patch it here.
+  useEffect(() => {
+    if (displayTitle && displayTitle !== "Loading…") {
+      document.title = `${displayTitle} | ShelfCheck`;
+    }
+  }, [displayTitle]);
 
   if (!validWorkId) {
     return (
@@ -570,55 +580,6 @@ export default function BookDetails() {
           )}
         </div>
 
-        {/* Genres / Subjects */}
-        {subjects.length > 0 && (
-          <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-              Genres &amp; subjects
-            </h2>
-            <div className="flex flex-wrap gap-1.5">
-              {subjects.slice(0, 25).map((s) => (
-                <span
-                  key={s}
-                  className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
-                >
-                  {s}
-                </span>
-              ))}
-            </div>
-            {(details?.subjectPlaces?.length ||
-              details?.subjectPeople?.length ||
-              details?.subjectTimes?.length) && (
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                {details?.subjectPlaces && details.subjectPlaces.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 dark:text-gray-500 mb-1">Places</p>
-                    <p className="text-gray-700 dark:text-gray-300">
-                      {details.subjectPlaces.join(", ")}
-                    </p>
-                  </div>
-                )}
-                {details?.subjectPeople && details.subjectPeople.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 dark:text-gray-500 mb-1">People</p>
-                    <p className="text-gray-700 dark:text-gray-300">
-                      {details.subjectPeople.join(", ")}
-                    </p>
-                  </div>
-                )}
-                {details?.subjectTimes && details.subjectTimes.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 dark:text-gray-500 mb-1">Time periods</p>
-                    <p className="text-gray-700 dark:text-gray-300">
-                      {details.subjectTimes.join(", ")}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        )}
-
         {/* Library availability */}
         <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
@@ -683,6 +644,55 @@ export default function BookDetails() {
             </div>
           )}
         </section>
+
+        {/* Genres / Subjects */}
+        {subjects.length > 0 && (
+          <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+              Genres &amp; subjects
+            </h2>
+            <div className="flex flex-wrap gap-1.5">
+              {subjects.slice(0, 25).map((s) => (
+                <span
+                  key={s}
+                  className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+            {(details?.subjectPlaces?.length ||
+              details?.subjectPeople?.length ||
+              details?.subjectTimes?.length) && (
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                {details?.subjectPlaces && details.subjectPlaces.length > 0 && (
+                  <div>
+                    <p className="text-gray-400 dark:text-gray-500 mb-1">Places</p>
+                    <p className="text-gray-700 dark:text-gray-300">
+                      {details.subjectPlaces.join(", ")}
+                    </p>
+                  </div>
+                )}
+                {details?.subjectPeople && details.subjectPeople.length > 0 && (
+                  <div>
+                    <p className="text-gray-400 dark:text-gray-500 mb-1">People</p>
+                    <p className="text-gray-700 dark:text-gray-300">
+                      {details.subjectPeople.join(", ")}
+                    </p>
+                  </div>
+                )}
+                {details?.subjectTimes && details.subjectTimes.length > 0 && (
+                  <div>
+                    <p className="text-gray-400 dark:text-gray-500 mb-1">Time periods</p>
+                    <p className="text-gray-700 dark:text-gray-300">
+                      {details.subjectTimes.join(", ")}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Edition / publishing details */}
         {edSummary && edSummary.totalEditions > 0 && (
