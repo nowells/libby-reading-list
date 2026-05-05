@@ -41,6 +41,8 @@ type LoaderData = {
   details: WorkDetails | null;
 };
 
+export const handle = { navActive: "books" };
+
 export function meta({ data }: { data?: LoaderData }) {
   const title =
     data?.details?.title ?? data?.existingBook?.canonicalTitle ?? data?.existingBook?.title;
@@ -425,19 +427,6 @@ export default function BookDetails() {
   return (
     <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
-        {/* Header / nav */}
-        <div className="mb-6 flex items-center gap-3">
-          <Link to="/books" className="flex items-center gap-2">
-            <Logo className="w-9 h-9 flex-shrink-0" />
-          </Link>
-          <Link
-            to="/books"
-            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            ← Back to books
-          </Link>
-        </div>
-
         {/* Book hero */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 sm:p-6 flex flex-col sm:flex-row gap-5">
