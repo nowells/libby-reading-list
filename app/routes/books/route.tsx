@@ -23,6 +23,7 @@ import { Logo } from "~/components/logo";
 import { BookSearchPicker } from "~/components/book-search-picker";
 import type { LibbyMediaItem } from "~/lib/libby";
 import { useAvailabilityChecker } from "./hooks/use-availability-checker";
+import { useAvailabilityNotifications } from "./hooks/use-availability-notifications";
 import {
   categorizeBookWithFormat,
   categoryScore,
@@ -106,6 +107,8 @@ export default function Books() {
     oldestFetchedAt,
     enrichmentProgress,
   } = useAvailabilityChecker(books, libraries, { onBookEnriched: handleBookEnriched });
+
+  useAvailabilityNotifications(books, availMap, checkedCount, totalBooks);
 
   const categoryCounts = useMemo(() => {
     const counts = { available: 0, soon: 0, waiting: 0, not_found: 0 };

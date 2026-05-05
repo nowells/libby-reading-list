@@ -405,6 +405,40 @@ export function clearAuthors() {
   for (const a of previous) emitMutation({ kind: "author:removed", author: a });
 }
 
+// --- Notification Settings ---
+
+export interface NotificationSettings {
+  /** Whether availability notifications are enabled. Default: false */
+  enabled: boolean;
+  /** Whether to show app badge with available-now count. Default: true when enabled */
+  badgeEnabled: boolean;
+}
+
+const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  enabled: false,
+  badgeEnabled: true,
+};
+
+export function getNotificationSettings(): NotificationSettings {
+  return get<NotificationSettings>("notification-settings") ?? DEFAULT_NOTIFICATION_SETTINGS;
+}
+
+export function setNotificationSettings(settings: NotificationSettings) {
+  set("notification-settings", settings);
+}
+
+/**
+ * Store the last-known availability state for each book (true = available now).
+ * Used to detect transitions from unavailable → available.
+ */
+export function getPreviousAvailabilityState(): Record<string, boolean> {
+  return get<Record<string, boolean>>("previous-availability") ?? {};
+}
+
+export function setPreviousAvailabilityState(state: Record<string, boolean>) {
+  set("previous-availability", state);
+}
+
 export function clearAll() {
   clearLibraries();
   clearBooks();
@@ -413,6 +447,8 @@ export function clearAll() {
   clearBookhiveLastSync();
   remove("availability");
   remove("author-availability");
+  remove("notification-settings");
+  remove("previous-availability");
   // Emit removals for read + dismissed so any active sync engine can
   // propagate the deletion to the PDS.
   const reads = getReadBooks();
