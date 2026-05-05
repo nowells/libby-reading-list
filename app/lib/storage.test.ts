@@ -146,6 +146,69 @@ describe("mergeImportForSource", () => {
     expect(result[0].id).toBe("gr-1");
     expect(result[0].manual).toBe(true);
   });
+
+  it("preserves PDS-backed books across an external-source resync that no longer carries them", () => {
+    // Reproduces the "100 books on initial signin" symptom: PDS pull-down
+    // hydrates 3 bookhive-tagged books with pdsRkey set, then the bookhive
+    // collection itself only returns 1. The 2 PDS-only books must survive.
+    const existing: Book[] = [
+      book({
+        id: "bh-1",
+        source: "bookhive",
+        title: "Foundation",
+        author: "Asimov",
+        workId: "OL1W",
+        pdsRkey: "rkey-1",
+      }),
+      book({
+        id: "bh-2",
+        source: "bookhive",
+        title: "Dune",
+        author: "Herbert",
+        workId: "OL2W",
+        pdsRkey: "rkey-2",
+      }),
+      book({
+        id: "bh-3",
+        source: "bookhive",
+        title: "Neuromancer",
+        author: "Gibson",
+        workId: "OL3W",
+        pdsRkey: "rkey-3",
+      }),
+    ];
+    const imported: Book[] = [
+      book({
+        id: "bh-1-fresh",
+        source: "bookhive",
+        title: "Foundation",
+        author: "Asimov",
+        workId: "OL1W",
+      }),
+    ];
+
+    const result = mergeImportForSource(existing, imported, "bookhive");
+
+    expect(result).toHaveLength(3);
+    const byWork = new Map(result.map((b) => [b.workId, b]));
+    // Foundation: present in both — deduped, fresh wins on id, but the
+    // pre-existing pdsRkey survives via mergeBooks.
+    expect(byWork.get("OL1W")?.pdsRkey).toBe("rkey-1");
+    // Dune & Neuromancer: PDS-only, preserved as-is.
+    expect(byWork.get("OL2W")?.pdsRkey).toBe("rkey-2");
+    expect(byWork.get("OL3W")?.pdsRkey).toBe("rkey-3");
+  });
+
+  it("still replaces source-tagged books that have no pdsRkey", () => {
+    const existing: Book[] = [
+      book({ id: "bh-stale", source: "bookhive", title: "Stale Book", workId: "OL9W" }),
+    ];
+    const imported: Book[] = [book({ id: "bh-fresh", source: "bookhive", title: "Fresh Book" })];
+
+    const result = mergeImportForSource(existing, imported, "bookhive");
+
+    expect(result.map((b) => b.id)).toEqual(["bh-fresh"]);
+  });
 });
 
 // ---------------------------------------------------------------------------

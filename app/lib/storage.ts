@@ -167,6 +167,12 @@ export function mergeImportForSource(
 ): Book[] {
   const kept = existing.filter((b) => {
     if (b.manual) return !opts.clearManual;
+    // Books that have already been mirrored to (or pulled down from) the
+    // shelfcheck PDS are owned by org.shelfcheck.shelf.entry, not by the
+    // external source bucket. Preserve them across an external resync — if
+    // the import re-encounters the same work, dedupe will collapse the
+    // pair and keep the pdsRkey via mergeBooks.
+    if (b.pdsRkey) return true;
     return b.source !== source;
   });
 
