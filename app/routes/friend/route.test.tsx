@@ -118,7 +118,7 @@ describe("FriendDetail", () => {
     await expect.element(screen.getByText(/3 books/)).toBeVisible();
   });
 
-  it("filters by friend's status — defaults to want-to-read", async () => {
+  it("defaults to the All shelf and shows every entry", async () => {
     mockInitSession.mockResolvedValue({ session, info: session, fresh: false });
     mockUseFriends.mockReturnValue({
       friends: [fakeFriend],
@@ -130,13 +130,13 @@ describe("FriendDetail", () => {
 
     const screen = await renderAt("/friends/alice.bsky.social");
 
-    // Want-to-read tab is active by default → Gatsby visible, 1984 / Mockingbird hidden.
+    // Default = "all" so every entry is rendered regardless of friend's status.
     await expect.element(screen.getByText("The Great Gatsby")).toBeVisible();
-    expect(screen.container.textContent).not.toContain("1984");
-    expect(screen.container.textContent).not.toContain("To Kill a Mockingbird");
+    await expect.element(screen.getByText("1984")).toBeVisible();
+    await expect.element(screen.getByText("To Kill a Mockingbird")).toBeVisible();
   });
 
-  it("switches to friend's reading shelf via the Reading pill", async () => {
+  it("filters to the friend's reading shelf when the Reading pill is clicked", async () => {
     mockInitSession.mockResolvedValue({ session, info: session, fresh: false });
     mockUseFriends.mockReturnValue({
       friends: [fakeFriend],
@@ -152,6 +152,26 @@ describe("FriendDetail", () => {
 
     await expect.element(screen.getByText("1984")).toBeVisible();
     expect(screen.container.textContent).not.toContain("The Great Gatsby");
+    expect(screen.container.textContent).not.toContain("To Kill a Mockingbird");
+  });
+
+  it("filters to the friend's want-to-read shelf when that pill is clicked", async () => {
+    mockInitSession.mockResolvedValue({ session, info: session, fresh: false });
+    mockUseFriends.mockReturnValue({
+      friends: [fakeFriend],
+      status: "done",
+      refreshing: false,
+      refreshFriend: vi.fn(),
+      refreshingDids: new Set(),
+    });
+
+    const screen = await renderAt("/friends/alice.bsky.social");
+
+    await screen.getByRole("button", { name: /^Want to read \(\d+\)$/ }).click();
+
+    await expect.element(screen.getByText("The Great Gatsby")).toBeVisible();
+    expect(screen.container.textContent).not.toContain("1984");
+    expect(screen.container.textContent).not.toContain("To Kill a Mockingbird");
   });
 
   it("shows '+ Add to Want to Read' when the viewer doesn't own the book", async () => {
@@ -263,8 +283,8 @@ describe("FriendDetail", () => {
       refreshingDids: new Set(),
     });
 
-    // Switch to the finished filter so the long shelf is the active list.
-    const screen = await renderAt("/friends/alice.bsky.social?status=finished");
+    // Default filter is "all" so all 12 entries flow into the paginator.
+    const screen = await renderAt("/friends/alice.bsky.social");
 
     await expect.element(screen.getByText("Page 1 of 2")).toBeVisible();
     await expect.element(screen.getByText("Book 01")).toBeVisible();
