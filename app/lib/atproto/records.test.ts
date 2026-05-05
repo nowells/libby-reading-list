@@ -4,18 +4,32 @@ import { NSID, STATUS, type ShelfEntryRecord } from "./lexicon";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 
 /**
+ * @atproto/lexicon validates `cid` fields against multiformats CID.parse —
+ * a placeholder like "bafyfake" fails. This is a real CIDv1 we can reuse
+ * across mocked records; nothing actually reads the bytes.
+ */
+const VALID_CID = "bafyreigdyrzt5sfp7udm7hu76uh7y26nf3agu4bnjb6tdqrzpqgqhkl3xa";
+
+/**
  * The Agent constructor in @atproto/api treats any object with a
  * `fetchHandler` method as a SessionManager and routes XRPC traffic through
  * it — so we can drop in a stub here and intercept every listRecords call
  * without standing up the real OAuth session machinery.
+ *
+ * The XRPC client passes a path-only URL (e.g. `/xrpc/com.atproto.repo.listRecords?…`)
+ * to the fetchHandler; we resolve it against a fake base so URL parsing works.
  */
+const FAKE_BASE = "https://pds.example.com";
+
 function makeFakeSession(
   did: string,
-  fetchHandler: (url: string, init: RequestInit) => Promise<Response>,
+  fetchHandler: (url: URL, init: RequestInit) => Promise<Response>,
 ): OAuthSession {
   return {
     did,
-    fetchHandler: vi.fn(fetchHandler),
+    fetchHandler: vi.fn((url: string, init: RequestInit) =>
+      fetchHandler(new URL(url, FAKE_BASE), init),
+    ),
   } as unknown as OAuthSession;
 }
 
@@ -39,8 +53,7 @@ describe("listRecords", () => {
     let pageCalls = 0;
 
     const session = makeFakeSession("did:plc:test", async (url) => {
-      const u = new URL(url);
-      const cursor = u.searchParams.get("cursor");
+      const cursor = url.searchParams.get("cursor");
       const offset = cursor ? parseInt(cursor, 10) : 0;
       pageCalls++;
 
@@ -48,7 +61,7 @@ describe("listRecords", () => {
       const take = Math.max(0, Math.min(pageSize, remaining));
       const records = Array.from({ length: take }, (_, i) => ({
         uri: `at://did:plc:test/${NSID.shelfEntry}/r${offset + i}`,
-        cid: "bafyfake",
+        cid: VALID_CID,
         value: makeShelfRecordValue(`Book ${offset + i}`),
       }));
 
@@ -90,7 +103,7 @@ describe("listRecords", () => {
       calls++;
       const records = Array.from({ length: 100 }, (_, i) => ({
         uri: `at://did:plc:test/${NSID.shelfEntry}/r${i}`,
-        cid: "bafyfake",
+        cid: VALID_CID,
         value: makeShelfRecordValue(`Book ${i}`),
       }));
       return new Response(JSON.stringify({ records }), {
