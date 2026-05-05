@@ -38,6 +38,7 @@ export function clearBadge() {
 export function checkAndNotifyAvailabilityChanges(
   currentAvailability: Record<string, boolean>,
   bookTitleMap: Record<string, string>,
+  bookWorkIdMap: Record<string, string | undefined> = {},
 ): string[] {
   const settings = getNotificationSettings();
   if (!settings.enabled) {
@@ -63,11 +64,12 @@ export function checkAndNotifyAvailabilityChanges(
   if (newlyAvailable.length === 0) return [];
 
   const titles = newlyAvailable.map((id) => bookTitleMap[id] ?? "Unknown title");
-  sendNotification(titles);
+  const workIds = newlyAvailable.map((id) => bookWorkIdMap[id]);
+  sendNotification(titles, workIds);
   return titles;
 }
 
-function sendNotification(titles: string[]) {
+function sendNotification(titles: string[], workIds: (string | undefined)[] = []) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
 
   const count = titles.length;
@@ -78,6 +80,10 @@ function sendNotification(titles: string[]) {
       ? "Head to your library app to borrow it."
       : titles.slice(0, 3).join(", ") + (count > 3 ? ` and ${count - 3} more` : "");
 
+  // Deep-link to the book detail page when only one book transitioned and we
+  // know its Open Library work ID. Otherwise land on the books list.
+  const targetUrl = count === 1 && workIds[0] ? `/book/${workIds[0]}` : "/books";
+
   // Use service worker registration for push-style notifications (persist after tab close)
   if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
     navigator.serviceWorker.ready.then((reg) => {
@@ -87,6 +93,7 @@ function sendNotification(titles: string[]) {
         badge: "/favicon-48x48.png",
         tag: "availability-update",
         renotify: true,
+        data: { url: targetUrl },
       } as NotificationOptions);
     });
   } else {
@@ -96,6 +103,7 @@ function sendNotification(titles: string[]) {
       body,
       icon: "/apple-touch-icon.png",
       tag: "availability-update",
+      data: { url: targetUrl },
     });
   }
 }
