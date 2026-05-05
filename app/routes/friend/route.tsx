@@ -1,4 +1,4 @@
-import { Link, redirect, useParams } from "react-router";
+import { Link, redirect, useParams, useSearchParams } from "react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { usePostHog } from "@posthog/react";
@@ -160,32 +160,74 @@ export default function FriendDetail() {
     [friends, handleParam],
   );
 
-  // The friend's shelf isn't the kind of view you deep-link into often, so
-  // status / page / search live in component state instead of the URL —
-  // simpler than the dual-source-of-truth dance /books needs and avoids any
-  // subtlety around React Router's setSearchParams batching.
-  //
-  // Default to "all" so the page always lands on something — friends with
-  // a Goodreads/Storygraph import skewed entirely to one shelf would
-  // otherwise look empty until you clicked a different pill.
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [page, setPage] = useState(1);
+  /**
+   * Filter and pagination live in the URL so:
+   *  - Pill clicks and pagination clicks update history (deep-linkable).
+   *  - The URL is the single source of truth, so any pill or button click
+   *    flows through `setSearchParams` and the component re-reads the new
+   *    state on the next render. This matches the /books pattern.
+   *
+   * Default = "all". Friends often have a shelf skewed entirely to one
+   * status (e.g. Goodreads import = all want-to-read; long-time reader =
+   * mostly finished), so any other default would land users on an empty
+   * page and look broken.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawStatus = searchParams.get("status");
+  const statusFilter: StatusFilter =
+    rawStatus === "wantToRead" ||
+    rawStatus === "reading" ||
+    rawStatus === "finished" ||
+    rawStatus === "abandoned" ||
+    rawStatus === "all"
+      ? rawStatus
+      : "all";
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
   const [searchQuery, setSearchQuery] = useState("");
 
-  const handleStatusFilter = useCallback((s: StatusFilter) => {
-    setStatusFilter(s);
-    setPage(1);
-  }, []);
+  const updateSearchParams = useCallback(
+    (updates: Record<string, string | null>) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        for (const [k, v] of Object.entries(updates)) {
+          if (v === null) next.delete(k);
+          else next.set(k, v);
+        }
+        return next;
+      });
+    },
+    [setSearchParams],
+  );
 
-  const goToPage = useCallback((p: number) => {
-    setPage(p);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
+  const handleStatusFilter = useCallback(
+    (s: StatusFilter) => {
+      // "all" is the default — drop the param so the URL stays clean. Any
+      // pill click also resets to page 1.
+      if (s === "all") {
+        updateSearchParams({ status: null, page: null });
+      } else {
+        updateSearchParams({ status: s, page: null });
+      }
+    },
+    [updateSearchParams],
+  );
 
-  const handleSearchChange = useCallback((q: string) => {
-    setSearchQuery(q);
-    setPage(1);
-  }, []);
+  const goToPage = useCallback(
+    (p: number) => {
+      // Page 1 is the default — drop the param so the URL stays clean.
+      updateSearchParams({ page: p === 1 ? null : String(p) });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [updateSearchParams],
+  );
+
+  const handleSearchChange = useCallback(
+    (q: string) => {
+      setSearchQuery(q);
+      updateSearchParams({ page: null });
+    },
+    [updateSearchParams],
+  );
 
   // Friend's own status counts — drives the status pill labels.
   const friendStatusCounts = useMemo(() => {
