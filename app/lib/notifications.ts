@@ -50,10 +50,13 @@ export function checkAndNotifyAvailabilityChanges(
 
   const previousState = getPreviousAvailabilityState();
 
-  // Find books that switched from not-available (false or absent) to available (true)
+  // Find books that switched from not-available (false) to available (true).
+  // Books with no entry in previousState are seeing their first check — we
+  // record a baseline for them but don't notify, otherwise a freshly imported
+  // book that happens to be available would fire a notification on import.
   const newlyAvailable: string[] = [];
   for (const [bookId, isAvailable] of Object.entries(currentAvailability)) {
-    if (isAvailable && !previousState[bookId]) {
+    if (isAvailable && bookId in previousState && !previousState[bookId]) {
       newlyAvailable.push(bookId);
     }
   }
