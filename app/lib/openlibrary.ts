@@ -3,6 +3,14 @@ import type { Book } from "./storage";
 const BASE = "https://openlibrary.org";
 const CACHE_PREFIX = "shelfcheck:ol-isbn:";
 const SEARCH_CACHE_PREFIX = "shelfcheck:ol-search:";
+const FETCH_TIMEOUT_MS = 15_000;
+
+/** Combine an optional caller-provided signal with a timeout signal. */
+function timeoutSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  if (!signal) return timeout;
+  return AbortSignal.any([signal, timeout]);
+}
 
 // In-flight request deduplication for OpenLibrary fetches.
 const olInflight = new Map<string, Promise<unknown>>();
@@ -113,7 +121,7 @@ async function lookupIsbn(
   const promise = (async () => {
     try {
       const res = await fetch(`${BASE}/isbn/${clean}.json`, {
-        signal,
+        signal: timeoutSignal(signal),
         headers: { Accept: "application/json" },
       });
       if (res.status === 404) {
@@ -216,7 +224,7 @@ async function searchByTitleAuthor(
         fields: "key,title,author_name,isbn",
       });
       const res = await fetch(`${BASE}/search.json?${params}`, {
-        signal,
+        signal: timeoutSignal(signal),
         headers: { Accept: "application/json" },
       });
       if (!res.ok) return null;
@@ -462,7 +470,7 @@ export async function getWorkEditionIsbns(workId: string, signal?: AbortSignal):
   const promise = (async () => {
     try {
       const res = await fetch(`${BASE}/works/${workId}/editions.json?limit=500`, {
-        signal,
+        signal: timeoutSignal(signal),
         headers: { Accept: "application/json" },
       });
       if (!res.ok) return [];
@@ -527,7 +535,7 @@ export async function getWorkMetadata(
   const promise = (async () => {
     try {
       const res = await fetch(`${BASE}/works/${workId}.json`, {
-        signal,
+        signal: timeoutSignal(signal),
         headers: { Accept: "application/json" },
       });
       if (!res.ok) return null;
@@ -650,7 +658,7 @@ export async function getWorkDetails(
   const promise = (async () => {
     try {
       const res = await fetch(`${BASE}/works/${workId}.json`, {
-        signal,
+        signal: timeoutSignal(signal),
         headers: { Accept: "application/json" },
       });
       if (!res.ok) return null;
@@ -782,7 +790,7 @@ export async function getWorkRatings(
   const promise = (async () => {
     try {
       const res = await fetch(`${BASE}/works/${workId}/ratings.json`, {
-        signal,
+        signal: timeoutSignal(signal),
         headers: { Accept: "application/json" },
       });
       if (!res.ok) return null;
@@ -846,7 +854,7 @@ export async function getWorkEditionSummary(
 
   try {
     const res = await fetch(`${BASE}/works/${workId}/editions.json?limit=200`, {
-      signal,
+      signal: timeoutSignal(signal),
       headers: { Accept: "application/json" },
     });
     if (!res.ok) return null;
@@ -974,7 +982,7 @@ export async function searchSeriesBooks(
         fields: "key,title,author_name,first_publish_year,cover_i",
       });
       const res = await fetch(`${BASE}/search.json?${params}`, {
-        signal,
+        signal: timeoutSignal(signal),
         headers: { Accept: "application/json" },
       });
       if (!res.ok) return [];

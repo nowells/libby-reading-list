@@ -213,7 +213,7 @@ export function useAvailabilityChecker(
           })
         : Promise.resolve();
 
-    const CONCURRENCY = 4;
+    const CONCURRENCY = 6;
     let idx = 0;
 
     async function processNext(): Promise<void> {

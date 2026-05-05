@@ -47,6 +47,8 @@ export interface AvailabilityInfo {
 // share a single network request instead of firing duplicates.
 const inflight = new Map<string, Promise<unknown>>();
 
+const FETCH_TIMEOUT_MS = 15_000;
+
 async function thunderFetch(path: string) {
   const url = `${THUNDER_API_URL}${path}`;
 
@@ -58,6 +60,7 @@ async function thunderFetch(path: string) {
       headers: {
         "x-client-id": "dewey",
       },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       throw new Error(`Libby API error: ${res.status} ${res.statusText}`);
