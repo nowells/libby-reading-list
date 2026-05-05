@@ -102,13 +102,18 @@ function ActionMenu({
   onEdit?: () => void;
   onFind?: () => void;
   onMarkRead?: () => void;
-  onRemove: () => void;
+  onRemove?: () => void;
   onFollowAuthor?: () => void;
   isRead: boolean;
   isAuthorFollowed: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // No-op when nothing actionable is on offer (read-only friend cards).
+  const hasAnyAction =
+    !!onEdit || !!onFind || !!onMarkRead || !!onRemove || (!!onFollowAuthor && !isAuthorFollowed);
+  if (!hasAnyAction) return null;
 
   useEffect(() => {
     if (!open) return;
@@ -228,24 +233,26 @@ function ActionMenu({
               Follow Author
             </button>
           )}
-          <button
-            onClick={() => {
-              onRemove();
-              setOpen(false);
-            }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-red-600 dark:text-red-400"
-          >
-            <svg
-              className="w-4 h-4 flex-shrink-0"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
+          {onRemove && (
+            <button
+              onClick={() => {
+                onRemove();
+                setOpen(false);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors text-red-600 dark:text-red-400"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            Remove
-          </button>
+              <svg
+                className="w-4 h-4 flex-shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Remove
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -272,7 +279,7 @@ interface BookCardProps {
   onLibbyClick?: (bookTitle: string, formatType: string, isAvailable: boolean) => void;
   onEdit?: () => void;
   onFind?: () => void;
-  onRemove: () => void;
+  onRemove?: () => void;
   onMarkRead?: () => void;
   onFollowAuthor?: () => void;
   onStatusChange?: (next: ShelfStatus) => void;
@@ -285,6 +292,23 @@ interface BookCardProps {
    * library availability is not the focus.
    */
   showAvailability?: boolean;
+  /**
+   * When true, suppress the per-card status pill / dropdown. Used by the
+   * friend view for entries that aren't on the viewer's shelf — there's no
+   * meaningful status to show, and the headerExtras slot below carries the
+   * "+ Add" affordance instead.
+   */
+  hideStatusPill?: boolean;
+  /**
+   * Slot for view-specific UI rendered next to the action menu — e.g. the
+   * friend view's "+ Add to Want to Read" button or "On your shelf" badge.
+   */
+  headerExtras?: React.ReactNode;
+  /**
+   * Slot for additional metadata rendered alongside the status pill —
+   * e.g. friend's rating ("Friend rated 5★") on the friend view.
+   */
+  belowStatusExtras?: React.ReactNode;
 }
 
 export function BookCard({
@@ -303,6 +327,9 @@ export function BookCard({
   isRead,
   isAuthorFollowed,
   showAvailability = true,
+  hideStatusPill = false,
+  headerExtras,
+  belowStatusExtras,
 }: BookCardProps) {
   const [showAll, setShowAll] = useState(false);
   const multiLibrary = libraries.length > 1;
@@ -415,6 +442,7 @@ export function BookCard({
               )}
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
+              {headerExtras}
               <ActionMenu
                 onEdit={onEdit}
                 onFind={onFind}
@@ -429,15 +457,17 @@ export function BookCard({
 
           {/* Status / rating / reading-history row */}
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {onStatusChange ? (
-              <StatusDropdown status={status} onChange={onStatusChange} />
-            ) : (
-              <span
-                className={`inline-flex items-center text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border ${STATUS_PILL_CLASSES[status]}`}
-              >
-                {statusLabel(status)}
-              </span>
-            )}
+            {!hideStatusPill &&
+              (onStatusChange ? (
+                <StatusDropdown status={status} onChange={onStatusChange} />
+              ) : (
+                <span
+                  className={`inline-flex items-center text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border ${STATUS_PILL_CLASSES[status]}`}
+                >
+                  {statusLabel(status)}
+                </span>
+              ))}
+            {belowStatusExtras}
             {/* Legacy ReadBookEntry indicator — independent from status. */}
             {isRead && status !== "finished" && (
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700">

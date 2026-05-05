@@ -2,16 +2,7 @@ import { Link, redirect } from "react-router";
 import { useState, useEffect, useMemo } from "react";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { initSession } from "~/lib/atproto";
-import type { ShelfEntryRecord } from "~/lib/atproto/lexicon";
-import { statusTokenName } from "~/lib/atproto/lexicon";
-import {
-  getBooks,
-  getAuthors,
-  getLibraries,
-  addBook,
-  addAuthor,
-  type AuthorEntry,
-} from "~/lib/storage";
+import { getLibraries } from "~/lib/storage";
 import { useFriends } from "./hooks/use-friends";
 import { FriendCard } from "./components/friend-card";
 
@@ -32,8 +23,6 @@ export function clientLoader() {
 export default function Friends() {
   const [session, setSession] = useState<OAuthSession | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
-  const [books, setBooksState] = useState(() => getBooks());
-  const [authors, setAuthorsState] = useState<AuthorEntry[]>(() => getAuthors());
 
   useEffect(() => {
     initSession().then((result) => {
@@ -46,47 +35,6 @@ export default function Friends() {
 
   const { friends, status, refreshing, progress, error, refresh, refreshFriend, refreshingDids } =
     useFriends(session);
-
-  // Track which books/authors the user already has
-  const addedBookIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const book of books) {
-      if (book.workId) ids.add(book.workId);
-      ids.add(`${book.title}\0${book.author}`);
-    }
-    return ids;
-  }, [books]);
-
-  const addedAuthorKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const a of authors) {
-      if (a.olKey) keys.add(a.olKey);
-      keys.add(a.name.toLowerCase());
-    }
-    return keys;
-  }, [authors]);
-
-  const handleAddBook = (entry: ShelfEntryRecord) => {
-    const authorName = entry.authors?.[0]?.name ?? "Unknown";
-    addBook({
-      title: entry.title,
-      author: authorName,
-      source: "unknown",
-      workId: entry.ids.olWorkId,
-      isbn13: entry.ids.isbn13,
-      imageUrl: entry.coverUrl,
-      subjects: entry.subjects,
-      pageCount: entry.pageCount,
-      firstPublishYear: entry.firstPublishYear,
-      status: statusTokenName(entry.status) === "wantToRead" ? undefined : "wantToRead",
-    });
-    setBooksState(getBooks());
-  };
-
-  const handleAddAuthor = (name: string, olKey?: string) => {
-    addAuthor({ name, olKey });
-    setAuthorsState(getAuthors());
-  };
 
   // Filter for search
   const [searchQuery, setSearchQuery] = useState("");
@@ -336,18 +284,14 @@ export default function Friends() {
           </div>
         )}
 
-        {/* Friend cards */}
+        {/* Friend cards — each links to /friends/:handle */}
         <div className="space-y-3">
           {filteredFriends.map((friend) => (
             <FriendCard
               key={friend.profile.did}
               friend={friend}
-              onAddBook={handleAddBook}
-              onAddAuthor={handleAddAuthor}
               onRefresh={refreshFriend}
               isRefreshing={refreshingDids.has(friend.profile.did)}
-              addedBookIds={addedBookIds}
-              addedAuthorKeys={addedAuthorKeys}
             />
           ))}
         </div>
