@@ -44,10 +44,6 @@ export class BooksPage {
     await result.click();
   }
 
-  async openShelf() {
-    await this.page.getByRole("link", { name: "Shelf" }).click();
-  }
-
   async openAuthors() {
     await this.page.getByRole("link", { name: "Authors" }).click();
   }

@@ -1,5 +1,11 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
+/**
+ * The /shelf URL still resolves (redirects to /books?status=all) but the
+ * UI is now the unified bookshelf rooted at /books. This page object
+ * preserves the old test ergonomics — entryRow / openEditor / removeEntry
+ * — by driving the same DOM contract from the unified card.
+ */
 export class ShelfPage {
   readonly page: Page;
 
@@ -8,11 +14,13 @@ export class ShelfPage {
   }
 
   async goto() {
-    await this.page.goto("/shelf");
+    // Land on the all-statuses view so the old "every book on the shelf"
+    // semantics carry over.
+    await this.page.goto("/books?status=all");
   }
 
   heading(): Locator {
-    return this.page.getByRole("heading", { name: "Your shelf" });
+    return this.page.getByRole("heading", { name: "Your books", exact: true });
   }
 
   /** A shelf list item matched by title. */
@@ -31,27 +39,25 @@ export class ShelfPage {
     return this.page.getByPlaceholder("Search title or author...");
   }
 
-  /** Click the Edit button on the supplied entry. */
+  /** Open the per-card actions menu and click "Edit details". */
   async openEditor(title: string) {
     const row = this.entryRow(title);
-    await row.getByRole("button", { name: "Edit" }).click();
+    await row.getByRole("button", { name: "More actions" }).click();
+    await this.page.getByRole("button", { name: "Edit details" }).click();
   }
 
-  /** Click the Remove button (and accept the confirm dialog). */
+  /** Open the per-card actions menu and click "Remove" (accept confirm). */
   async removeEntry(title: string) {
     this.page.once("dialog", (dialog) => dialog.accept());
-    await this.entryRow(title).getByRole("button", { name: "Remove" }).click();
+    const row = this.entryRow(title);
+    await row.getByRole("button", { name: "More actions" }).click();
+    await this.page.getByRole("button", { name: "Remove" }).click();
   }
 
-  /** The 4 inline status quick-set buttons in the entry's StatusDropdown. */
+  /** Click the status pill on the entry's card and choose a new status. */
   async setQuickStatus(title: string, label: string) {
     const row = this.entryRow(title);
-    // The status dropdown is a button rendered by the StatusDropdown
-    // component — opens a small popover when clicked.
-    await row
-      .getByRole("button", { name: /Want to read|Reading|Finished|Abandoned/ })
-      .first()
-      .click();
+    await row.getByRole("button", { name: "Change status" }).click();
     await this.page.getByRole("button", { name: label, exact: true }).click();
   }
 

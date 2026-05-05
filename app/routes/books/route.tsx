@@ -16,8 +16,12 @@ import {
   isWantToRead,
   type Book,
   type LibraryConfig,
+  type ReadBookEntry,
+  type ShelfStatus,
 } from "~/lib/storage";
 import { enrichBooksWithWorkId } from "~/lib/openlibrary";
+import { effectiveStatus, statusLabel, SHELF_STATUSES } from "~/components/shelf-status";
+import { bookKey } from "~/lib/dedupe";
 import { getAuthor } from "~/components/book-search-utils";
 import { BookSearchPicker } from "~/components/book-search-picker";
 import type { LibbyMediaItem } from "~/lib/libby";
@@ -43,24 +47,74 @@ export function meta() {
   return [{ title: "Your Books | ShelfCheck" }];
 }
 
+/**
+ * Filter values available in the status pill row. "all" shows every entry
+ * regardless of status; the other values match `ShelfStatus` exactly.
+ */
+type StatusFilter = "all" | ShelfStatus;
+const STATUS_FILTERS: StatusFilter[] = ["wantToRead", "reading", "finished", "abandoned", "all"];
+
+/**
+ * Promote a legacy `ReadBookEntry` (which carries only title/author/workId)
+ * into a `Book` view so the unified shelf can render every entry through one
+ * card component. The `__readEntryKey` flag tells action handlers to delete
+ * via `removeReadBook` instead of `removeBook`.
+ */
+interface PseudoBook extends Book {
+  __readEntryKey?: string;
+}
+
+function readEntryToBookView(entry: ReadBookEntry): PseudoBook {
+  return {
+    id: `read-${entry.key}`,
+    title: entry.title,
+    author: entry.author,
+    workId: entry.workId,
+    source: "unknown",
+    status: "finished",
+    finishedAt: new Date(entry.markedAt).toISOString(),
+    pdsRkey: entry.pdsRkey,
+    __readEntryKey: entry.key,
+  };
+}
+
+/** Combine Books and legacy ReadBookEntries into one shelf view, deduped by content key. */
+function loadAllShelfEntries(): PseudoBook[] {
+  const books = getBooks();
+  const reads = getReadBooks();
+  const seen = new Set<string>();
+  const out: PseudoBook[] = [];
+  for (const b of books) {
+    seen.add(bookKey(b));
+    out.push(b);
+  }
+  for (const r of reads) {
+    if (seen.has(r.key)) continue;
+    out.push(readEntryToBookView(r));
+  }
+  return out;
+}
+
 export function clientLoader() {
-  const books = getBooks().filter(isWantToRead);
   const libraries = getLibraries();
-  if (books.length === 0 || libraries.length === 0) {
+  // /books renders even when the user has no books yet (they may want to
+  // add one through the search picker, like the old /shelf route allowed),
+  // so only the missing-library case bounces back to setup.
+  if (libraries.length === 0) {
     throw redirect("/setup");
   }
-  return { books, libraries };
+  return { libraries };
 }
 
 export default function Books() {
   const posthog = usePostHog();
-  const [books, setBooksState] = useState<Book[]>(() => getBooks().filter(isWantToRead));
+  const [entries, setEntries] = useState<PseudoBook[]>(() => loadAllShelfEntries());
   const [libraries] = useState<LibraryConfig[]>(() => getLibraries());
   const [showAddBook, setShowAddBook] = useState(false);
   const [readBooks, setReadBooks] = useState(() => getReadBooks());
   const [followedAuthors, setFollowedAuthors] = useState(() => getAuthors());
-  const [editing, setEditing] = useState<Book | null>(null);
-  const [finding, setFinding] = useState<Book | null>(null);
+  const [editing, setEditing] = useState<PseudoBook | null>(null);
+  const [finding, setFinding] = useState<PseudoBook | null>(null);
   const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<
     { id: number; message: string; type: "success" | "error" }[]
@@ -72,22 +126,23 @@ export default function Books() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
   };
 
+  const refreshEntries = useCallback(() => setEntries(loadAllShelfEntries()), []);
+
   const readBookKeys = useMemo(() => new Set(readBooks.map((r) => r.key)), [readBooks]);
   const followedAuthorNames = useMemo(
     () => new Set(followedAuthors.map((a) => a.name.toLowerCase())),
     [followedAuthors],
   );
 
-  useEffect(() => {
-    posthog?.capture("books_page_viewed", {
-      book_count: books.length,
-      library_count: libraries.length,
-      book_source: books[0]?.source,
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Want-to-read books drive the Libby availability check regardless of
+  // which status the user is currently filtering to. We never want to
+  // hammer the Libby API on a `finished` book the user already read.
+  const wantToReadBooks = useMemo(() => entries.filter(isWantToRead), [entries]);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
+  const statusFilter: StatusFilter =
+    (STATUS_FILTERS.find((s) => s === searchParams.get("status")) as StatusFilter) ?? "wantToRead";
 
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<BookCategory | null>(null);
@@ -95,7 +150,7 @@ export default function Books() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const handleBookEnriched = useCallback((bookId: string, updates: Partial<Book>) => {
-    setBooksState((prev) => prev.map((b) => (b.id === bookId ? { ...b, ...updates } : b)));
+    setEntries((prev) => prev.map((b) => (b.id === bookId ? { ...b, ...updates } : b)));
   }, []);
 
   const {
@@ -107,64 +162,140 @@ export default function Books() {
     refreshAll,
     oldestFetchedAt,
     enrichmentProgress,
-  } = useAvailabilityChecker(books, libraries, { onBookEnriched: handleBookEnriched });
+  } = useAvailabilityChecker(wantToReadBooks, libraries, { onBookEnriched: handleBookEnriched });
 
-  useAvailabilityNotifications(books, availMap, checkedCount, totalBooks);
+  useAvailabilityNotifications(wantToReadBooks, availMap, checkedCount, totalBooks);
+
+  useEffect(() => {
+    posthog?.capture("books_page_viewed", {
+      entry_count: entries.length,
+      want_to_read_count: wantToReadBooks.length,
+      library_count: libraries.length,
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const statusCounts = useMemo(() => {
+    const c: Record<ShelfStatus, number> = {
+      wantToRead: 0,
+      reading: 0,
+      finished: 0,
+      abandoned: 0,
+    };
+    for (const e of entries) c[effectiveStatus(e)]++;
+    return c;
+  }, [entries]);
+
+  const showAvailabilityFilters = statusFilter === "wantToRead";
 
   const categoryCounts = useMemo(() => {
     const counts = { available: 0, soon: 0, waiting: 0, not_found: 0 };
-    for (const book of books) {
+    if (!showAvailabilityFilters) return counts;
+    for (const book of wantToReadBooks) {
       const cat = categorizeBookWithFormat(availMap[book.id], formatFilter);
       if (cat !== "pending" && cat in counts) {
         counts[cat as keyof typeof counts]++;
       }
     }
     return counts;
-  }, [books, availMap, formatFilter]);
+  }, [wantToReadBooks, availMap, formatFilter, showAvailabilityFilters]);
 
-  const sortedAndFilteredBooks = useMemo(() => {
-    let filtered = [...books];
+  const sortedAndFilteredEntries = useMemo(() => {
+    let filtered = entries.filter((e) =>
+      statusFilter === "all" ? true : effectiveStatus(e) === statusFilter,
+    );
 
-    // Apply search filter
     if (searchQuery.trim()) {
       filtered = filtered.filter((b) => fuzzyMatch(searchQuery, b.title, b.author));
     }
 
-    // Apply category filter
-    if (categoryFilter) {
+    if (showAvailabilityFilters && categoryFilter) {
       filtered = filtered.filter(
         (b) => categorizeBookWithFormat(availMap[b.id], formatFilter) === categoryFilter,
       );
     }
 
-    // Sort by category score then title
-    filtered.sort((a, b) => {
-      const scoreA = categoryScore(categorizeBookWithFormat(availMap[a.id], formatFilter));
-      const scoreB = categoryScore(categorizeBookWithFormat(availMap[b.id], formatFilter));
-      if (scoreB !== scoreA) return scoreB - scoreA;
-      return a.title.localeCompare(b.title);
-    });
+    if (showAvailabilityFilters) {
+      // Want-to-read view: sort by availability category (ready → soon → wait
+      // → not found), tiebreak by title. This matches the previous /books UX.
+      filtered.sort((a, b) => {
+        const scoreA = categoryScore(categorizeBookWithFormat(availMap[a.id], formatFilter));
+        const scoreB = categoryScore(categorizeBookWithFormat(availMap[b.id], formatFilter));
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        return a.title.localeCompare(b.title);
+      });
+    } else {
+      // Reading-history views: most recently touched first. finishedAt
+      // wins, then startedAt, then title.
+      filtered.sort((a, b) => {
+        const aT = Date.parse(a.finishedAt ?? a.startedAt ?? "") || 0;
+        const bT = Date.parse(b.finishedAt ?? b.startedAt ?? "") || 0;
+        if (aT !== bT) return bT - aT;
+        return a.title.localeCompare(b.title);
+      });
+    }
 
     return filtered;
-  }, [books, availMap, categoryFilter, formatFilter, searchQuery]);
+  }, [
+    entries,
+    statusFilter,
+    availMap,
+    categoryFilter,
+    formatFilter,
+    searchQuery,
+    showAvailabilityFilters,
+  ]);
 
-  const totalPages = Math.ceil(sortedAndFilteredBooks.length / PAGE_SIZE);
-  const paginatedBooks = sortedAndFilteredBooks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(sortedAndFilteredEntries.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedEntries = sortedAndFilteredEntries.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE,
+  );
+
+  const updateSearchParams = useCallback(
+    (updates: Record<string, string | null>) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          for (const [k, v] of Object.entries(updates)) {
+            if (v === null) next.delete(k);
+            else next.set(k, v);
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   const goToPage = (p: number) => {
-    setSearchParams({ page: String(p) });
+    updateSearchParams({ page: String(p) });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleSearchChange = (query: string) => {
     setSearchQuery(query);
-    setSearchParams({ page: "1" });
+    updateSearchParams({ page: "1" });
+  };
+
+  const handleStatusFilter = (s: StatusFilter) => {
+    if (s === "wantToRead") {
+      // wantToRead is the default — drop the param so the URL stays clean.
+      updateSearchParams({ status: null, page: "1" });
+    } else {
+      updateSearchParams({ status: s, page: "1" });
+    }
+    // Category filter only makes sense in want-to-read view; clear it when
+    // we navigate elsewhere.
+    if (s !== "wantToRead") setCategoryFilter(null);
+    posthog?.capture("books_status_filter_changed", { status: s });
   };
 
   const handleToggleCategory = (cat: BookCategory) => {
     const newFilter = categoryFilter === cat ? null : cat;
     setCategoryFilter(newFilter);
-    setSearchParams({ page: "1" });
+    updateSearchParams({ page: "1" });
     posthog?.capture("category_filter_toggled", {
       category: cat,
       active: newFilter === cat,
@@ -173,13 +304,13 @@ export default function Books() {
 
   const handleToggleFormat = (f: FormatFilter) => {
     setFormatFilter(f);
-    setSearchParams({ page: "1" });
+    updateSearchParams({ page: "1" });
     posthog?.capture("format_filter_toggled", { format: f });
   };
 
   const handleRefreshAll = () => {
     posthog?.capture("all_books_refreshed", {
-      book_count: books.length,
+      book_count: wantToReadBooks.length,
       library_count: libraries.length,
     });
     refreshAll();
@@ -194,25 +325,38 @@ export default function Books() {
   };
 
   const handleSelectBook = (item: LibbyMediaItem) => {
-    const author = item.creators?.find((c) => c.role === "Author")?.name ?? "";
+    const author = getAuthor(item);
     addBook({
       title: item.title,
       author,
       imageUrl: item.covers?.cover150Wide?.href,
       source: "unknown",
     });
-    setBooksState(getBooks().filter(isWantToRead));
+    refreshEntries();
     setShowAddBook(false);
     posthog?.capture("book_added_from_search", { title: item.title });
   };
 
-  const handleRemoveBook = (id: string) => {
-    removeBook(id);
-    setBooksState(getBooks().filter(isWantToRead));
-    posthog?.capture("book_removed", { book_id: id });
+  const handleRemoveEntry = (entry: PseudoBook) => {
+    if (!confirm(`Remove "${entry.title}" from your shelf?`)) return;
+    if (entry.__readEntryKey) {
+      removeReadBook(entry.__readEntryKey);
+    } else {
+      removeBook(entry.id);
+    }
+    refreshEntries();
+    setReadBooks(getReadBooks());
+    posthog?.capture("book_removed", { book_id: entry.id });
   };
 
-  const handleMarkRead = (book: Book) => {
+  /**
+   * "Mark as read" is kept as a one-tap shortcut from the want-to-read view:
+   * it adds a `ReadBookEntry` (which is what BookHive / external sources
+   * historically wrote). When invoked from a card whose Book exists, we
+   * keep both records — `ReadBookEntry` is keyed independently and the
+   * sync engine will reconcile it.
+   */
+  const handleMarkRead = (book: PseudoBook) => {
     const key = readBookKey({ workId: book.workId, title: book.title, author: book.author });
     if (readBookKeys.has(key)) {
       removeReadBook(key);
@@ -224,35 +368,86 @@ export default function Books() {
     setReadBooks(getReadBooks());
   };
 
-  const handleEditSave = (patch: BookEditorPatch) => {
-    if (!editing) return;
-    updateBook(editing.id, patch);
+  const handleQuickStatus = (book: PseudoBook, status: ShelfStatus) => {
+    if (book.__readEntryKey) {
+      // ReadBookEntry → promote to a real Book before applying status.
+      const { __readEntryKey, id: _pseudoId, ...bookData } = book;
+      addBook({ ...bookData, status });
+      removeReadBook(__readEntryKey);
+    } else {
+      updateBook(book.id, { status });
+    }
+    refreshEntries();
+    setReadBooks(getReadBooks());
+    posthog?.capture("book_quick_status_changed", { book_id: book.id, status });
+  };
+
+  const handleEditSave = (entry: PseudoBook, patch: BookEditorPatch) => {
+    let bookId: string;
+    if (entry.__readEntryKey) {
+      const { __readEntryKey, id: _pseudoId, ...bookData } = entry;
+      addBook({ ...bookData, ...patch });
+      removeReadBook(__readEntryKey);
+      const allBooks = getBooks();
+      bookId = allBooks[allBooks.length - 1].id;
+    } else {
+      bookId = entry.id;
+      updateBook(bookId, patch);
+    }
     setEditing(null);
-    setBooksState(getBooks().filter(isWantToRead));
+    refreshEntries();
+    setReadBooks(getReadBooks());
     posthog?.capture("book_edited", {
-      book_id: editing.id,
+      book_id: bookId,
       status: patch.status,
       has_rating: patch.rating !== undefined,
+      has_note: !!patch.note,
     });
   };
 
-  const handleFindSelect = (book: Book, item: LibbyMediaItem) => {
+  const handleFindSelect = (entry: PseudoBook, item: LibbyMediaItem) => {
     const author = getAuthor(item);
     const imageUrl = item.covers?.cover150Wide?.href;
-    updateBook(book.id, {
-      title: item.title,
-      author,
-      ...(imageUrl ? { imageUrl } : {}),
-      source: book.source,
-    });
+
+    let bookId: string;
+    if (entry.__readEntryKey) {
+      const newBook: Omit<Book, "id" | "manual"> = {
+        title: item.title,
+        author,
+        source: "unknown",
+        status: entry.status ?? "finished",
+        finishedAt: entry.finishedAt,
+        startedAt: entry.startedAt,
+        ...(imageUrl ? { imageUrl } : {}),
+      };
+      addBook(newBook);
+      removeReadBook(entry.__readEntryKey);
+      const allBooks = getBooks();
+      bookId = allBooks[allBooks.length - 1].id;
+    } else {
+      bookId = entry.id;
+      updateBook(bookId, {
+        title: item.title,
+        author,
+        ...(imageUrl ? { imageUrl } : {}),
+        source: entry.source,
+      });
+    }
 
     setFinding(null);
-    setEnrichingIds((prev) => new Set(prev).add(book.id));
-    setBooksState(getBooks().filter(isWantToRead));
-    posthog?.capture("book_find_selected", { book_id: book.id, selected_title: item.title });
+    setEnrichingIds((prev) => new Set(prev).add(bookId));
+    refreshEntries();
+    posthog?.capture("book_find_selected", { book_id: bookId, selected_title: item.title });
 
-    const updated = { ...book, title: item.title, author };
-    enrichBooksWithWorkId([updated])
+    enrichBooksWithWorkId([
+      {
+        id: bookId,
+        title: item.title,
+        author,
+        source: entry.source,
+        status: entry.status,
+      },
+    ])
       .then((enriched) => {
         if (enriched[0]?.workId) {
           const {
@@ -264,7 +459,7 @@ export default function Books() {
             pageCount,
             firstPublishYear,
           } = enriched[0];
-          updateBook(book.id, {
+          updateBook(bookId, {
             workId,
             isbn13,
             imageUrl: enriched[0].imageUrl ?? imageUrl,
@@ -274,7 +469,7 @@ export default function Books() {
             pageCount,
             firstPublishYear,
           });
-          setBooksState(getBooks().filter(isWantToRead));
+          refreshEntries();
           showToast(`Matched "${item.title}" with Open Library`);
         } else {
           showToast(`Could not find "${item.title}" on Open Library`, "error");
@@ -286,19 +481,24 @@ export default function Books() {
       .finally(() => {
         setEnrichingIds((prev) => {
           const next = new Set(prev);
-          next.delete(book.id);
+          next.delete(bookId);
           return next;
         });
       });
   };
 
-  const handleFollowAuthor = (book: Book) => {
+  const handleFollowAuthor = (book: PseudoBook) => {
     const authorName = book.canonicalAuthor ?? book.author;
     if (!authorName) return;
     addAuthor({ name: authorName });
     setFollowedAuthors(getAuthors());
     posthog?.capture("author_followed_from_book", { author: authorName, book_id: book.id });
   };
+
+  const showProgressBar =
+    showAvailabilityFilters &&
+    wantToReadBooks.length > 0 &&
+    (checkedCount < totalBooks || enrichmentProgress);
 
   return (
     <main className="min-h-screen py-8 px-4">
@@ -326,14 +526,12 @@ export default function Books() {
             </button>
           </div>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {books.length} books &middot; {libraries.length}{" "}
+            {entries.length} {entries.length === 1 ? "book" : "books"} &middot; {libraries.length}{" "}
             {libraries.length === 1 ? "library" : "libraries"}
           </p>
           <div className="flex flex-wrap items-center gap-2 mt-1">
-            <BookhiveSyncStatus
-              onBooksChanged={() => setBooksState(getBooks().filter(isWantToRead))}
-            />
-            {oldestFetchedAt && checkedCount > 0 && (
+            <BookhiveSyncStatus onBooksChanged={refreshEntries} />
+            {showAvailabilityFilters && oldestFetchedAt && checkedCount > 0 && (
               <button
                 type="button"
                 onClick={handleRefreshAll}
@@ -366,6 +564,29 @@ export default function Books() {
           </div>
         </div>
 
+        {/* Status filter pills (default: wantToRead) */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-4">
+          {STATUS_FILTERS.map((s) => {
+            const active = statusFilter === s;
+            const count = s === "all" ? entries.length : statusCounts[s];
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => handleStatusFilter(s)}
+                aria-pressed={active}
+                className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                  active
+                    ? "bg-amber-600 border-amber-600 text-white"
+                    : "bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600"
+                }`}
+              >
+                {s === "all" ? "All" : statusLabel(s)} ({count})
+              </button>
+            );
+          })}
+        </div>
+
         {showAddBook && libraries.length > 0 && (
           <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
             {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
@@ -386,13 +607,13 @@ export default function Books() {
                 onSelect={handleSelectBook}
                 onCancel={() => setShowAddBook(false)}
                 placeholder="Search Libby for a book to add..."
-                existingBooks={books}
+                existingBooks={entries.map((e) => ({ title: e.title, author: e.author ?? "" }))}
               />
             </div>
           </div>
         )}
 
-        {books.length === 0 && (
+        {entries.length === 0 && (
           <div className="text-center py-12 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
             <p className="text-gray-500 dark:text-gray-400">
               No books loaded. Upload a reading list to get started.
@@ -406,7 +627,7 @@ export default function Books() {
           </div>
         )}
 
-        {books.length > 0 && (checkedCount < totalBooks || enrichmentProgress) && (
+        {showProgressBar && (
           <ProgressBar
             checked={checkedCount}
             total={totalBooks}
@@ -417,7 +638,7 @@ export default function Books() {
           />
         )}
 
-        {books.length > 0 && checkedCount > 0 && (
+        {showAvailabilityFilters && wantToReadBooks.length > 0 && checkedCount > 0 && (
           <>
             <SummaryStats
               available={categoryCounts.available}
@@ -428,48 +649,52 @@ export default function Books() {
               onToggleCategory={handleToggleCategory}
             />
             <FormatFilterBar active={formatFilter} onToggle={handleToggleFormat} />
-            <div className="relative mb-4">
-              <svg
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-                />
-              </svg>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                placeholder="Filter your books by title or author..."
-                className="w-full pl-10 pr-9 py-2.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:focus:ring-amber-500 focus:border-transparent"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => handleSearchChange("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <svg
-                    className="w-4 h-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
-            </div>
           </>
         )}
 
-        {sortedAndFilteredBooks.length === 0 && books.length > 0 && checkedCount > 0 && (
+        {/* Search bar — always visible when there are entries */}
+        {entries.length > 0 && (
+          <div className="relative mb-4">
+            <svg
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+              />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search title or author..."
+              className="w-full pl-10 pr-9 py-2.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:focus:ring-amber-500 focus:border-transparent"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => handleSearchChange("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+
+        {sortedAndFilteredEntries.length === 0 && entries.length > 0 && (
           <div className="text-center py-8 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
             <p className="text-gray-500 dark:text-gray-400 text-sm">
               {searchQuery.trim()
@@ -481,6 +706,7 @@ export default function Books() {
                 setCategoryFilter(null);
                 setFormatFilter("all");
                 setSearchQuery("");
+                handleStatusFilter("wantToRead");
               }}
               className="mt-2 text-amber-600 hover:text-amber-700 underline text-sm"
             >
@@ -532,42 +758,55 @@ export default function Books() {
           </div>
         )}
 
-        <div className="space-y-3">
-          {paginatedBooks.map((book) => {
-            const state = availMap[book.id] ?? { status: "pending" as const };
-            const bookKey = readBookKey({
-              workId: book.workId,
-              title: book.title,
-              author: book.author,
+        <ul className="space-y-3">
+          {paginatedEntries.map((entry) => {
+            const state = availMap[entry.id] ?? { status: "pending" as const };
+            const bookKeyStr = readBookKey({
+              workId: entry.workId,
+              title: entry.title,
+              author: entry.author,
             });
-            const authorName = (book.canonicalAuthor ?? book.author ?? "").toLowerCase();
+            const authorName = (entry.canonicalAuthor ?? entry.author ?? "").toLowerCase();
+            const isCurrentlyEnriching = enrichingIds.has(entry.id);
             return (
               <BookCard
-                key={book.id}
-                book={book}
+                key={entry.id}
+                book={entry}
                 state={state}
                 libraries={libraries}
                 formatFilter={formatFilter}
-                onRefresh={() => refreshBook(book)}
+                onRefresh={
+                  showAvailabilityFilters && !entry.__readEntryKey
+                    ? () => refreshBook(entry)
+                    : undefined
+                }
                 onLibbyClick={handleLibbyClick}
-                onEdit={() => setEditing(book)}
-                onFind={!book.workId ? () => setFinding(book) : undefined}
-                onRemove={() => handleRemoveBook(book.id)}
-                onMarkRead={() => handleMarkRead(book)}
-                onFollowAuthor={authorName ? () => handleFollowAuthor(book) : undefined}
-                isRead={readBookKeys.has(bookKey)}
+                onEdit={!isCurrentlyEnriching ? () => setEditing(entry) : undefined}
+                onFind={!entry.workId ? () => setFinding(entry) : undefined}
+                onRemove={() => handleRemoveEntry(entry)}
+                onMarkRead={
+                  showAvailabilityFilters && !entry.__readEntryKey
+                    ? () => handleMarkRead(entry)
+                    : undefined
+                }
+                onFollowAuthor={authorName ? () => handleFollowAuthor(entry) : undefined}
+                onStatusChange={
+                  entry.__readEntryKey ? undefined : (s) => handleQuickStatus(entry, s)
+                }
+                isRead={readBookKeys.has(bookKeyStr)}
                 isAuthorFollowed={followedAuthorNames.has(authorName)}
+                showAvailability={showAvailabilityFilters}
               />
             );
           })}
-        </div>
+        </ul>
 
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-center gap-1.5 mt-8">
             <button
               onClick={() => goToPage(1)}
-              disabled={page <= 1}
+              disabled={safePage <= 1}
               className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
               title="First page"
             >
@@ -586,8 +825,8 @@ export default function Books() {
               </svg>
             </button>
             <button
-              onClick={() => goToPage(page - 1)}
-              disabled={page <= 1}
+              onClick={() => goToPage(safePage - 1)}
+              disabled={safePage <= 1}
               className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
               title="Previous page"
             >
@@ -606,11 +845,11 @@ export default function Books() {
               </svg>
             </button>
             <span className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-              Page {page} of {totalPages}
+              Page {safePage} of {totalPages}
             </span>
             <button
-              onClick={() => goToPage(page + 1)}
-              disabled={page >= totalPages}
+              onClick={() => goToPage(safePage + 1)}
+              disabled={safePage >= totalPages}
               className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
               title="Next page"
             >
@@ -626,7 +865,7 @@ export default function Books() {
             </button>
             <button
               onClick={() => goToPage(totalPages)}
-              disabled={page >= totalPages}
+              disabled={safePage >= totalPages}
               className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
               title="Last page"
             >
@@ -648,7 +887,11 @@ export default function Books() {
         )}
       </div>
       {editing && (
-        <BookEditor book={editing} onSave={handleEditSave} onClose={() => setEditing(null)} />
+        <BookEditor
+          book={editing}
+          onSave={(patch) => handleEditSave(editing, patch)}
+          onClose={() => setEditing(null)}
+        />
       )}
 
       {finding && (

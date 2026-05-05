@@ -10,6 +10,7 @@ export default [
     route("book/:workId", "routes/book/route.tsx"),
     route("shelf", "routes/shelf/route.tsx"),
     route("friends", "routes/friends/route.tsx"),
+    route("friends/:handle", "routes/friend/route.tsx"),
     route("stats", "routes/stats/route.tsx"),
   ]),
 ] satisfies RouteConfig;

@@ -59,7 +59,9 @@ test.describe("local-only user", () => {
     await expect(page.getByText("Adrian Tchaikovsky").first()).toBeVisible();
 
     // --- Open the shelf and edit the first book: status, rating, note ---
-    await page.getByRole("link", { name: "Shelf" }).click();
+    // /books is the unified shelf; landing with ?status=all surfaces every
+    // entry regardless of status (matches the old /shelf default).
+    await shelf.goto();
     await shelf.waitForReady();
     await shelf.openEditor("Children of Time");
     await editor.setStatus("Reading");
