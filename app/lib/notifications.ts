@@ -111,7 +111,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
 }
 
 /** Check if notifications are supported and permission is not denied. */
-export function canRequestNotifications(): boolean {
+function canRequestNotifications(): boolean {
   return "Notification" in window && Notification.permission !== "denied";
 }
 
