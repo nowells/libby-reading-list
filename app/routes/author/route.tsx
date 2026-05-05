@@ -196,9 +196,12 @@ export default function AuthorDetailsPage() {
               <AuthorPhoto src={photoUrl} alt={details?.name ?? authorKey} />
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+              {/* h2: the layout header carries the page-level h1 with this
+                  same name; this is the visually prominent hero copy but
+                  semantically a section heading. */}
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
                 {details?.name ?? (detailsLoading ? "Loading…" : authorKey)}
-              </h1>
+              </h2>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
                 {details?.birthDate && (
                   <span>

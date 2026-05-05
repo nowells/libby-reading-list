@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { Link, Outlet, useMatches, useNavigation } from "react-router";
 import { Logo } from "~/components/logo";
 
@@ -196,7 +196,19 @@ export default function MainLayout() {
               {pageTitle}
             </h1>
           )}
-          <div ref={setActionSlot} className="ml-auto flex items-center gap-3" />
+          <div
+            ref={(el) => {
+              // flushSync forces the portal-slot state update to commit
+              // before paint so the HeaderAction button is in the DOM the
+              // first time anyone (a user, an e2e test) looks for it.
+              // Without it the slot lands on the second render cycle and
+              // there's a brief window where the action is missing.
+              if (el && el !== actionSlot) {
+                flushSync(() => setActionSlot(el));
+              }
+            }}
+            className="ml-auto flex items-center gap-3"
+          />
           <nav className="flex items-center gap-3 sm:gap-4">
             {NAV_ITEMS.map((item) => {
               const active = navActive === item.key;

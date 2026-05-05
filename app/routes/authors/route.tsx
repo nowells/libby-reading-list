@@ -286,6 +286,7 @@ export default function Authors() {
         <HeaderAction>
           <button
             onClick={() => setShowAddAuthor((s) => !s)}
+            aria-label="Add"
             className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
           >
             <svg

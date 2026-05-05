@@ -340,6 +340,7 @@ export default function Shelf() {
           <button
             type="button"
             onClick={() => setAdding(true)}
+            aria-label="Add"
             className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
           >
             <svg
