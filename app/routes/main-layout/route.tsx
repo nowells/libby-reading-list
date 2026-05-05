@@ -1,4 +1,3 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Link, Outlet, useMatches, useNavigation } from "react-router";
 import { Logo } from "~/components/logo";
 
@@ -6,43 +5,12 @@ interface NavHandle {
   /** Identifier of the active top-level nav item, e.g. "books". */
   navActive?: string;
   /**
-   * Page title shown in the shared header. Either a static string or a
-   * function that derives it from the route's loader data — useful for
-   * detail pages where the title comes from a fetched record.
+   * Optional contextual label rendered next to the logo in the sticky
+   * header (e.g. "Your books"). It's a styled span — the page-level
+   * h1 lives in the route's body so each route owns exactly one
+   * primary heading; this is just visual context.
    */
   pageTitle?: string | ((data: unknown) => string | undefined);
-}
-
-/**
- * Pages call the setter (via {@link HeaderAction}) to push the JSX they
- * want rendered in the shared header's per-page action slot. The layout
- * holds the slot's contents in state and renders them inline — no portal
- * gymnastics required, which keeps the action button reachable for
- * Playwright on the very first render after navigation.
- */
-const HeaderActionContext = createContext<((node: ReactNode) => void) | null>(null);
-
-/**
- * Renders its children into the shared header's per-page action slot.
- * Used by routes that want a contextual button (e.g. "+ Add" on /books)
- * to live inside the sticky header rather than in the page body. A thin
- * vertical divider follows the children so the page-action zone reads
- * as visually separate from the global nav — pages that don't render a
- * HeaderAction get neither button nor divider.
- */
-export function HeaderAction({ children }: { children: ReactNode }) {
-  const setAction = useContext(HeaderActionContext);
-  useEffect(() => {
-    if (!setAction) return;
-    setAction(
-      <>
-        {children}
-        <span aria-hidden className="w-px h-5 bg-gray-300 dark:bg-gray-600 flex-shrink-0" />
-      </>,
-    );
-    return () => setAction(null);
-  }, [children, setAction]);
-  return null;
 }
 
 const NAV_ITEMS: { key: string; to: string; label: string; icon: React.ReactNode }[] = [
@@ -173,7 +141,6 @@ export default function MainLayout() {
   const matches = useMatches();
   const navigation = useNavigation();
   const isLoading = navigation.state === "loading";
-  const [headerAction, setHeaderAction] = useState<ReactNode>(null);
 
   // Walk matches deepest-first; first match with a navActive / pageTitle wins.
   let navActive: string | undefined;
@@ -191,7 +158,7 @@ export default function MainLayout() {
   }
 
   return (
-    <HeaderActionContext.Provider value={setHeaderAction}>
+    <>
       {/* Sticky (rather than fixed) so the header takes its 56px of layout
           space at the top — child <main className="min-h-screen"> blocks
           flow naturally underneath without needing a magic padding spacer. */}
@@ -201,12 +168,14 @@ export default function MainLayout() {
             <Logo className="w-8 h-8" />
           </Link>
           {pageTitle && (
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-white truncate min-w-0">
+            // Span (not h1) — the h1 lives in the route's body so each
+            // route has exactly one primary heading. This is just a
+            // styled label that mirrors the page's name in the header.
+            <span className="text-lg font-semibold text-gray-900 dark:text-white truncate min-w-0">
               {pageTitle}
-            </h1>
+            </span>
           )}
-          <div className="ml-auto flex items-center gap-3">{headerAction}</div>
-          <nav className="flex items-center gap-3 sm:gap-4">
+          <nav className="ml-auto flex items-center gap-3 sm:gap-4">
             {NAV_ITEMS.map((item) => {
               const active = navActive === item.key;
               return (
@@ -244,6 +213,6 @@ export default function MainLayout() {
         </div>
       </header>
       <Outlet />
-    </HeaderActionContext.Provider>
+    </>
   );
 }

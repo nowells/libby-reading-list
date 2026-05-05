@@ -107,7 +107,8 @@ export default function Friends() {
     <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
         <div className="mb-6">
-          <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Friends</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {friends.length} {friends.length === 1 ? "friend" : "friends"} on ShelfCheck
             </span>

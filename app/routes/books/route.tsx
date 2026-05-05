@@ -20,7 +20,6 @@ import {
 import { enrichBooksWithWorkId } from "~/lib/openlibrary";
 import { getAuthor } from "~/components/book-search-utils";
 import { BookSearchPicker } from "~/components/book-search-picker";
-import { HeaderAction } from "~/routes/main-layout/route";
 import type { LibbyMediaItem } from "~/lib/libby";
 import { useAvailabilityChecker } from "./hooks/use-availability-checker";
 import { useAvailabilityNotifications } from "./hooks/use-availability-notifications";
@@ -304,26 +303,29 @@ export default function Books() {
   return (
     <main className="min-h-screen py-8 px-4">
       <div className="max-w-3xl mx-auto">
-        <HeaderAction>
-          <button
-            onClick={() => setShowAddBook((s) => !s)}
-            aria-label="Add"
-            className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
-          >
-            <svg
-              className="w-4 h-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            <span className="hidden sm:inline">Add</span>
-          </button>
-        </HeaderAction>
         <div className="mb-6">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex-1 min-w-0 truncate">
+              Your books
+            </h1>
+            <button
+              onClick={() => setShowAddBook((s) => !s)}
+              aria-label="Add"
+              className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              <span>Add</span>
+            </button>
+          </div>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {books.length} books &middot; {libraries.length}{" "}
             {libraries.length === 1 ? "library" : "libraries"}
           </p>

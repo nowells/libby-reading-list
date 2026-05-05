@@ -454,12 +454,9 @@ export default function BookDetails() {
 
             {/* Title block */}
             <div className="flex-1 min-w-0">
-              {/* h2: the layout header carries the page-level h1 with this
-                  same title; this is the visually prominent hero copy but
-                  semantically a section heading. */}
-              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
                 {displayTitle}
-              </h2>
+              </h1>
               {details?.subtitle && (
                 <p className="text-base text-gray-600 dark:text-gray-300 mt-1">
                   {details.subtitle}
