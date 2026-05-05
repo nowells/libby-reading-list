@@ -21,7 +21,9 @@
     "test": "npm run fmt:check && npm run lint && npm run typecheck && npm run test:unit && npm run knip && npm run build",
     "build:workers": "node --experimental-strip-types scripts/build-workers.ts",
     "deploy:workers": "node --experimental-strip-types scripts/deploy-workers.ts",
-    "publish:lexicons": "node --experimental-strip-types scripts/publish-lexicons.ts"
+    "publish:lexicons": "node --experimental-strip-types scripts/publish-lexicons.ts",
+    "lint:changelog": "node --experimental-strip-types scripts/lint-changelog.ts",
+    "publish:changelog": "node --experimental-strip-types scripts/publish-changelog.ts"
   },
   "dependencies": {
     "@atproto/api": "^0.19.9",
