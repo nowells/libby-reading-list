@@ -1,5 +1,5 @@
-import { Link, useParams, redirect } from "react-router";
-import { useEffect, useMemo, useState } from "react";
+import { Link, redirect, useLoaderData } from "react-router";
+import { useEffect, useState } from "react";
 import {
   getBooks,
   getLibraries,
@@ -33,18 +33,40 @@ import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
 import { libbyTitleUrl } from "~/routes/books/lib/utils";
 import { EtaBadge } from "~/routes/books/components/eta-badge";
 
-export function meta() {
-  // The real title is set in a useEffect below once the book details resolve;
-  // this is just a placeholder while the SPA loads.
-  return [{ title: "Book | ShelfCheck" }];
+type LoaderData = {
+  libraries: LibraryConfig[];
+  workId: string;
+  validWorkId: boolean;
+  existingBook: Book | undefined;
+  details: WorkDetails | null;
+};
+
+export function meta({ data }: { data?: LoaderData }) {
+  const title =
+    data?.details?.title ?? data?.existingBook?.canonicalTitle ?? data?.existingBook?.title;
+  return [{ title: title ? `${title} | ShelfCheck` : "Book | ShelfCheck" }];
 }
 
-export function clientLoader() {
+export async function clientLoader({
+  params,
+}: {
+  params: { workId?: string };
+}): Promise<LoaderData> {
   const libraries = getLibraries();
   if (libraries.length === 0) {
     throw redirect("/setup");
   }
-  return { libraries };
+
+  const workId = params.workId ?? "";
+  const validWorkId = /^OL[A-Z0-9]+W$/.test(workId);
+  const existingBook = validWorkId ? findExistingBook(workId) : undefined;
+  // Pre-fetch work details so meta() can show the real title in the tab.
+  // Errors are swallowed — the page still renders with whatever fallback we
+  // can derive from the local existing-book entry, and the component-level
+  // effects will retry on its own dependencies.
+  const details = validWorkId ? await getWorkDetails(workId).catch(() => null) : null;
+
+  return { libraries, workId, validWorkId, existingBook, details };
 }
 
 interface EditionSummary {
@@ -128,13 +150,17 @@ function isAuthorFollowed(name: string): boolean {
 }
 
 export default function BookDetails() {
-  const params = useParams<{ workId: string }>();
-  const workId = params.workId ?? "";
-  const validWorkId = /^OL[A-Z0-9]+W$/.test(workId);
-  const libraries = useMemo<LibraryConfig[]>(() => getLibraries(), []);
+  const loaderData = useLoaderData() as LoaderData;
+  const {
+    libraries,
+    workId,
+    validWorkId,
+    existingBook: initialExistingBook,
+    details: initialDetails,
+  } = loaderData;
 
-  const [details, setDetails] = useState<WorkDetails | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(true);
+  const [details, setDetails] = useState<WorkDetails | null>(initialDetails);
+  const [detailsLoading, setDetailsLoading] = useState(initialDetails === null && validWorkId);
   const [ratings, setRatings] = useState<WorkRatings | null>(null);
   const [edSummary, setEdSummary] = useState<EditionSummary | null>(null);
   const [series, setSeries] = useState<SeriesBook[]>([]);
@@ -144,9 +170,7 @@ export default function BookDetails() {
   const [availLoading, setAvailLoading] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
 
-  const [existingBook, setExistingBook] = useState<Book | undefined>(() =>
-    validWorkId ? findExistingBook(workId) : undefined,
-  );
+  const [existingBook, setExistingBook] = useState<Book | undefined>(initialExistingBook);
   const [isRead, setIsRead] = useState(false);
   const [authorFollowed, setAuthorFollowed] = useState(false);
 
@@ -160,9 +184,10 @@ export default function BookDetails() {
     "Unknown author";
   const primaryAuthorKey = details?.authors[0]?.key;
 
-  // Initial fetch — work details (description, subjects, etc.)
+  // Re-fetch work details if the loader didn't provide them (e.g. invalid id
+  // recovered later, or a transient OL failure during the loader call).
   useEffect(() => {
-    if (!validWorkId) {
+    if (!validWorkId || details) {
       setDetailsLoading(false);
       return;
     }
@@ -176,7 +201,7 @@ export default function BookDetails() {
     return () => {
       cancelled = true;
     };
-  }, [workId, validWorkId]);
+  }, [workId, validWorkId, details]);
 
   // Fetch ratings + edition summary + author names in parallel
   useEffect(() => {
@@ -302,14 +327,6 @@ export default function BookDetails() {
       setAuthorFollowed(isAuthorFollowed(displayAuthor));
     }
   }, [workId, validWorkId, displayTitle, displayAuthor]);
-
-  // Update the document title with the real book title once it resolves.
-  // The static `meta()` runs before details are fetched, so we patch it here.
-  useEffect(() => {
-    if (displayTitle && displayTitle !== "Loading…") {
-      document.title = `${displayTitle} | ShelfCheck`;
-    }
-  }, [displayTitle]);
 
   if (!validWorkId) {
     return (
