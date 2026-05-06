@@ -123,12 +123,177 @@ function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+/**
+ * Group records by `contentKey` and pick a canonical winner per group, so
+ * the rest of reconcile sees one record per work. Losers are returned in
+ * `duplicates` so the caller can clean them up from the PDS.
+ *
+ * Winner selection prioritizes records that carry the most user-facing
+ * data — rating, note, started/finished timestamps, rich metadata —
+ * because losing those edits is more harmful than losing the rkey itself.
+ */
+function dedupeIndexedShelfRecords(indexed: IndexedShelfRecord[]): {
+  unique: IndexedShelfRecord[];
+  duplicates: IndexedShelfRecord[];
+} {
+  const groups = new Map<string, IndexedShelfRecord[]>();
+  for (const rec of indexed) {
+    const arr = groups.get(rec.contentKey);
+    if (arr) arr.push(rec);
+    else groups.set(rec.contentKey, [rec]);
+  }
+  const unique: IndexedShelfRecord[] = [];
+  const duplicates: IndexedShelfRecord[] = [];
+  for (const arr of groups.values()) {
+    if (arr.length === 1) {
+      unique.push(arr[0]);
+      continue;
+    }
+    const sorted = [...arr].sort((a, b) => scoreShelfRecord(b) - scoreShelfRecord(a));
+    unique.push(sorted[0]);
+    for (let i = 1; i < sorted.length; i++) duplicates.push(sorted[i]);
+  }
+  return { unique, duplicates };
+}
+
+function scoreShelfRecord(r: IndexedShelfRecord): number {
+  const v = r.value;
+  let score = 0;
+  // User-authored data — preserve at all costs.
+  if (typeof v.rating === "number") score += 1000;
+  if (v.note) score += 1000;
+  if (v.startedAt) score += 200;
+  if (v.finishedAt) score += 200;
+  // A non-default status is more informative than the implicit wantToRead.
+  if (r.status !== STATUS.wantToRead) score += 100;
+  // Metadata richness.
+  if (v.ids.olWorkId) score += 50;
+  if (v.coverUrl) score += 10;
+  if (v.subjects && v.subjects.length > 0) score += 10;
+  if (typeof v.pageCount === "number") score += 5;
+  if (typeof v.firstPublishYear === "number") score += 5;
+  if (v.sourceUrl) score += 3;
+  // Recency tiebreaker: more-recent updates win when otherwise equal.
+  const ts = Date.parse(v.updatedAt ?? v.createdAt);
+  if (Number.isFinite(ts)) score += ts / 1e12;
+  return score;
+}
+
+async function deleteDuplicateShelfRecords(
+  session: OAuthSession,
+  duplicates: IndexedShelfRecord[],
+): Promise<void> {
+  await deleteDuplicateRecords(
+    session,
+    NSID.shelfEntry,
+    duplicates.map((d) => ({ rkey: d.rkey })),
+    "shelf entry",
+  );
+}
+
+/**
+ * Generic dedupe helper for "list every record, keep one per natural key,
+ * delete the rest." Authors are keyed by olAuthorKey-or-name; dismissed
+ * works by olWorkId-or-fuzzy-key.
+ */
+function dedupeByKey<T>(
+  records: ListedRecord<T>[],
+  keyOf: (r: ListedRecord<T>) => string,
+  scoreOf: (r: ListedRecord<T>) => number,
+): { unique: ListedRecord<T>[]; duplicates: ListedRecord<T>[] } {
+  const groups = new Map<string, ListedRecord<T>[]>();
+  for (const r of records) {
+    const k = keyOf(r);
+    const arr = groups.get(k);
+    if (arr) arr.push(r);
+    else groups.set(k, [r]);
+  }
+  const unique: ListedRecord<T>[] = [];
+  const duplicates: ListedRecord<T>[] = [];
+  for (const arr of groups.values()) {
+    if (arr.length === 1) {
+      unique.push(arr[0]);
+      continue;
+    }
+    const sorted = [...arr].sort((a, b) => scoreOf(b) - scoreOf(a));
+    unique.push(sorted[0]);
+    for (let i = 1; i < sorted.length; i++) duplicates.push(sorted[i]);
+  }
+  return { unique, duplicates };
+}
+
+function dedupeAuthorRecords(records: ListedRecord<AuthorFollowRecord>[]): {
+  unique: ListedRecord<AuthorFollowRecord>[];
+  duplicates: ListedRecord<AuthorFollowRecord>[];
+} {
+  return dedupeByKey(
+    records,
+    (r) => r.value.olAuthorKey ?? r.value.name.toLowerCase(),
+    (r) => {
+      let s = 0;
+      if (r.value.olAuthorKey) s += 50;
+      if (r.value.imageUrl) s += 10;
+      const ts = Date.parse(r.value.createdAt);
+      if (Number.isFinite(ts)) s += ts / 1e12;
+      return s;
+    },
+  );
+}
+
+function dedupeDismissedRecords(records: ListedRecord<BookDismissedRecord>[]): {
+  unique: ListedRecord<BookDismissedRecord>[];
+  duplicates: ListedRecord<BookDismissedRecord>[];
+} {
+  return dedupeByKey(
+    records,
+    (r) => contentKeyForDismissed(r.value),
+    (r) => {
+      let s = 0;
+      if (r.value.ids?.olWorkId) s += 50;
+      if (r.value.title) s += 5;
+      if (r.value.authors?.length) s += 5;
+      const ts = Date.parse(r.value.createdAt);
+      if (Number.isFinite(ts)) s += ts / 1e12;
+      return s;
+    },
+  );
+}
+
+async function deleteDuplicateRecords(
+  session: OAuthSession,
+  collection: (typeof NSID)[keyof typeof NSID],
+  duplicates: { rkey: string }[],
+  label: string,
+): Promise<void> {
+  if (duplicates.length === 0) return;
+  console.warn(
+    `[sync] removing ${duplicates.length} duplicate ${label}${duplicates.length === 1 ? "" : "s"} from PDS`,
+  );
+  // Sequential to keep the PDS write rate sane. Errors are logged and
+  // skipped — the next reconcile will retry any remaining duplicate.
+  for (const dup of duplicates) {
+    try {
+      await deleteRecord(session, collection, dup.rkey);
+    } catch (err) {
+      console.error(`[sync] failed to delete duplicate ${label}`, err);
+    }
+  }
+}
+
 async function reconcileShelfEntries(
   session: OAuthSession,
   records: ListedRecord<ShelfEntryRecord>[],
   opts: AttachOptions,
 ): Promise<void> {
-  const indexed = indexShelfRecords(records);
+  const indexedAll = indexShelfRecords(records);
+  // Collapse duplicate PDS records for the same work. A handful of code
+  // paths (mark-as-read fanout, reconcileBulkBooks key-drift, two-device
+  // first-syncs with diverging fuzzy keys) have been observed to leave
+  // multiple shelf entries pointing at the same book — auto-heal here so
+  // every reconcile leaves the PDS in canonical shape.
+  const { unique: indexed, duplicates } = dedupeIndexedShelfRecords(indexedAll);
+  await deleteDuplicateShelfRecords(session, duplicates);
+
   const localBooks = getBooks();
   const localReads = getReadBooks();
 
@@ -273,9 +438,14 @@ function authorMatchKey(a: AuthorEntry): string {
 
 async function reconcileAuthors(
   session: OAuthSession,
-  records: ListedRecord<AuthorFollowRecord>[],
+  rawRecords: ListedRecord<AuthorFollowRecord>[],
   opts: AttachOptions,
 ): Promise<void> {
+  // Collapse duplicate author follows on the PDS first so the rest of the
+  // reconcile sees one record per author.
+  const { unique: records, duplicates } = dedupeAuthorRecords(rawRecords);
+  await deleteDuplicateRecords(session, NSID.authorFollow, duplicates, "author follow");
+
   const localAuthors = getAuthors();
 
   if (opts.bootstrap && records.length === 0 && localAuthors.length) {
@@ -327,9 +497,12 @@ async function safePushAuthor(session: OAuthSession, author: AuthorEntry): Promi
 
 async function reconcileDismissed(
   session: OAuthSession,
-  records: ListedRecord<BookDismissedRecord>[],
+  rawRecords: ListedRecord<BookDismissedRecord>[],
   opts: AttachOptions,
 ): Promise<void> {
+  const { unique: records, duplicates } = dedupeDismissedRecords(rawRecords);
+  await deleteDuplicateRecords(session, NSID.bookDismissed, duplicates, "dismissed entry");
+
   const localDismissed = getDismissedWorks();
 
   if (opts.bootstrap && records.length === 0 && localDismissed.length) {
@@ -463,6 +636,18 @@ function handleMutation(session: OAuthSession, m: StorageMutation): void {
  * Diff old vs new books list (from a CSV import / BookHive sync) and propagate
  * the additions/removals to the PDS. Books that survived the import keep their
  * pdsRkey because storage merges them in place.
+ *
+ * Two guards keep this from generating duplicate PDS records when a book's
+ * `bookKey` shifts between previous and next (e.g. workId enrichment, or an
+ * author normalization difference between the local cache and the imported
+ * source):
+ *
+ *  1. A book in `next` that already carries a pdsRkey is treated as
+ *     already-mirrored — even if its bookKey is "new" in this import — so
+ *     `safePushBook` (which always createRecord's) doesn't fire.
+ *  2. A removal in `previous` is suppressed when its pdsRkey is still
+ *     referenced by a book in `next`. Otherwise the same key-drift would
+ *     delete the live record we just decided to keep.
  */
 async function reconcileBulkBooks(
   session: OAuthSession,
@@ -471,23 +656,25 @@ async function reconcileBulkBooks(
 ): Promise<void> {
   const prevByKey = new Map(previous.map((b) => [bookKey(b), b]));
   const nextByKey = new Map(next.map((b) => [bookKey(b), b]));
+  const nextRkeys = new Set(next.flatMap((b) => (b.pdsRkey ? [b.pdsRkey] : [])));
 
-  // Removals: in previous but not in next.
+  // Removals: in previous but not in next, and the rkey isn't still in use.
   for (const [k, prev] of prevByKey) {
-    if (!nextByKey.has(k) && prev.pdsRkey) {
-      try {
-        await deleteRecord(session, NSID.shelfEntry, prev.pdsRkey);
-      } catch (err) {
-        console.error("[sync] bulk: failed to delete shelf entry", err);
-      }
+    if (nextByKey.has(k)) continue;
+    if (!prev.pdsRkey) continue;
+    if (nextRkeys.has(prev.pdsRkey)) continue;
+    try {
+      await deleteRecord(session, NSID.shelfEntry, prev.pdsRkey);
+    } catch (err) {
+      console.error("[sync] bulk: failed to delete shelf entry", err);
     }
   }
 
-  // Additions: in next but not in previous.
+  // Additions: in next but not in previous, and not already mirrored.
   for (const [k, nxt] of nextByKey) {
-    if (!prevByKey.has(k)) {
-      await safePushBook(session, nxt);
-    }
+    if (prevByKey.has(k)) continue;
+    if (nxt.pdsRkey) continue;
+    await safePushBook(session, nxt);
   }
 }
 
