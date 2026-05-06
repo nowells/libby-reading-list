@@ -40,8 +40,12 @@ export function DetailBackLink({ stack, fallback, className }: Props) {
       to={target.path}
       onClick={onClick}
       className={
+        // Match the amber accent used by /books, /authors, and the
+        // existing "Back to your books / authors" links on the
+        // detail-page error states. Defaulting to gray made the
+        // affordance feel disabled next to the rest of the chrome.
         className ??
-        "inline-flex items-center text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+        "inline-flex items-center text-sm text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
       }
     >
       ← Back to {target.label}
