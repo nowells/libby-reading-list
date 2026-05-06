@@ -1,5 +1,7 @@
 import { Link, redirect, useLoaderData } from "react-router";
 import { useEffect, useState } from "react";
+import { CrumbStateProvider, useCrumbStack, useOutgoingCrumbState } from "~/lib/crumb";
+import { DetailBackLink } from "~/components/detail-back-link";
 import {
   getAuthors,
   getLibraries,
@@ -139,6 +141,19 @@ export default function AuthorDetailsPage() {
     return () => window.removeEventListener("storage", onStorage);
   }, [authorKey, details?.name]);
 
+  // Crumb plumbing — see /book/:workId for the same shape. Outgoing
+  // links from the author detail (work tiles to /book/:workId) push
+  // this author onto the trail; the DetailBackLink renders the
+  // immediate previous entry from the trail we landed on. Declared
+  // BEFORE the validKey early return so React's hook-order contract
+  // is preserved on both render paths.
+  const incomingCrumbStack = useCrumbStack();
+  const authorLabel = details?.name ?? authorKey;
+  const outgoingCrumbState = useOutgoingCrumbState({
+    path: `/author/${authorKey}`,
+    label: authorLabel,
+  });
+
   if (!validKey) {
     return (
       <main className="min-h-screen py-8 px-4">
@@ -187,164 +202,176 @@ export default function AuthorDetailsPage() {
   const visibleBio = bio && !bioExpanded && bioTooLong ? truncateMarkdown(bio, 600) : bio;
 
   return (
-    <main className="min-h-screen py-8 px-4">
-      <div className="max-w-3xl mx-auto">
-        {/* Author hero */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
-          <div className="p-5 sm:p-6 flex flex-col sm:flex-row gap-5">
-            <div className="flex-shrink-0 mx-auto sm:mx-0">
-              <AuthorPhoto src={photoUrl} alt={details?.name ?? authorKey} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
-                {details?.name ?? (detailsLoading ? "Loading…" : authorKey)}
-              </h1>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
-                {details?.birthDate && (
-                  <span>
-                    {details.birthDate}
-                    {details.deathDate ? ` – ${details.deathDate}` : ""}
-                  </span>
-                )}
-                {!detailsLoading && works.length > 0 && (
-                  <span>
-                    {works.length} work{works.length !== 1 ? "s" : ""} on Open Library
-                  </span>
-                )}
+    <CrumbStateProvider value={outgoingCrumbState}>
+      <main className="min-h-screen py-8 px-4">
+        <div className="max-w-3xl mx-auto">
+          <div className="mb-3">
+            <DetailBackLink
+              stack={incomingCrumbStack}
+              fallback={{ path: "/authors", label: "authors" }}
+            />
+          </div>
+          {/* Author hero */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
+            <div className="p-5 sm:p-6 flex flex-col sm:flex-row gap-5">
+              <div className="flex-shrink-0 mx-auto sm:mx-0">
+                <AuthorPhoto src={photoUrl} alt={details?.name ?? authorKey} />
               </div>
-              {details?.alternateNames && details.alternateNames.length > 0 && (
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                  Also known as: {details.alternateNames.join(", ")}
-                </p>
-              )}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {followed ? (
-                  <button
-                    type="button"
-                    onClick={handleUnfollow}
-                    className="px-3 py-1.5 text-sm rounded-lg border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-                  >
-                    Following ✓
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleFollow}
-                    disabled={!details}
-                    className="px-3 py-1.5 text-sm rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
-                  >
-                    Follow author
-                  </button>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+                  {details?.name ?? (detailsLoading ? "Loading…" : authorKey)}
+                </h1>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+                  {details?.birthDate && (
+                    <span>
+                      {details.birthDate}
+                      {details.deathDate ? ` – ${details.deathDate}` : ""}
+                    </span>
+                  )}
+                  {!detailsLoading && works.length > 0 && (
+                    <span>
+                      {works.length} work{works.length !== 1 ? "s" : ""} on Open Library
+                    </span>
+                  )}
+                </div>
+                {details?.alternateNames && details.alternateNames.length > 0 && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                    Also known as: {details.alternateNames.join(", ")}
+                  </p>
                 )}
-                <a
-                  href={`https://openlibrary.org/authors/${authorKey}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  Open Library ↗
-                </a>
-                {details?.wikipediaUrl && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {followed ? (
+                    <button
+                      type="button"
+                      onClick={handleUnfollow}
+                      className="px-3 py-1.5 text-sm rounded-lg border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+                    >
+                      Following ✓
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleFollow}
+                      disabled={!details}
+                      className="px-3 py-1.5 text-sm rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                    >
+                      Follow author
+                    </button>
+                  )}
                   <a
-                    href={details.wikipediaUrl}
+                    href={`https://openlibrary.org/authors/${authorKey}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                   >
-                    Wikipedia ↗
+                    Open Library ↗
                   </a>
-                )}
+                  {details?.wikipediaUrl && (
+                    <a
+                      href={details.wikipediaUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      Wikipedia ↗
+                    </a>
+                  )}
+                </div>
               </div>
             </div>
+
+            {/* Bio */}
+            {bio && visibleBio && (
+              <div className="px-5 sm:px-6 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4">
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">About</h2>
+                <Markdown
+                  source={visibleBio}
+                  className="text-sm text-gray-700 dark:text-gray-300"
+                />
+                {bioTooLong && (
+                  <button
+                    type="button"
+                    onClick={() => setBioExpanded((s) => !s)}
+                    className="mt-2 text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400"
+                  >
+                    {bioExpanded ? "Show less" : "Show more"}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Bio */}
-          {bio && visibleBio && (
-            <div className="px-5 sm:px-6 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">About</h2>
-              <Markdown source={visibleBio} className="text-sm text-gray-700 dark:text-gray-300" />
-              {bioTooLong && (
-                <button
-                  type="button"
-                  onClick={() => setBioExpanded((s) => !s)}
-                  className="mt-2 text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400"
-                >
-                  {bioExpanded ? "Show less" : "Show more"}
-                </button>
-              )}
-            </div>
+          {/* External links */}
+          {details && details.links.length > 0 && (
+            <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Links</h2>
+              <ul className="flex flex-wrap gap-2">
+                {details.links.map((l) => (
+                  <li key={l.url}>
+                    <a
+                      href={l.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-amber-600 hover:text-amber-700 dark:text-amber-400"
+                    >
+                      {l.title} ↗
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
-        </div>
 
-        {/* External links */}
-        {details && details.links.length > 0 && (
+          {/* Works */}
           <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Links</h2>
-            <ul className="flex flex-wrap gap-2">
-              {details.links.map((l) => (
-                <li key={l.url}>
-                  <a
-                    href={l.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-amber-600 hover:text-amber-700 dark:text-amber-400"
-                  >
-                    {l.title} ↗
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {/* Works */}
-        <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Works</h2>
-          {worksLoading && works.length === 0 && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading works…</p>
-          )}
-          {!worksLoading && works.length === 0 && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              No works on file at Open Library.
-            </p>
-          )}
-          {works.length > 0 && (
-            <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {works.slice(0, 60).map((w) => (
-                <li key={w.workId}>
-                  <Link
-                    to={`/book/${w.workId}`}
-                    className="block group rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                  >
-                    <div className="flex gap-3 items-start">
-                      {w.coverId ? (
-                        <img
-                          src={`https://covers.openlibrary.org/b/id/${w.coverId}-M.jpg`}
-                          alt=""
-                          className="w-12 aspect-[2/3] object-cover rounded flex-shrink-0"
-                        />
-                      ) : (
-                        <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 group-hover:text-amber-600 dark:group-hover:text-amber-400">
-                          {w.title}
-                        </p>
-                        {w.firstPublishYear && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500">
-                            {w.firstPublishYear}
-                          </p>
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Works</h2>
+            {worksLoading && works.length === 0 && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">Loading works…</p>
+            )}
+            {!worksLoading && works.length === 0 && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                No works on file at Open Library.
+              </p>
+            )}
+            {works.length > 0 && (
+              <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {works.slice(0, 60).map((w) => (
+                  <li key={w.workId}>
+                    <Link
+                      to={`/book/${w.workId}`}
+                      state={outgoingCrumbState}
+                      className="block group rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                    >
+                      <div className="flex gap-3 items-start">
+                        {w.coverId ? (
+                          <img
+                            src={`https://covers.openlibrary.org/b/id/${w.coverId}-M.jpg`}
+                            alt=""
+                            className="w-12 aspect-[2/3] object-cover rounded flex-shrink-0"
+                          />
+                        ) : (
+                          <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
                         )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                            {w.title}
+                          </p>
+                          {w.firstPublishYear && (
+                            <p className="text-xs text-gray-400 dark:text-gray-500">
+                              {w.firstPublishYear}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
-    </main>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </main>
+    </CrumbStateProvider>
   );
 }
 
