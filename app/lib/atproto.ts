@@ -41,6 +41,13 @@ const OAUTH_SCOPE =
   "atproto repo:org.shelfcheck.shelf.entry repo:org.shelfcheck.author.follow repo:org.shelfcheck.book.dismissed";
 /** How often to re-pull external sources (BookHive, Popfeed) and reconcile with the PDS. */
 const AUTO_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+/**
+ * On `visibilitychange` to "visible", run a silent sync if it's been at least
+ * this long since the last attempt. Browsers throttle (or fully pause on
+ * mobile) `setInterval` while the tab is hidden, so without this the OAuth
+ * refresh chain can go stale even though the user "left the app open".
+ */
+const VISIBILITY_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
 /** Per-DID timestamp of the last successful PDS reconcile. */
 const PDS_LAST_SYNC_PREFIX = "shelfcheck:pds-last-sync:";
 /** The last account that successfully signed in, used to offer a one-click reauthenticate when the OAuth session is later lost. */
@@ -95,6 +102,105 @@ let initPromise: Promise<InitResult | null> | null = null;
 let autoSyncTimer: ReturnType<typeof setInterval> | null = null;
 /** Single-flight guard so overlapping invocations of syncEverything coalesce. */
 let activeSyncPromise: Promise<void> | null = null;
+/** Live OAuthSession — kept in module scope so the visibility handler can
+ *  trigger a silent refresh without going back through `initSession()`. */
+let activeOAuthSession: OAuthSession | null = null;
+/** Wall-clock time of the most recent `runFullSync` invocation. */
+let lastSyncAttemptAt = 0;
+/** True once the document `visibilitychange` listener has been installed. */
+let visibilityHandlerInstalled = false;
+/** Subscribers notified when the active session is lost (or signed out). */
+const sessionChangeListeners: Set<() => void> = new Set();
+
+/**
+ * Subscribe to changes in the active OAuth session — fires whenever the
+ * refresh token can no longer mint an access token (so the UI should swap
+ * to the reauth affordance) or when the user signs out. Returns an
+ * unsubscribe function.
+ */
+export function onSessionChange(cb: () => void): () => void {
+  sessionChangeListeners.add(cb);
+  return () => sessionChangeListeners.delete(cb);
+}
+
+function emitSessionChange(): void {
+  for (const cb of sessionChangeListeners) cb();
+}
+
+/**
+ * Heuristic: does this error look like the OAuth session is no longer
+ * usable (refresh token expired/revoked, server returned 401)? We treat
+ * those as "needs reauthentication" and tear down the active session.
+ * Network errors and 5xx responses fall through and surface as transient
+ * sync failures instead.
+ */
+function isAuthLostError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as {
+    status?: number;
+    error?: string;
+    message?: string;
+    name?: string;
+  };
+  if (e.status === 401) return true;
+  const code = e.error?.toLowerCase() ?? "";
+  if (code === "invalid_token" || code === "invalid_grant") return true;
+  const name = e.name ?? "";
+  if (
+    name === "TokenInvalidError" ||
+    name === "TokenExpiredError" ||
+    name === "TokenRevokedError" ||
+    name === "TokenRefreshError"
+  ) {
+    return true;
+  }
+  const msg = e.message?.toLowerCase() ?? "";
+  if (
+    msg.includes("invalid_token") ||
+    msg.includes("invalid_grant") ||
+    msg.includes("token has been revoked") ||
+    msg.includes("token has expired") ||
+    msg.includes("expired token")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Tear down the active session after a refresh failure: cancel the auto
+ * timer, detach the sync engine, drop the memoized init result so the next
+ * caller re-checks storage, and notify subscribers so the UI can swap to
+ * the reauth pill without forcing a page reload.
+ */
+function handleAuthLost(): void {
+  console.warn("[atproto] OAuth refresh failed — clearing active session");
+  detachSyncSession();
+  activeOAuthSession = null;
+  initPromise = null;
+  emitSessionChange();
+}
+
+/**
+ * Install (once per page lifetime) a `visibilitychange` listener that
+ * runs a silent sync when the tab returns to the foreground after a
+ * meaningful gap. Web OAuth refresh tokens rotate on use, so each
+ * authenticated request extends the chain — without this, a tab left
+ * inactive long enough for the access token to expire while the refresh
+ * window also lapses can wedge the user into reauth.
+ */
+function installVisibilityHandler(): void {
+  if (visibilityHandlerInstalled) return;
+  if (typeof document === "undefined") return;
+  visibilityHandlerInstalled = true;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    const session = activeOAuthSession;
+    if (!session) return;
+    if (Date.now() - lastSyncAttemptAt < VISIBILITY_REFRESH_MIN_INTERVAL_MS) return;
+    void runFullSync(session, { silent: true });
+  });
+}
 
 /**
  * Initialize the OAuth client. If the current URL is an OAuth callback this
@@ -130,6 +236,8 @@ export function initSession(): Promise<InitResult | null> {
         console.error("[atproto] failed to attach sync session", err);
       }
       setLastSignedInAccount({ did: stored.did, handle: stored.handle });
+      activeOAuthSession = session;
+      installVisibilityHandler();
       return { session, info: { did: stored.did, handle: stored.handle }, fresh };
     }
 
@@ -151,12 +259,20 @@ export function initSession(): Promise<InitResult | null> {
       kickOffExternalSync(session);
     } catch (err) {
       console.error("[atproto] failed to attach sync session", err);
+      // The very first authenticated request after `client.init()` is the
+      // reconcile inside `attachSyncSession`. If it fails because the
+      // refresh token is gone, treat this load as "no session" so the
+      // setup page renders the reauth affordance instead of a fake-signed-in
+      // state we can't actually sync against.
+      if (isAuthLostError(err)) return null;
     }
 
     // Resolve the handle via the public AppView to avoid requiring an
     // `rpc:app.bsky.actor.getProfile` scope on the user's session.
     const handle = await fetchHandleForDid(session.did);
     setLastSignedInAccount({ did: session.did, handle });
+    activeOAuthSession = session;
+    installVisibilityHandler();
     return { session, info: { did: session.did, handle }, fresh };
   })();
   return initPromise;
@@ -235,13 +351,17 @@ export async function signOut(did: string): Promise<void> {
   if (testHook) {
     detachSyncSession();
     await testHook.signOut(did);
+    activeOAuthSession = null;
     initPromise = null;
+    emitSessionChange();
     return;
   }
   const client = await getClient();
   detachSyncSession();
   await client.revoke(did);
+  activeOAuthSession = null;
   initPromise = null;
+  emitSessionChange();
 }
 
 function detachSyncSession(): void {
@@ -270,12 +390,20 @@ function scheduleAutoSync(session: OAuthSession): void {
  */
 async function runFullSync(session: OAuthSession, opts: { silent?: boolean } = {}): Promise<void> {
   if (activeSyncPromise) return activeSyncPromise;
+  lastSyncAttemptAt = Date.now();
   activeSyncPromise = (async () => {
     try {
       await resync();
       await syncExternalSources(session);
       setLastPdsSync(session.did);
     } catch (err) {
+      if (isAuthLostError(err)) {
+        // Refresh token expired/revoked — surface the reauth UI now
+        // instead of letting the user discover it next reload.
+        handleAuthLost();
+        if (!opts.silent) throw err;
+        return;
+      }
       if (opts.silent) {
         console.error("[atproto] auto-sync failed", err);
       } else {

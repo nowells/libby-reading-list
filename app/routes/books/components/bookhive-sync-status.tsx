@@ -3,7 +3,11 @@ import {
   initSession,
   refreshPdsSync,
   getLastPdsSync,
+  getLastSignedInAccount,
+  onSessionChange,
+  signInWithBluesky,
   type AtprotoSessionInfo,
+  type RememberedBskyAccount,
 } from "~/lib/atproto";
 import { onStorageMutation } from "~/lib/storage";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
@@ -14,13 +18,18 @@ import { formatRelativeTime } from "../lib/format-relative-time";
  * org.shelfcheck.* records (and external sources — BookHive, Popfeed) with
  * the user's PDS. The full reconcile runs on every page load and on a
  * 15-minute auto-resync timer; this pill surfaces the last-sync timestamp
- * and provides a manual refresh affordance.
+ * and provides a manual refresh affordance. If the OAuth session has been
+ * lost (refresh token expired/revoked) but we still remember the account,
+ * the pill flips to an amber "Reconnect Bluesky" button so reauth is
+ * front-and-center where the user already looks for sync state.
  */
 export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => void }) {
   const [session, setSession] = useState<OAuthSession | null>(null);
   const [info, setInfo] = useState<AtprotoSessionInfo | null>(null);
+  const [remembered, setRemembered] = useState<RememberedBskyAccount | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function runResync(did: string, silent: boolean) {
@@ -37,17 +46,37 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
     }
   }
 
+  async function handleReconnect() {
+    if (!remembered || reconnecting) return;
+    setReconnecting(true);
+    setError(null);
+    try {
+      await signInWithBluesky(remembered.handle ?? remembered.did);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reconnect failed");
+      setReconnecting(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
+    setRemembered(getLastSignedInAccount());
     initSession()
       .then((result) => {
-        if (cancelled || !result) return;
-        setSession(result.session);
-        setInfo(result.info);
-        setLastSync(getLastPdsSync(result.info.did));
-        // initSession already attached the sync engine and ran a reconcile,
-        // so local state already reflects PDS state by the time we render.
-        onBooksChanged();
+        if (cancelled) return;
+        if (result) {
+          setSession(result.session);
+          setInfo(result.info);
+          setRemembered({ did: result.info.did, handle: result.info.handle });
+          setLastSync(getLastPdsSync(result.info.did));
+          // initSession already attached the sync engine and ran a reconcile,
+          // so local state already reflects PDS state by the time we render.
+          onBooksChanged();
+        } else {
+          // No live session. If we remember an account from a prior visit
+          // the render path swaps to the reauth pill below.
+          setRemembered(getLastSignedInAccount());
+        }
       })
       .catch(() => {
         // Non-fatal — the books page still works without a Bluesky session.
@@ -56,6 +85,18 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Listen for mid-session auth loss. When the auto-sync detects a refresh
+  // failure it tears down the active session and notifies subscribers; we
+  // drop the local session state so the pill swaps to "Reconnect Bluesky"
+  // without forcing a page reload.
+  useEffect(() => {
+    return onSessionChange(() => {
+      setSession(null);
+      setInfo(null);
+      setRemembered(getLastSignedInAccount());
+    });
   }, []);
 
   // The 15-minute auto-resync writes books in the background through
@@ -72,7 +113,34 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.did]);
 
-  if (!session || !info) return null;
+  if (!session || !info) {
+    if (!remembered) return null;
+    const handleLabel = remembered.handle ?? remembered.did;
+    return (
+      <button
+        type="button"
+        onClick={handleReconnect}
+        disabled={reconnecting}
+        title={error ?? `Bluesky session expired — click to reconnect as @${handleLabel}`}
+        className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors disabled:opacity-70 whitespace-nowrap"
+      >
+        <svg
+          className="w-3 h-3"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+          />
+        </svg>
+        <span>{reconnecting ? "Reconnecting..." : `Reconnect Bluesky`}</span>
+      </button>
+    );
+  }
 
   const label = syncing
     ? "Syncing with PDS..."
