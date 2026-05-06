@@ -335,4 +335,190 @@ describe("sync", () => {
       expect(records.putRecord).not.toHaveBeenCalled();
     });
   });
+
+  describe("PDS-side dedup on reconcile", () => {
+    it("removes duplicate shelf entries pointing at the same workId, keeping the richest", async () => {
+      // Reproduces the user-reported "many copies of the same book" PDS
+      // state: three records share an olWorkId. The richest one (with
+      // user rating + note) must survive; the others must be deleted.
+      const sharedWorkId = "OL5778777W";
+      const records_: ListedRecord<ShelfEntryRecord>[] = [
+        {
+          uri: "at://test/col/r1",
+          rkey: "r1",
+          value: makeShelfPdsRecord({
+            title: "The Great Gatsby",
+            authors: [{ name: "F. Scott Fitzgerald" }],
+            ids: { olWorkId: sharedWorkId },
+            createdAt: "2025-01-01T00:00:00.000Z",
+          }),
+        },
+        {
+          uri: "at://test/col/r2",
+          rkey: "r2",
+          value: makeShelfPdsRecord({
+            title: "The Great Gatsby",
+            authors: [{ name: "F. Scott Fitzgerald" }],
+            ids: { olWorkId: sharedWorkId },
+            createdAt: "2025-02-01T00:00:00.000Z",
+            // Richer record — user has rated and reviewed.
+            rating: 80,
+            note: "A favorite.",
+          }),
+        },
+        {
+          uri: "at://test/col/r3",
+          rkey: "r3",
+          value: makeShelfPdsRecord({
+            title: "The Great Gatsby",
+            authors: [{ name: "F. Scott Fitzgerald" }],
+            ids: { olWorkId: sharedWorkId },
+            createdAt: "2025-03-01T00:00:00.000Z",
+          }),
+        },
+      ];
+
+      vi.mocked(records.listRecords).mockImplementation(async (_session, collection) => {
+        if (collection === NSID.shelfEntry) return records_;
+        return [];
+      });
+      vi.mocked(records.deleteRecord).mockResolvedValue();
+
+      await attachSession(fakeSession);
+
+      // r1 and r3 (the empty ones) are deleted; r2 (richest) survives.
+      expect(records.deleteRecord).toHaveBeenCalledTimes(2);
+      const deletedRkeys = vi
+        .mocked(records.deleteRecord)
+        .mock.calls.map((c) => c[2])
+        .sort();
+      expect(deletedRkeys).toEqual(["r1", "r3"]);
+
+      // The local book picks up the surviving rkey and the user-edit
+      // metadata that record carried.
+      const book = storage.getBooks().find((b) => b.workId === sharedWorkId);
+      expect(book?.pdsRkey).toBe("r2");
+      expect(book?.rating).toBe(80);
+      expect(book?.note).toBe("A favorite.");
+    });
+
+    it("dedupes shelf entries by fuzzy title+author when olWorkId is missing", async () => {
+      const records_: ListedRecord<ShelfEntryRecord>[] = [
+        {
+          uri: "at://test/col/r1",
+          rkey: "r1",
+          value: makeShelfPdsRecord({
+            title: "Hyperion",
+            authors: [{ name: "Dan Simmons" }],
+            ids: {},
+            createdAt: "2025-01-01T00:00:00.000Z",
+          }),
+        },
+        {
+          uri: "at://test/col/r2",
+          rkey: "r2",
+          value: makeShelfPdsRecord({
+            title: "Hyperion",
+            authors: [{ name: "Dan Simmons" }],
+            ids: {},
+            createdAt: "2025-02-01T00:00:00.000Z",
+          }),
+        },
+      ];
+      vi.mocked(records.listRecords).mockImplementation(async (_session, collection) => {
+        if (collection === NSID.shelfEntry) return records_;
+        return [];
+      });
+      vi.mocked(records.deleteRecord).mockResolvedValue();
+
+      await attachSession(fakeSession);
+
+      expect(records.deleteRecord).toHaveBeenCalledTimes(1);
+      // Tiebreaker is recency, so the older r1 is the duplicate.
+      expect(vi.mocked(records.deleteRecord).mock.calls[0][2]).toBe("r1");
+    });
+
+    it("leaves a single shelf entry untouched", async () => {
+      vi.mocked(records.listRecords).mockImplementation(async (_session, collection) => {
+        if (collection === NSID.shelfEntry) {
+          return [
+            {
+              uri: "at://test/col/only",
+              rkey: "only",
+              value: makeShelfPdsRecord({ ids: { olWorkId: "OL1W" } }),
+            },
+          ];
+        }
+        return [];
+      });
+
+      await attachSession(fakeSession);
+
+      expect(records.deleteRecord).not.toHaveBeenCalled();
+    });
+
+    it("dedupes duplicate author follows by olAuthorKey", async () => {
+      const dup1: AuthorFollowRecord = {
+        name: "Brandon Sanderson",
+        olAuthorKey: "OL2700751A",
+        createdAt: "2025-01-01T00:00:00.000Z",
+      };
+      const dup2: AuthorFollowRecord = {
+        name: "Brandon Sanderson",
+        olAuthorKey: "OL2700751A",
+        imageUrl: "https://example.com/cover.jpg",
+        createdAt: "2025-02-01T00:00:00.000Z",
+      };
+      vi.mocked(records.listRecords).mockImplementation(async (_session, collection) => {
+        if (collection === NSID.authorFollow) {
+          return [
+            { uri: "at://test/col/a1", rkey: "a1", value: dup1 },
+            { uri: "at://test/col/a2", rkey: "a2", value: dup2 },
+          ];
+        }
+        return [];
+      });
+      vi.mocked(records.deleteRecord).mockResolvedValue();
+
+      await attachSession(fakeSession);
+
+      expect(records.deleteRecord).toHaveBeenCalledTimes(1);
+      // The richer record (with imageUrl) survives.
+      expect(vi.mocked(records.deleteRecord).mock.calls[0][2]).toBe("a1");
+      const author = storage.getAuthors().find((a) => a.olKey === "OL2700751A");
+      expect(author?.pdsRkey).toBe("a2");
+    });
+
+    it("dedupes duplicate dismissed entries by workId", async () => {
+      const base = {
+        ids: { olWorkId: "OL999W" },
+        title: "Some Book",
+        authors: [{ name: "Some Author" }],
+      };
+      vi.mocked(records.listRecords).mockImplementation(async (_session, collection) => {
+        if (collection === NSID.bookDismissed) {
+          return [
+            {
+              uri: "at://test/col/d1",
+              rkey: "d1",
+              value: { ...base, createdAt: "2025-01-01T00:00:00.000Z" },
+            },
+            {
+              uri: "at://test/col/d2",
+              rkey: "d2",
+              value: { ...base, createdAt: "2025-02-01T00:00:00.000Z" },
+            },
+          ];
+        }
+        return [];
+      });
+      vi.mocked(records.deleteRecord).mockResolvedValue();
+
+      await attachSession(fakeSession);
+
+      expect(records.deleteRecord).toHaveBeenCalledTimes(1);
+      // Newer one wins on the recency tiebreaker.
+      expect(vi.mocked(records.deleteRecord).mock.calls[0][2]).toBe("d1");
+    });
+  });
 });
