@@ -1,6 +1,11 @@
 import { Link, redirect, useLoaderData } from "react-router";
 import { useEffect, useState } from "react";
-import { CrumbStateProvider, useCrumbStack, useOutgoingCrumbState } from "~/lib/crumb";
+import {
+  CrumbStateProvider,
+  firstNonBlank,
+  useCrumbStack,
+  useOutgoingCrumbState,
+} from "~/lib/crumb";
 import { DetailBackLink } from "~/components/detail-back-link";
 import {
   getBooks,
@@ -194,11 +199,15 @@ export default function BookDetails() {
   // Crumb plumbing: read the trail that landed us here so DetailBackLink
   // can render "Back to <previous>", and chain *this* page onto outgoing
   // links to other detail pages (sibling work, author) so navigating
-  // forward extends the trail rather than replacing it.
+  // forward extends the trail rather than replacing it. The label
+  // intentionally sidesteps `displayTitle`'s "Loading…" placeholder —
+  // if the user navigates onward before details/loader settle, fall
+  // back to "this book" rather than chaining a useless crumb.
   const incomingCrumbStack = useCrumbStack();
+  const bookCrumbLabel = firstNonBlank(details?.title, fallbackTitle) ?? "this book";
   const outgoingCrumbState = useOutgoingCrumbState({
     path: `/book/${workId}`,
-    label: displayTitle,
+    label: bookCrumbLabel,
   });
 
   // Re-sync `details` state from the loader when the route's :workId

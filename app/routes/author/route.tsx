@@ -1,6 +1,11 @@
 import { Link, redirect, useLoaderData } from "react-router";
 import { useEffect, useState } from "react";
-import { CrumbStateProvider, useCrumbStack, useOutgoingCrumbState } from "~/lib/crumb";
+import {
+  CrumbStateProvider,
+  firstNonBlank,
+  useCrumbStack,
+  useOutgoingCrumbState,
+} from "~/lib/crumb";
 import { DetailBackLink } from "~/components/detail-back-link";
 import {
   getAuthors,
@@ -155,12 +160,14 @@ export default function AuthorDetailsPage() {
   // this author onto the trail; the DetailBackLink renders the
   // immediate previous entry from the trail we landed on. Declared
   // BEFORE the validKey early return so React's hook-order contract
-  // is preserved on both render paths.
+  // is preserved on both render paths. We treat OL author keys as a
+  // last-ditch fallback rather than a label — "Back to OL7313085A"
+  // is worse than "Back to this author".
   const incomingCrumbStack = useCrumbStack();
-  const authorLabel = details?.name ?? authorKey;
+  const authorCrumbLabel = firstNonBlank(details?.name) ?? "this author";
   const outgoingCrumbState = useOutgoingCrumbState({
     path: `/author/${authorKey}`,
-    label: authorLabel,
+    label: authorCrumbLabel,
   });
 
   if (!validKey) {

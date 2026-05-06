@@ -1,5 +1,5 @@
 import { Link, redirect, useParams, useSearchParams } from "react-router";
-import { CrumbStateProvider, useOutgoingCrumbState } from "~/lib/crumb";
+import { CrumbStateProvider, firstNonBlank, useOutgoingCrumbState } from "~/lib/crumb";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { usePostHog } from "@posthog/react";
@@ -163,10 +163,13 @@ export default function FriendDetail() {
 
   // /friends/:handle is a tent-pole — clicking through to a book or
   // author detail starts a fresh back-trail rooted on this friend.
-  // The label prefers displayName so the back affordance reads
-  // "Back to Alice" rather than "Back to alice.bsky.social".
+  // Prefer displayName so the back affordance reads "Back to Alice"
+  // rather than "Back to alice.bsky.social", but fall through if the
+  // friend's profile has a blank displayName (atproto allows ""), and
+  // ultimately to "this friend" so the label is never empty.
   const friendLabel =
-    friend?.profile.displayName ?? friend?.profile.handle ?? handleParam ?? "Friend";
+    firstNonBlank(friend?.profile.displayName, friend?.profile.handle, handleParam) ??
+    "this friend";
   const outgoingCrumbState = useOutgoingCrumbState(
     { path: `/friends/${handleParam ?? ""}`, label: friendLabel },
     { resetStack: true },

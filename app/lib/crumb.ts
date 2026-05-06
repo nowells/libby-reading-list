@@ -28,6 +28,21 @@ interface CrumbLocationState {
 const CRUMB_STACK_MAX = 10;
 
 /**
+ * Pick the first non-blank string from a list of candidates. We can't
+ * just rely on `??` for crumb labels because the upstream sources
+ * (atproto profile.displayName, OL `details.name`, OL `work.title`)
+ * sometimes return an empty string instead of null/undefined — `??`
+ * doesn't fall through on `""` and we'd render "Back to " with no
+ * trailing label. This treats blank/whitespace-only as missing.
+ */
+export function firstNonBlank(...candidates: (string | null | undefined)[]): string | undefined {
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) return c.trim();
+  }
+  return undefined;
+}
+
+/**
  * Read the crumb stack carried by the current location's router state.
  * Tent-pole pages (/books, /authors, /friends/:handle, ...) reset this
  * to `[self]`; detail pages (/book/:workId, /author/:authorKey) chain
