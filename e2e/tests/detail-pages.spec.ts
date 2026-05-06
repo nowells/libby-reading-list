@@ -55,8 +55,11 @@ test.describe("book detail page", () => {
     await expect(detail.subjectChip("Space Opera")).toBeVisible();
 
     // Library availability section comes from the Libby route mock.
+    // The unified availability table renders Holds as a column header with
+    // bare numbers underneath, so assert on the column header instead of
+    // the older "X holds" sentence.
     await expect(detail.availabilityHeading()).toBeVisible();
-    await expect(page.getByText(/0 holds|holds$/).first()).toBeVisible();
+    await expect(page.getByText("Holds", { exact: true }).first()).toBeVisible();
 
     // Series roll-up: book is part of the "Children of Time" series, and
     // Children of Ruin is the second entry.
