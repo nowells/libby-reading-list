@@ -44,6 +44,8 @@ export class AuthorDetailPage {
   }
 
   async waitForReady(name: string | RegExp) {
-    await expect(this.heading(name)).toBeVisible();
+    // Mirror BookDetailPage: the clientLoader awaits OL author details,
+    // and the default 5s expect timeout has been racy under CI load.
+    await expect(this.heading(name)).toBeVisible({ timeout: 10_000 });
   }
 }
