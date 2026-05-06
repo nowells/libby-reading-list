@@ -26,7 +26,15 @@ import { formatRelativeTime } from "../lib/format-relative-time";
 export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => void }) {
   const [session, setSession] = useState<OAuthSession | null>(null);
   const [info, setInfo] = useState<AtprotoSessionInfo | null>(null);
-  const [remembered, setRemembered] = useState<RememberedBskyAccount | null>(null);
+  // The remembered account drives the "Reconnect Bluesky" pill, but we only
+  // populate it after a *confirmed* reauth failure — either initSession()
+  // resolved without a session even though we have a remembered account on
+  // disk, or the auto-sync detected an auth-lost error and notified us via
+  // onSessionChange. Reading getLastSignedInAccount() eagerly on mount
+  // would briefly render the reconnect pill while initSession is still in
+  // flight, which is misleading: until we've actually tried and failed the
+  // refresh, "no live session yet" is just "loading", not "needs reauth".
+  const [authLost, setAuthLost] = useState<RememberedBskyAccount | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
@@ -47,11 +55,11 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
   }
 
   async function handleReconnect() {
-    if (!remembered || reconnecting) return;
+    if (!authLost || reconnecting) return;
     setReconnecting(true);
     setError(null);
     try {
-      await signInWithBluesky(remembered.handle ?? remembered.did);
+      await signInWithBluesky(authLost.handle ?? authLost.did);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reconnect failed");
       setReconnecting(false);
@@ -60,22 +68,24 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
 
   useEffect(() => {
     let cancelled = false;
-    setRemembered(getLastSignedInAccount());
     initSession()
       .then((result) => {
         if (cancelled) return;
         if (result) {
           setSession(result.session);
           setInfo(result.info);
-          setRemembered({ did: result.info.did, handle: result.info.handle });
+          setAuthLost(null);
           setLastSync(getLastPdsSync(result.info.did));
           // initSession already attached the sync engine and ran a reconcile,
           // so local state already reflects PDS state by the time we render.
           onBooksChanged();
         } else {
-          // No live session. If we remember an account from a prior visit
-          // the render path swaps to the reauth pill below.
-          setRemembered(getLastSignedInAccount());
+          // initSession resolved without a session — the refresh chain has
+          // ended. If we remember an account from a prior successful sign-in
+          // this is "needs reauth"; otherwise just "no Bluesky configured"
+          // and we stay invisible.
+          const remembered = getLastSignedInAccount();
+          if (remembered) setAuthLost(remembered);
         }
       })
       .catch(() => {
@@ -95,7 +105,8 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
     return onSessionChange(() => {
       setSession(null);
       setInfo(null);
-      setRemembered(getLastSignedInAccount());
+      const remembered = getLastSignedInAccount();
+      if (remembered) setAuthLost(remembered);
     });
   }, []);
 
@@ -114,8 +125,8 @@ export function BookhiveSyncStatus({ onBooksChanged }: { onBooksChanged: () => v
   }, [info?.did]);
 
   if (!session || !info) {
-    if (!remembered) return null;
-    const handleLabel = remembered.handle ?? remembered.did;
+    if (!authLost) return null;
+    const handleLabel = authLost.handle ?? authLost.did;
     return (
       <button
         type="button"
