@@ -738,7 +738,13 @@ function FriendBookRow({
   const owned = !!row.mine;
   const myStatus = row.mine ? effectiveStatus(row.mine) : undefined;
 
-  const headerExtras = owned ? (
+  // The action / "on your shelf" indicator used to ride in `headerExtras`
+  // alongside the kebab in the title row. On mobile that forced the
+  // (already narrow) title column to wrap because `flex-1 min-w-0` had to
+  // share the row with a 14ch button. Move the affordance into the
+  // metadata row below the title — it already wraps gracefully and is
+  // a more natural spot for "viewer's relationship to this book".
+  const ownershipAction = owned ? (
     <span
       className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
       title={myStatus ? `On your shelf as ${statusLabel(myStatus)}` : "On your shelf"}
@@ -825,8 +831,12 @@ function FriendBookRow({
       onLibbyClick={onLibbyClick}
       showAvailability={libraries.length > 0}
       hideStatusPill={!owned}
-      headerExtras={headerExtras}
-      belowStatusExtras={friendBadge}
+      belowStatusExtras={
+        <>
+          {ownershipAction}
+          {friendBadge}
+        </>
+      }
     />
   );
 }

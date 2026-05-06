@@ -37,16 +37,10 @@ test.describe("book detail page", () => {
     // navigating that link is the canonical entry point to the detail page.
     await booksPage.goto();
     await booksPage.waitForReady();
-    await Promise.all([
-      // Wait explicitly for the URL to settle on the work route so a slow
-      // cold-compile of /book/:workId in CI isn't conflated with a missing
-      // heading later.
-      page.waitForURL(/\/book\/OL[A-Z0-9]+W(?:\?|$)/),
-      page
-        .getByRole("link", { name: /Children of Time/ })
-        .first()
-        .click(),
-    ]);
+    await page
+      .getByRole("link", { name: /Children of Time/ })
+      .first()
+      .click();
     await detail.waitForReady("Children of Time");
 
     // Description, rating, and the "First published 2015" metadata pulled
@@ -99,10 +93,7 @@ test.describe("book detail page", () => {
     expect(followedAuthors.map((a) => a.name)).toContain("Adrian Tchaikovsky");
 
     // Series link navigates to a sibling work — that page renders too.
-    await Promise.all([
-      page.waitForURL(/\/book\/OL27911570W(?:\?|$)/),
-      detail.seriesSibling("Children of Ruin").click(),
-    ]);
+    await detail.seriesSibling("Children of Ruin").click();
     await detail.waitForReady("Children of Ruin");
     await expect(page.url()).toContain("/book/OL27911570W");
   });

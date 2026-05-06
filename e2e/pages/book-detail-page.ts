@@ -75,12 +75,11 @@ export class BookDetailPage {
   }
 
   async waitForReady(title: string | RegExp) {
-    // /book/:workId is gated on a clientLoader that awaits OL details,
-    // and in CI the first navigation to this route also pays for a
-    // cold Vite on-demand compile on top of the loader's mocked OL
-    // fetches. The default 5s expect timeout has been racy here — give
-    // the loader-driven first paint up to 20s before declaring the
-    // page broken.
-    await expect(this.heading(title)).toBeVisible({ timeout: 20_000 });
+    // /book/:workId is gated on a clientLoader that awaits OL details
+    // (15s internal fetch budget). In CI the first navigation also pays
+    // for a cold Vite on-demand compile of this route's chunk on top
+    // of the loader fetches. Give the heading up to 30s to land before
+    // declaring the page broken.
+    await expect(this.heading(title)).toBeVisible({ timeout: 30_000 });
   }
 }
