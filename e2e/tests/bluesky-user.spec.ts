@@ -52,7 +52,7 @@ test.describe("Bluesky-backed user", () => {
 
     await page.getByRole("button", { name: /^Add$/ }).click();
     const dialog = page.getByRole("dialog", { name: "Add a book" });
-    await dialog.getByPlaceholder(/Search by title or author/).fill("Children of Time");
+    await dialog.getByPlaceholder(/Search Libby for a book to add/).fill("Children of Time");
     await dialog.getByRole("button", { name: /Children of Time/ }).click();
     await expect(shelf.entryRow("Children of Time")).toBeVisible();
 
@@ -67,7 +67,7 @@ test.describe("Bluesky-backed user", () => {
     await page.getByRole("button", { name: /^Add$/ }).click();
     await page
       .getByRole("dialog", { name: "Add a book" })
-      .getByPlaceholder(/Search by title or author/)
+      .getByPlaceholder(/Search Libby for a book to add/)
       .fill("Dune");
     await page
       .getByRole("dialog", { name: "Add a book" })

@@ -150,9 +150,15 @@ describe("FriendDetail", () => {
 
     await screen.getByRole("button", { name: /^Reading \(\d+\)$/ }).click();
 
+    // The visible-element assertion isn't enough: every entry was rendered
+    // before the click in the default "all" view, so expect.element resolves
+    // immediately on cached DOM. Poll the negative assertion so we wait for
+    // the searchParams update + re-render to actually drop the other titles.
+    await vi.waitFor(() => {
+      expect(screen.container.textContent).not.toContain("The Great Gatsby");
+      expect(screen.container.textContent).not.toContain("To Kill a Mockingbird");
+    });
     await expect.element(screen.getByText("1984")).toBeVisible();
-    expect(screen.container.textContent).not.toContain("The Great Gatsby");
-    expect(screen.container.textContent).not.toContain("To Kill a Mockingbird");
   });
 
   it("filters to the friend's want-to-read shelf when that pill is clicked", async () => {
@@ -169,9 +175,11 @@ describe("FriendDetail", () => {
 
     await screen.getByRole("button", { name: /^Want to read \(\d+\)$/ }).click();
 
+    await vi.waitFor(() => {
+      expect(screen.container.textContent).not.toContain("1984");
+      expect(screen.container.textContent).not.toContain("To Kill a Mockingbird");
+    });
     await expect.element(screen.getByText("The Great Gatsby")).toBeVisible();
-    expect(screen.container.textContent).not.toContain("1984");
-    expect(screen.container.textContent).not.toContain("To Kill a Mockingbird");
   });
 
   it("shows '+ Add to Want to Read' when the viewer doesn't own the book", async () => {

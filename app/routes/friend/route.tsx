@@ -1,4 +1,5 @@
 import { Link, redirect, useParams, useSearchParams } from "react-router";
+import { CrumbStateProvider, firstNonBlank, useOutgoingCrumbState } from "~/lib/crumb";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { usePostHog } from "@posthog/react";
@@ -158,6 +159,20 @@ export default function FriendDetail() {
   const friend = useMemo(
     () => friends.find((f) => f.profile.handle === handleParam),
     [friends, handleParam],
+  );
+
+  // /friends/:handle is a tent-pole — clicking through to a book or
+  // author detail starts a fresh back-trail rooted on this friend.
+  // Prefer displayName so the back affordance reads "Back to Alice"
+  // rather than "Back to alice.bsky.social", but fall through if the
+  // friend's profile has a blank displayName (atproto allows ""), and
+  // ultimately to "this friend" so the label is never empty.
+  const friendLabel =
+    firstNonBlank(friend?.profile.displayName, friend?.profile.handle, handleParam) ??
+    "this friend";
+  const outgoingCrumbState = useOutgoingCrumbState(
+    { path: `/friends/${handleParam ?? ""}`, label: friendLabel },
+    { resetStack: true },
   );
 
   /**
@@ -441,119 +456,182 @@ export default function FriendDetail() {
   }
 
   return (
-    <main className="min-h-screen py-8 px-4">
-      <div className="max-w-3xl mx-auto">
-        <Link to="/friends" className="text-sm text-purple-600 hover:text-purple-700">
-          ← Back to friends
-        </Link>
+    <CrumbStateProvider value={outgoingCrumbState}>
+      <main className="min-h-screen py-8 px-4">
+        <div className="max-w-3xl mx-auto">
+          <Link to="/friends" className="text-sm text-purple-600 hover:text-purple-700">
+            ← Back to friends
+          </Link>
 
-        {/* Friend metadata header */}
-        <header className="mt-4 mb-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 flex items-center gap-4">
-          {friend.profile.avatar ? (
-            <img
-              src={friend.profile.avatar}
-              alt=""
-              className="w-14 h-14 rounded-full flex-shrink-0 object-cover"
-            />
-          ) : (
-            <div className="w-14 h-14 rounded-full flex-shrink-0 bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-              <span className="text-lg font-medium text-purple-600 dark:text-purple-400">
-                {(friend.profile.displayName ?? friend.profile.handle)[0]?.toUpperCase()}
-              </span>
+          {/* Friend metadata header */}
+          <header className="mt-4 mb-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 flex items-center gap-4">
+            {friend.profile.avatar ? (
+              <img
+                src={friend.profile.avatar}
+                alt=""
+                className="w-14 h-14 rounded-full flex-shrink-0 object-cover"
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-full flex-shrink-0 bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                <span className="text-lg font-medium text-purple-600 dark:text-purple-400">
+                  {(friend.profile.displayName ?? friend.profile.handle)[0]?.toUpperCase()}
+                </span>
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white truncate">
+                {friend.profile.displayName ?? friend.profile.handle}
+              </h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                @{friend.profile.handle}
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                {friend.entries.length} {friend.entries.length === 1 ? "book" : "books"}
+                {isStale && friend.refreshedAt != null && (
+                  <span
+                    className="ml-1 text-amber-600 dark:text-amber-400"
+                    title={`Last refresh from this friend's PDS was ${formatStaleAge(friend.refreshedAt)}. Their server may be unreachable.`}
+                  >
+                    · stale, last seen {formatStaleAge(friend.refreshedAt)}
+                  </span>
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => refreshFriend(friend.profile.did)}
+              disabled={isFriendRefreshing || refreshing}
+              aria-label={`Refresh ${friend.profile.displayName ?? friend.profile.handle}'s reading list`}
+              className="flex-shrink-0 p-2 rounded-full text-gray-400 hover:text-purple-600 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              title="Refresh reading list"
+            >
+              <svg
+                className={`w-4 h-4 ${isFriendRefreshing ? "animate-spin" : ""}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+            </button>
+          </header>
+
+          {/* Status pills — filter by FRIEND's status. */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-4">
+            {STATUS_FILTERS.map((s) => {
+              const active = statusFilter === s;
+              const count = s === "all" ? friend.entries.length : friendStatusCounts[s];
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => handleStatusFilter(s)}
+                  aria-pressed={active}
+                  className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                    active
+                      ? "bg-purple-600 border-purple-600 text-white"
+                      : "bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600"
+                  }`}
+                >
+                  {s === "all" ? "All" : statusLabel(s)} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {friend.entries.length > 0 && (
+            <div className="relative mb-4">
+              <svg
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+                />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Search title or author..."
+                className="w-full pl-10 pr-9 py-2.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-400 dark:focus:ring-purple-500 focus:border-transparent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => handleSearchChange("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
             </div>
           )}
-          <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white truncate">
-              {friend.profile.displayName ?? friend.profile.handle}
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-              @{friend.profile.handle}
-            </p>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-              {friend.entries.length} {friend.entries.length === 1 ? "book" : "books"}
-              {isStale && friend.refreshedAt != null && (
-                <span
-                  className="ml-1 text-amber-600 dark:text-amber-400"
-                  title={`Last refresh from this friend's PDS was ${formatStaleAge(friend.refreshedAt)}. Their server may be unreachable.`}
-                >
-                  · stale, last seen {formatStaleAge(friend.refreshedAt)}
-                </span>
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => refreshFriend(friend.profile.did)}
-            disabled={isFriendRefreshing || refreshing}
-            aria-label={`Refresh ${friend.profile.displayName ?? friend.profile.handle}'s reading list`}
-            className="flex-shrink-0 p-2 rounded-full text-gray-400 hover:text-purple-600 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-            title="Refresh reading list"
-          >
-            <svg
-              className={`w-4 h-4 ${isFriendRefreshing ? "animate-spin" : ""}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-          </button>
-        </header>
 
-        {/* Status pills — filter by FRIEND's status. */}
-        <div className="flex flex-wrap items-center gap-1.5 mb-4">
-          {STATUS_FILTERS.map((s) => {
-            const active = statusFilter === s;
-            const count = s === "all" ? friend.entries.length : friendStatusCounts[s];
-            return (
-              <button
-                key={s}
-                type="button"
-                onClick={() => handleStatusFilter(s)}
-                aria-pressed={active}
-                className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
-                  active
-                    ? "bg-purple-600 border-purple-600 text-white"
-                    : "bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600"
-                }`}
-              >
-                {s === "all" ? "All" : statusLabel(s)} ({count})
-              </button>
-            );
-          })}
-        </div>
+          {filteredRows.length === 0 ? (
+            <div className="text-center py-8 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+              <p className="text-gray-500 dark:text-gray-400 text-sm">
+                {searchQuery.trim()
+                  ? `No books matching "${searchQuery.trim()}".`
+                  : "No books in this category."}
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {paginatedRows.map((row) => (
+                <FriendBookRow
+                  key={row.key}
+                  row={row}
+                  state={availMap[row.displayBook.id] ?? { status: "pending" }}
+                  libraries={libraries}
+                  friendStatus={statusTokenName(row.entry.status)}
+                  onAdd={() => handleAdd(row.entry)}
+                  onFollowAuthor={
+                    row.entry.authors?.[0]?.name ? () => handleFollowAuthor(row.entry) : undefined
+                  }
+                  onRefresh={() => refreshBook(row.displayBook)}
+                  onLibbyClick={handleLibbyClick}
+                  isAuthorFollowed={
+                    row.entry.authors?.[0]
+                      ? myAuthorNames.has(row.entry.authors[0].name.toLowerCase())
+                      : false
+                  }
+                  isRead={myReadKeys.has(
+                    readBookKey({
+                      workId: row.entry.ids.olWorkId,
+                      title: row.entry.title,
+                      author: row.entry.authors?.[0]?.name ?? "",
+                    }),
+                  )}
+                />
+              ))}
+            </ul>
+          )}
 
-        {friend.entries.length > 0 && (
-          <div className="relative mb-4">
-            <svg
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-              />
-            </svg>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Search title or author..."
-              className="w-full pl-10 pr-9 py-2.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-400 dark:focus:ring-purple-500 focus:border-transparent"
-            />
-            {searchQuery && (
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-1.5 mt-8">
               <button
-                onClick={() => handleSearchChange("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                onClick={() => goToPage(1)}
+                disabled={safePage <= 1}
+                className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="First page"
               >
                 <svg
                   className="w-4 h-4"
@@ -562,138 +640,81 @@ export default function FriendDetail() {
                   stroke="currentColor"
                   strokeWidth={2}
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5"
+                  />
                 </svg>
               </button>
-            )}
-          </div>
-        )}
-
-        {filteredRows.length === 0 ? (
-          <div className="text-center py-8 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-            <p className="text-gray-500 dark:text-gray-400 text-sm">
-              {searchQuery.trim()
-                ? `No books matching "${searchQuery.trim()}".`
-                : "No books in this category."}
-            </p>
-          </div>
-        ) : (
-          <ul className="space-y-3">
-            {paginatedRows.map((row) => (
-              <FriendBookRow
-                key={row.key}
-                row={row}
-                state={availMap[row.displayBook.id] ?? { status: "pending" }}
-                libraries={libraries}
-                friendStatus={statusTokenName(row.entry.status)}
-                onAdd={() => handleAdd(row.entry)}
-                onFollowAuthor={
-                  row.entry.authors?.[0]?.name ? () => handleFollowAuthor(row.entry) : undefined
-                }
-                onRefresh={() => refreshBook(row.displayBook)}
-                onLibbyClick={handleLibbyClick}
-                isAuthorFollowed={
-                  row.entry.authors?.[0]
-                    ? myAuthorNames.has(row.entry.authors[0].name.toLowerCase())
-                    : false
-                }
-                isRead={myReadKeys.has(
-                  readBookKey({
-                    workId: row.entry.ids.olWorkId,
-                    title: row.entry.title,
-                    author: row.entry.authors?.[0]?.name ?? "",
-                  }),
-                )}
-              />
-            ))}
-          </ul>
-        )}
-
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-1.5 mt-8">
-            <button
-              onClick={() => goToPage(1)}
-              disabled={safePage <= 1}
-              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="First page"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
+              <button
+                onClick={() => goToPage(safePage - 1)}
+                disabled={safePage <= 1}
+                className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Previous page"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5"
-                />
-              </svg>
-            </button>
-            <button
-              onClick={() => goToPage(safePage - 1)}
-              disabled={safePage <= 1}
-              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Previous page"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.75 19.5L8.25 12l7.5-7.5"
+                  />
+                </svg>
+              </button>
+              <span className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                Page {safePage} of {totalPages}
+              </span>
+              <button
+                onClick={() => goToPage(safePage + 1)}
+                disabled={safePage >= totalPages}
+                className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Next page"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 19.5L8.25 12l7.5-7.5"
-                />
-              </svg>
-            </button>
-            <span className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-              Page {safePage} of {totalPages}
-            </span>
-            <button
-              onClick={() => goToPage(safePage + 1)}
-              disabled={safePage >= totalPages}
-              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Next page"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.25 4.5l7.5 7.5-7.5 7.5"
+                  />
+                </svg>
+              </button>
+              <button
+                onClick={() => goToPage(totalPages)}
+                disabled={safePage >= totalPages}
+                className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Last page"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-              </svg>
-            </button>
-            <button
-              onClick={() => goToPage(totalPages)}
-              disabled={safePage >= totalPages}
-              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Last page"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5.25 4.5l7.5 7.5-7.5 7.5m6-15l7.5 7.5-7.5 7.5"
-                />
-              </svg>
-            </button>
-          </div>
-        )}
-      </div>
-    </main>
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5.25 4.5l7.5 7.5-7.5 7.5m6-15l7.5 7.5-7.5 7.5"
+                  />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
+      </main>
+    </CrumbStateProvider>
   );
 }
 
@@ -738,7 +759,13 @@ function FriendBookRow({
   const owned = !!row.mine;
   const myStatus = row.mine ? effectiveStatus(row.mine) : undefined;
 
-  const headerExtras = owned ? (
+  // The action / "on your shelf" indicator used to ride in `headerExtras`
+  // alongside the kebab in the title row. On mobile that forced the
+  // (already narrow) title column to wrap because `flex-1 min-w-0` had to
+  // share the row with a 14ch button. Move the affordance into the
+  // metadata row below the title — it already wraps gracefully and is
+  // a more natural spot for "viewer's relationship to this book".
+  const ownershipAction = owned ? (
     <span
       className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
       title={myStatus ? `On your shelf as ${statusLabel(myStatus)}` : "On your shelf"}
@@ -825,8 +852,12 @@ function FriendBookRow({
       onLibbyClick={onLibbyClick}
       showAvailability={libraries.length > 0}
       hideStatusPill={!owned}
-      headerExtras={headerExtras}
-      belowStatusExtras={friendBadge}
+      belowStatusExtras={
+        <>
+          {ownershipAction}
+          {friendBadge}
+        </>
+      }
     />
   );
 }

@@ -75,6 +75,11 @@ export class BookDetailPage {
   }
 
   async waitForReady(title: string | RegExp) {
-    await expect(this.heading(title)).toBeVisible();
+    // /book/:workId is gated on a clientLoader that awaits OL details
+    // (15s internal fetch budget). In CI the first navigation also pays
+    // for a cold Vite on-demand compile of this route's chunk on top
+    // of the loader fetches. Give the heading up to 30s to land before
+    // declaring the page broken.
+    await expect(this.heading(title)).toBeVisible({ timeout: 30_000 });
   }
 }

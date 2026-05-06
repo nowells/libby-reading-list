@@ -61,6 +61,7 @@ jobs:
         run: npm run test:e2e:coverage
 
       - name: Merge unit + e2e coverage
+        if: success()
         run: npm run test:coverage:merge
 
       - name: Upload coverage report
@@ -69,6 +70,19 @@ jobs:
         with:
           name: coverage
           path: coverage/
+          if-no-files-found: ignore
+
+      # Playwright config sets `trace: "retain-on-failure"`, so traces only
+      # exist when an e2e test failed. Upload them so we can debug timing
+      # / heading-not-rendered failures from the actual page snapshots.
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            test-results/
+            playwright-report/
           if-no-files-found: ignore
 
       - name: Commit updated VRT screenshots

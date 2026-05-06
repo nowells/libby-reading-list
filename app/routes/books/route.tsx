@@ -1,5 +1,6 @@
 import { usePostHog } from "@posthog/react";
 import { Link, redirect, useSearchParams } from "react-router";
+import { CrumbStateProvider, useOutgoingCrumbState } from "~/lib/crumb";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   getBooks,
@@ -500,185 +501,26 @@ export default function Books() {
     wantToReadBooks.length > 0 &&
     (checkedCount < totalBooks || enrichmentProgress);
 
+  // /books is a tent-pole: any onward navigation to a detail page
+  // resets the back-trail to start at this page.
+  const outgoingCrumbState = useOutgoingCrumbState(
+    { path: "/books", label: "your books" },
+    { resetStack: true },
+  );
+
   return (
-    <main className="min-h-screen py-8 px-4">
-      <div className="max-w-3xl mx-auto">
-        <div className="mb-6">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex-1 min-w-0 truncate">
-              Your books
-            </h1>
-            <button
-              onClick={() => setShowAddBook((s) => !s)}
-              aria-label="Add"
-              className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              <span>Add</span>
-            </button>
-          </div>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {entries.length} {entries.length === 1 ? "book" : "books"} &middot; {libraries.length}{" "}
-            {libraries.length === 1 ? "library" : "libraries"}
-          </p>
-          <div className="flex flex-wrap items-center gap-2 mt-1">
-            <BookhiveSyncStatus onBooksChanged={refreshEntries} />
-            {showAvailabilityFilters && oldestFetchedAt && checkedCount > 0 && (
+    <CrumbStateProvider value={outgoingCrumbState}>
+      <main className="min-h-screen py-8 px-4">
+        <div className="max-w-3xl mx-auto">
+          <div className="mb-6">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex-1 min-w-0 truncate">
+                Your books
+              </h1>
               <button
-                type="button"
-                onClick={handleRefreshAll}
-                disabled={loadingCount > 0 || enrichmentProgress !== null}
-                title="Refresh Libby availability"
-                className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-70 whitespace-nowrap"
-              >
-                <svg
-                  className={`w-3 h-3 ${loadingCount > 0 || enrichmentProgress ? "animate-spin" : ""}`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-                <span>
-                  {enrichmentProgress
-                    ? `Enriching from Open Library... ${enrichmentProgress.done}/${enrichmentProgress.total}`
-                    : loadingCount > 0
-                      ? `Syncing Libby... ${checkedCount}/${totalBooks}`
-                      : `Synced from Libby ${timeAgo(oldestFetchedAt)}`}
-                </span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Status filter pills (default: wantToRead) */}
-        <div className="flex flex-wrap items-center gap-1.5 mb-4">
-          {STATUS_FILTERS.map((s) => {
-            const active = statusFilter === s;
-            const count = s === "all" ? entries.length : statusCounts[s];
-            return (
-              <button
-                key={s}
-                type="button"
-                onClick={() => handleStatusFilter(s)}
-                aria-pressed={active}
-                className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
-                  active
-                    ? "bg-amber-600 border-amber-600 text-white"
-                    : "bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600"
-                }`}
-              >
-                {s === "all" ? "All" : statusLabel(s)} ({count})
-              </button>
-            );
-          })}
-        </div>
-
-        {showAddBook && libraries.length > 0 && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
-            {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-            <div className="absolute inset-0 bg-black/40" onClick={() => setShowAddBook(false)} />
-            <div
-              role="dialog"
-              aria-label="Add a book"
-              className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
-            >
-              <div className="mb-3">
-                <h3 className="text-sm font-medium text-gray-900 dark:text-white">Add a book</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  Search Libby for a book to add to your list.
-                </p>
-              </div>
-              <BookSearchPicker
-                libraryKey={libraries[0].preferredKey}
-                onSelect={handleSelectBook}
-                onCancel={() => setShowAddBook(false)}
-                placeholder="Search Libby for a book to add..."
-                existingBooks={entries.map((e) => ({ title: e.title, author: e.author ?? "" }))}
-              />
-            </div>
-          </div>
-        )}
-
-        {entries.length === 0 && (
-          <div className="text-center py-12 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
-            <p className="text-gray-500 dark:text-gray-400">
-              No books loaded. Upload a reading list to get started.
-            </p>
-            <Link
-              to="/setup"
-              className="text-amber-600 hover:text-amber-700 underline mt-2 inline-block"
-            >
-              Go to Setup
-            </Link>
-          </div>
-        )}
-
-        {showProgressBar && (
-          <ProgressBar
-            checked={checkedCount}
-            total={totalBooks}
-            loading={loadingCount}
-            oldestFetchedAt={oldestFetchedAt}
-            onRefreshAll={handleRefreshAll}
-            enrichmentProgress={enrichmentProgress}
-          />
-        )}
-
-        {showAvailabilityFilters && wantToReadBooks.length > 0 && checkedCount > 0 && (
-          <>
-            <SummaryStats
-              available={categoryCounts.available}
-              soon={categoryCounts.soon}
-              waiting={categoryCounts.waiting}
-              notFound={categoryCounts.not_found}
-              activeCategory={categoryFilter}
-              onToggleCategory={handleToggleCategory}
-            />
-            <FormatFilterBar active={formatFilter} onToggle={handleToggleFormat} />
-          </>
-        )}
-
-        {/* Search bar — always visible when there are entries */}
-        {entries.length > 0 && (
-          <div className="relative mb-4">
-            <svg
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-              />
-            </svg>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Search title or author..."
-              className="w-full pl-10 pr-9 py-2.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:focus:ring-amber-500 focus:border-transparent"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => handleSearchChange("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                onClick={() => setShowAddBook((s) => !s)}
+                aria-label="Add"
+                className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
               >
                 <svg
                   className="w-4 h-4"
@@ -687,240 +529,416 @@ export default function Books() {
                   stroke="currentColor"
                   strokeWidth={2}
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
+                <span>Add</span>
               </button>
-            )}
-          </div>
-        )}
-
-        {sortedAndFilteredEntries.length === 0 && entries.length > 0 && (
-          <div className="text-center py-8 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-            <p className="text-gray-500 dark:text-gray-400 text-sm">
-              {searchQuery.trim()
-                ? `No books matching "${searchQuery.trim()}".`
-                : "No books match the current filters."}
+            </div>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {entries.length} {entries.length === 1 ? "book" : "books"} &middot; {libraries.length}{" "}
+              {libraries.length === 1 ? "library" : "libraries"}
             </p>
-            <button
-              onClick={() => {
-                setCategoryFilter(null);
-                setFormatFilter("all");
-                setSearchQuery("");
-                handleStatusFilter("wantToRead");
-              }}
-              className="mt-2 text-amber-600 hover:text-amber-700 underline text-sm"
-            >
-              Clear filters
-            </button>
-          </div>
-        )}
-
-        {/* Toasts */}
-        {toasts.length > 0 && (
-          <div className="space-y-1.5 mb-3">
-            {toasts.map((t) => (
-              <div
-                key={t.id}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
-                  t.type === "success"
-                    ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
-                    : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
-                }`}
-              >
-                {t.type === "success" ? (
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <BookhiveSyncStatus onBooksChanged={refreshEntries} />
+              {showAvailabilityFilters && oldestFetchedAt && checkedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleRefreshAll}
+                  disabled={loadingCount > 0 || enrichmentProgress !== null}
+                  title="Refresh Libby availability"
+                  className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-70 whitespace-nowrap"
+                >
                   <svg
-                    className="w-3.5 h-3.5 flex-shrink-0"
-                    viewBox="0 0 24 24"
+                    className={`w-3 h-3 ${loadingCount > 0 || enrichmentProgress ? "animate-spin" : ""}`}
                     fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
-                ) : (
-                  <svg
-                    className="w-3.5 h-3.5 flex-shrink-0"
                     viewBox="0 0 24 24"
-                    fill="none"
                     stroke="currentColor"
                     strokeWidth={2}
                   >
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                     />
                   </svg>
-                )}
-                {t.message}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <ul className="space-y-3">
-          {paginatedEntries.map((entry) => {
-            const state = availMap[entry.id] ?? { status: "pending" as const };
-            const bookKeyStr = readBookKey({
-              workId: entry.workId,
-              title: entry.title,
-              author: entry.author,
-            });
-            const authorName = (entry.canonicalAuthor ?? entry.author ?? "").toLowerCase();
-            const isCurrentlyEnriching = enrichingIds.has(entry.id);
-            return (
-              <BookCard
-                key={entry.id}
-                book={entry}
-                state={state}
-                libraries={libraries}
-                formatFilter={formatFilter}
-                onRefresh={
-                  showAvailabilityFilters && !entry.__readEntryKey
-                    ? () => refreshBook(entry)
-                    : undefined
-                }
-                onLibbyClick={handleLibbyClick}
-                onEdit={!isCurrentlyEnriching ? () => setEditing(entry) : undefined}
-                onFind={!entry.workId ? () => setFinding(entry) : undefined}
-                onRemove={() => handleRemoveEntry(entry)}
-                onMarkRead={
-                  showAvailabilityFilters && !entry.__readEntryKey
-                    ? () => handleMarkRead(entry)
-                    : undefined
-                }
-                onFollowAuthor={authorName ? () => handleFollowAuthor(entry) : undefined}
-                onStatusChange={
-                  entry.__readEntryKey ? undefined : (s) => handleQuickStatus(entry, s)
-                }
-                isRead={readBookKeys.has(bookKeyStr)}
-                isAuthorFollowed={followedAuthorNames.has(authorName)}
-                showAvailability={showAvailabilityFilters}
-              />
-            );
-          })}
-        </ul>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-1.5 mt-8">
-            <button
-              onClick={() => goToPage(1)}
-              disabled={safePage <= 1}
-              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="First page"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5"
-                />
-              </svg>
-            </button>
-            <button
-              onClick={() => goToPage(safePage - 1)}
-              disabled={safePage <= 1}
-              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Previous page"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 19.5L8.25 12l7.5-7.5"
-                />
-              </svg>
-            </button>
-            <span className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-              Page {safePage} of {totalPages}
-            </span>
-            <button
-              onClick={() => goToPage(safePage + 1)}
-              disabled={safePage >= totalPages}
-              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Next page"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-              </svg>
-            </button>
-            <button
-              onClick={() => goToPage(totalPages)}
-              disabled={safePage >= totalPages}
-              className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Last page"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5.25 4.5l7.5 7.5-7.5 7.5m6-15l7.5 7.5-7.5 7.5"
-                />
-              </svg>
-            </button>
-          </div>
-        )}
-      </div>
-      {editing && (
-        <BookEditor
-          book={editing}
-          onSave={(patch) => handleEditSave(editing, patch)}
-          onClose={() => setEditing(null)}
-        />
-      )}
-
-      {finding && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
-          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-          <div className="absolute inset-0 bg-black/40" onClick={() => setFinding(null)} />
-          <div
-            role="dialog"
-            aria-label="Find book match"
-            className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
-          >
-            <div className="mb-3">
-              <h3 className="text-sm font-medium text-gray-900 dark:text-white">
-                Find match for &ldquo;{finding.title}&rdquo;
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Search and select the correct book to associate metadata.
-              </p>
+                  <span>
+                    {enrichmentProgress
+                      ? `Enriching from Open Library... ${enrichmentProgress.done}/${enrichmentProgress.total}`
+                      : loadingCount > 0
+                        ? `Syncing Libby... ${checkedCount}/${totalBooks}`
+                        : `Synced from Libby ${timeAgo(oldestFetchedAt)}`}
+                  </span>
+                </button>
+              )}
             </div>
-            <BookSearchPicker
-              libraryKey={libraries[0]?.preferredKey}
-              initialQuery={finding.title}
-              onSelect={(item) => handleFindSelect(finding, item)}
-              onCancel={() => setFinding(null)}
-              placeholder="Search by title or author..."
-            />
           </div>
+
+          {/* Status filter pills (default: wantToRead) */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-4">
+            {STATUS_FILTERS.map((s) => {
+              const active = statusFilter === s;
+              const count = s === "all" ? entries.length : statusCounts[s];
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => handleStatusFilter(s)}
+                  aria-pressed={active}
+                  className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                    active
+                      ? "bg-amber-600 border-amber-600 text-white"
+                      : "bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600"
+                  }`}
+                >
+                  {s === "all" ? "All" : statusLabel(s)} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {showAddBook && libraries.length > 0 && (
+            <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+              {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+              <div className="absolute inset-0 bg-black/40" onClick={() => setShowAddBook(false)} />
+              <div
+                role="dialog"
+                aria-label="Add a book"
+                className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
+              >
+                <div className="mb-3">
+                  <h3 className="text-sm font-medium text-gray-900 dark:text-white">Add a book</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Search Libby for a book to add to your list.
+                  </p>
+                </div>
+                <BookSearchPicker
+                  libraryKey={libraries[0].preferredKey}
+                  onSelect={handleSelectBook}
+                  onCancel={() => setShowAddBook(false)}
+                  placeholder="Search Libby for a book to add..."
+                  existingBooks={entries.map((e) => ({ title: e.title, author: e.author ?? "" }))}
+                />
+              </div>
+            </div>
+          )}
+
+          {entries.length === 0 && (
+            <div className="text-center py-12 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+              <p className="text-gray-500 dark:text-gray-400">
+                No books loaded. Upload a reading list to get started.
+              </p>
+              <Link
+                to="/setup"
+                className="text-amber-600 hover:text-amber-700 underline mt-2 inline-block"
+              >
+                Go to Setup
+              </Link>
+            </div>
+          )}
+
+          {showProgressBar && (
+            <ProgressBar
+              checked={checkedCount}
+              total={totalBooks}
+              loading={loadingCount}
+              oldestFetchedAt={oldestFetchedAt}
+              onRefreshAll={handleRefreshAll}
+              enrichmentProgress={enrichmentProgress}
+            />
+          )}
+
+          {showAvailabilityFilters && wantToReadBooks.length > 0 && checkedCount > 0 && (
+            <>
+              <SummaryStats
+                available={categoryCounts.available}
+                soon={categoryCounts.soon}
+                waiting={categoryCounts.waiting}
+                notFound={categoryCounts.not_found}
+                activeCategory={categoryFilter}
+                onToggleCategory={handleToggleCategory}
+              />
+              <FormatFilterBar active={formatFilter} onToggle={handleToggleFormat} />
+            </>
+          )}
+
+          {/* Search bar — always visible when there are entries */}
+          {entries.length > 0 && (
+            <div className="relative mb-4">
+              <svg
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+                />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Search title or author..."
+                className="w-full pl-10 pr-9 py-2.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:focus:ring-amber-500 focus:border-transparent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => handleSearchChange("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          )}
+
+          {sortedAndFilteredEntries.length === 0 && entries.length > 0 && (
+            <div className="text-center py-8 px-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+              <p className="text-gray-500 dark:text-gray-400 text-sm">
+                {searchQuery.trim()
+                  ? `No books matching "${searchQuery.trim()}".`
+                  : "No books match the current filters."}
+              </p>
+              <button
+                onClick={() => {
+                  setCategoryFilter(null);
+                  setFormatFilter("all");
+                  setSearchQuery("");
+                  handleStatusFilter("wantToRead");
+                }}
+                className="mt-2 text-amber-600 hover:text-amber-700 underline text-sm"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+
+          {/* Toasts */}
+          {toasts.length > 0 && (
+            <div className="space-y-1.5 mb-3">
+              {toasts.map((t) => (
+                <div
+                  key={t.id}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+                    t.type === "success"
+                      ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
+                      : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
+                  }`}
+                >
+                  {t.type === "success" ? (
+                    <svg
+                      className="w-3.5 h-3.5 flex-shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4.5 12.75l6 6 9-13.5"
+                      />
+                    </svg>
+                  ) : (
+                    <svg
+                      className="w-3.5 h-3.5 flex-shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                      />
+                    </svg>
+                  )}
+                  {t.message}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <ul className="space-y-3">
+            {paginatedEntries.map((entry) => {
+              const state = availMap[entry.id] ?? { status: "pending" as const };
+              const bookKeyStr = readBookKey({
+                workId: entry.workId,
+                title: entry.title,
+                author: entry.author,
+              });
+              const authorName = (entry.canonicalAuthor ?? entry.author ?? "").toLowerCase();
+              const isCurrentlyEnriching = enrichingIds.has(entry.id);
+              return (
+                <BookCard
+                  key={entry.id}
+                  book={entry}
+                  state={state}
+                  libraries={libraries}
+                  formatFilter={formatFilter}
+                  onRefresh={
+                    showAvailabilityFilters && !entry.__readEntryKey
+                      ? () => refreshBook(entry)
+                      : undefined
+                  }
+                  onLibbyClick={handleLibbyClick}
+                  onEdit={!isCurrentlyEnriching ? () => setEditing(entry) : undefined}
+                  onFind={!entry.workId ? () => setFinding(entry) : undefined}
+                  onRemove={() => handleRemoveEntry(entry)}
+                  onMarkRead={
+                    showAvailabilityFilters && !entry.__readEntryKey
+                      ? () => handleMarkRead(entry)
+                      : undefined
+                  }
+                  onFollowAuthor={authorName ? () => handleFollowAuthor(entry) : undefined}
+                  onStatusChange={
+                    entry.__readEntryKey ? undefined : (s) => handleQuickStatus(entry, s)
+                  }
+                  isRead={readBookKeys.has(bookKeyStr)}
+                  isAuthorFollowed={followedAuthorNames.has(authorName)}
+                  showAvailability={showAvailabilityFilters}
+                />
+              );
+            })}
+          </ul>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-1.5 mt-8">
+              <button
+                onClick={() => goToPage(1)}
+                disabled={safePage <= 1}
+                className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="First page"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5"
+                  />
+                </svg>
+              </button>
+              <button
+                onClick={() => goToPage(safePage - 1)}
+                disabled={safePage <= 1}
+                className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Previous page"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.75 19.5L8.25 12l7.5-7.5"
+                  />
+                </svg>
+              </button>
+              <span className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                Page {safePage} of {totalPages}
+              </span>
+              <button
+                onClick={() => goToPage(safePage + 1)}
+                disabled={safePage >= totalPages}
+                className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Next page"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.25 4.5l7.5 7.5-7.5 7.5"
+                  />
+                </svg>
+              </button>
+              <button
+                onClick={() => goToPage(totalPages)}
+                disabled={safePage >= totalPages}
+                className="px-2.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Last page"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5.25 4.5l7.5 7.5-7.5 7.5m6-15l7.5 7.5-7.5 7.5"
+                  />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
-      )}
-    </main>
+        {editing && (
+          <BookEditor
+            book={editing}
+            onSave={(patch) => handleEditSave(editing, patch)}
+            onClose={() => setEditing(null)}
+          />
+        )}
+
+        {finding && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+            {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+            <div className="absolute inset-0 bg-black/40" onClick={() => setFinding(null)} />
+            <div
+              role="dialog"
+              aria-label="Find book match"
+              className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4"
+            >
+              <div className="mb-3">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-white">
+                  Find match for &ldquo;{finding.title}&rdquo;
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Search and select the correct book to associate metadata.
+                </p>
+              </div>
+              <BookSearchPicker
+                libraryKey={libraries[0]?.preferredKey}
+                initialQuery={finding.title}
+                onSelect={(item) => handleFindSelect(finding, item)}
+                onCancel={() => setFinding(null)}
+                placeholder="Search by title or author..."
+              />
+            </div>
+          </div>
+        )}
+      </main>
+    </CrumbStateProvider>
   );
 }

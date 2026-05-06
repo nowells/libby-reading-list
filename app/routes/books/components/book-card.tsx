@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router";
+import { useOutgoingCrumb } from "~/lib/crumb";
 import type { Book, LibraryConfig, ShelfStatus } from "~/lib/storage";
 import { FormatIcon } from "~/components/format-icon";
 import { CoverImage } from "~/components/cover-image";
@@ -396,6 +397,12 @@ export function BookCard({
 
   const cover = <CoverImage src={coverSrc} alt={book.title} size="md" />;
 
+  // Outgoing detail-page crumb state set by the enclosing tent-pole or
+  // detail page (via CrumbStateProvider). Undefined when this card
+  // renders outside the navigation chain — Link silently treats that
+  // as "no state" so existing behavior is unchanged for those callers.
+  const outgoingCrumbState = useOutgoingCrumb();
+
   return (
     <li
       className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 transition-colors duration-300 ${borderColor} ${isRead ? "opacity-60" : ""}`}
@@ -403,7 +410,11 @@ export function BookCard({
       {/* Card header — hardcover-style horizontal layout */}
       <div className="flex items-start gap-4 p-4">
         {book.workId ? (
-          <Link to={`/book/${book.workId}`} aria-label={`View details for ${book.title}`}>
+          <Link
+            to={`/book/${book.workId}`}
+            state={outgoingCrumbState}
+            aria-label={`View details for ${book.title}`}
+          >
             {cover}
           </Link>
         ) : (
@@ -416,6 +427,7 @@ export function BookCard({
               {book.workId ? (
                 <Link
                   to={`/book/${book.workId}`}
+                  state={outgoingCrumbState}
                   className="block font-semibold text-base text-gray-900 dark:text-white line-clamp-2 hover:text-amber-600 dark:hover:text-amber-400"
                 >
                   {displayTitle}

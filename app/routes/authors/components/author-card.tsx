@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router";
+import { useOutgoingCrumb } from "~/lib/crumb";
 import type { AuthorEntry, LibraryConfig } from "~/lib/storage";
 import { FormatIcon } from "~/components/format-icon";
 import { LibraryIcon, LibraryName } from "~/components/library-icon";
@@ -141,6 +142,7 @@ function WorkRow({
       ? work.libbyResults
       : work.libbyResults.filter((r) => r.formatType === formatFilter);
   const hasResults = filteredResults.length > 0;
+  const outgoingCrumbState = useOutgoingCrumb();
   const isAvailable = filteredResults.some((r) => r.availability.isAvailable);
   const bestEta = hasResults
     ? Math.min(
@@ -192,6 +194,7 @@ function WorkRow({
               return wid ? (
                 <Link
                   to={`/book/${wid}`}
+                  state={outgoingCrumbState}
                   onClick={(e) => e.stopPropagation()}
                   className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1 hover:text-amber-600 dark:hover:text-amber-400"
                 >
@@ -415,6 +418,7 @@ export function AuthorCard({
   const [expanded, setExpanded] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const multiLibrary = libraries.length > 1;
+  const outgoingCrumbState = useOutgoingCrumb();
 
   // Sort works by availability category, then title
   // When a category filter is active, only show matching works
@@ -532,6 +536,7 @@ export function AuthorCard({
           {state.olKey ? (
             <Link
               to={`/author/${state.olKey}`}
+              state={outgoingCrumbState}
               onClick={(e) => e.stopPropagation()}
               className="font-semibold text-gray-900 dark:text-white hover:text-amber-600 dark:hover:text-amber-400"
             >

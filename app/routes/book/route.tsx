@@ -1,6 +1,13 @@
 import { Link, redirect, useLoaderData } from "react-router";
 import { useEffect, useState } from "react";
 import {
+  CrumbStateProvider,
+  firstNonBlank,
+  useCrumbStack,
+  useOutgoingCrumbState,
+} from "~/lib/crumb";
+import { DetailBackLink } from "~/components/detail-back-link";
+import {
   getBooks,
   getLibraries,
   getReadBooks,
@@ -189,13 +196,36 @@ export default function BookDetails() {
     "Unknown author";
   const primaryAuthorKey = details?.authors[0]?.key;
 
-  // Re-fetch work details if the loader didn't provide them (e.g. invalid id
-  // recovered later, or a transient OL failure during the loader call).
+  // Crumb plumbing: read the trail that landed us here so DetailBackLink
+  // can render "Back to <previous>", and chain *this* page onto outgoing
+  // links to other detail pages (sibling work, author) so navigating
+  // forward extends the trail rather than replacing it. The label
+  // intentionally sidesteps `displayTitle`'s "Loading…" placeholder —
+  // if the user navigates onward before details/loader settle, fall
+  // back to "this book" rather than chaining a useless crumb.
+  const incomingCrumbStack = useCrumbStack();
+  const bookCrumbLabel = firstNonBlank(details?.title, fallbackTitle) ?? "this book";
+  const outgoingCrumbState = useOutgoingCrumbState({
+    path: `/book/${workId}`,
+    label: bookCrumbLabel,
+  });
+
+  // Re-sync `details` state from the loader when the route's :workId
+  // param changes. `useState(initialDetails)` only runs on mount, so
+  // a same-route navigation (e.g. clicking a series sibling on this
+  // very page from /book/A to /book/B) would otherwise leave `details`
+  // pointing at A's record indefinitely — the heading would stay at
+  // A's title on B's URL. The framework already pre-fetches the new
+  // loader data via `clientLoader`, so this just adopts it.
   useEffect(() => {
-    if (!validWorkId || details) {
-      setDetailsLoading(false);
-      return;
-    }
+    setDetails(initialDetails);
+    setDetailsLoading(initialDetails === null && validWorkId);
+  }, [workId, initialDetails, validWorkId]);
+
+  // Fall back to a client-side fetch when the loader couldn't supply
+  // details (transient OL failure during the loader call).
+  useEffect(() => {
+    if (!validWorkId || details) return;
     let cancelled = false;
     setDetailsLoading(true);
     void getWorkDetails(workId).then((d) => {
@@ -428,371 +458,387 @@ export default function BookDetails() {
     description && !descExpanded && descTooLong ? truncateMarkdown(description, 480) : description;
 
   return (
-    <main className="min-h-screen py-8 px-4">
-      <div className="max-w-3xl mx-auto">
-        {/* Book hero */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
-          <div className="p-5 sm:p-6 flex flex-col sm:flex-row gap-5">
-            {/* Cover */}
-            <div className="flex-shrink-0 mx-auto sm:mx-0">
-              {coverUrl ? (
-                // Use the existing cover-image fallback behavior, but at hero size.
-                <img
-                  src={coverUrl}
-                  alt={displayTitle}
-                  className="w-32 sm:w-40 aspect-[2/3] object-cover rounded-lg shadow"
-                />
-              ) : (
-                <div className="w-32 sm:w-40 aspect-[2/3] rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-                  <CoverImage src={undefined} alt={displayTitle} />
-                </div>
-              )}
-            </div>
-
-            {/* Title block */}
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
-                {displayTitle}
-              </h1>
-              {details?.subtitle && (
-                <p className="text-base text-gray-600 dark:text-gray-300 mt-1">
-                  {details.subtitle}
-                </p>
-              )}
-              <p className="text-base text-gray-600 dark:text-gray-400 mt-1">
-                by{" "}
-                {primaryAuthorKey ? (
-                  <Link
-                    to={`/author/${primaryAuthorKey}`}
-                    className="text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
-                  >
-                    {displayAuthor}
-                  </Link>
+    <CrumbStateProvider value={outgoingCrumbState}>
+      <main className="min-h-screen py-8 px-4">
+        <div className="max-w-3xl mx-auto">
+          <div className="mb-3">
+            <DetailBackLink
+              stack={incomingCrumbStack}
+              fallback={{ path: "/books", label: "your books" }}
+            />
+          </div>
+          {/* Book hero */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
+            <div className="p-5 sm:p-6 flex flex-col sm:flex-row gap-5">
+              {/* Cover */}
+              <div className="flex-shrink-0 mx-auto sm:mx-0">
+                {coverUrl ? (
+                  // Use the existing cover-image fallback behavior, but at hero size.
+                  <img
+                    src={coverUrl}
+                    alt={displayTitle}
+                    className="w-32 sm:w-40 aspect-[2/3] object-cover rounded-lg shadow"
+                  />
                 ) : (
-                  <span>{displayAuthor}</span>
-                )}
-                {details?.authors.length && details.authors.length > 1 && (
-                  <span className="text-gray-400 dark:text-gray-500">
-                    {" "}
-                    + {details.authors.length - 1} more
-                  </span>
-                )}
-              </p>
-
-              {/* Quick metadata row */}
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
-                {details?.firstPublishYear && (
-                  <span>First published {details.firstPublishYear}</span>
-                )}
-                {edSummary?.pageCount && <span>{edSummary.pageCount} pages</span>}
-                {edSummary?.totalEditions ? (
-                  <span>
-                    {edSummary.totalEditions} edition{edSummary.totalEditions !== 1 ? "s" : ""}
-                  </span>
-                ) : null}
-                {ratings?.average !== undefined && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <StarBar rating={ratings.average} />
-                    <span className="tabular-nums">
-                      {ratings.average.toFixed(2)}
-                      {ratings.count > 0 && (
-                        <span className="text-gray-400"> ({ratings.count})</span>
-                      )}
-                    </span>
-                  </span>
+                  <div className="w-32 sm:w-40 aspect-[2/3] rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+                    <CoverImage src={undefined} alt={displayTitle} />
+                  </div>
                 )}
               </div>
 
-              {availability?.seriesInfo && (
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                  Book {availability.seriesInfo.readingOrder} in{" "}
-                  <span className="italic">{availability.seriesInfo.seriesName}</span>
+              {/* Title block */}
+              <div className="flex-1 min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+                  {displayTitle}
+                </h1>
+                {details?.subtitle && (
+                  <p className="text-base text-gray-600 dark:text-gray-300 mt-1">
+                    {details.subtitle}
+                  </p>
+                )}
+                <p className="text-base text-gray-600 dark:text-gray-400 mt-1">
+                  by{" "}
+                  {primaryAuthorKey ? (
+                    <Link
+                      to={`/author/${primaryAuthorKey}`}
+                      state={outgoingCrumbState}
+                      className="text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                    >
+                      {displayAuthor}
+                    </Link>
+                  ) : (
+                    <span>{displayAuthor}</span>
+                  )}
+                  {details?.authors.length && details.authors.length > 1 && (
+                    <span className="text-gray-400 dark:text-gray-500">
+                      {" "}
+                      + {details.authors.length - 1} more
+                    </span>
+                  )}
                 </p>
-              )}
 
-              {/* Action buttons */}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {existingBook ? (
+                {/* Quick metadata row */}
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+                  {details?.firstPublishYear && (
+                    <span>First published {details.firstPublishYear}</span>
+                  )}
+                  {edSummary?.pageCount && <span>{edSummary.pageCount} pages</span>}
+                  {edSummary?.totalEditions ? (
+                    <span>
+                      {edSummary.totalEditions} edition{edSummary.totalEditions !== 1 ? "s" : ""}
+                    </span>
+                  ) : null}
+                  {ratings?.average !== undefined && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <StarBar rating={ratings.average} />
+                      <span className="tabular-nums">
+                        {ratings.average.toFixed(2)}
+                        {ratings.count > 0 && (
+                          <span className="text-gray-400"> ({ratings.count})</span>
+                        )}
+                      </span>
+                    </span>
+                  )}
+                </div>
+
+                {availability?.seriesInfo && (
+                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                    Book {availability.seriesInfo.readingOrder} in{" "}
+                    <span className="italic">{availability.seriesInfo.seriesName}</span>
+                  </p>
+                )}
+
+                {/* Action buttons */}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {existingBook ? (
+                    <button
+                      type="button"
+                      onClick={handleRemoveFromList}
+                      className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      Remove from list
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleAddToReadingList}
+                      className="px-3 py-1.5 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700"
+                    >
+                      Want to read
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={handleRemoveFromList}
+                    onClick={handleToggleRead}
+                    className={`px-3 py-1.5 text-sm rounded-lg border ${
+                      isRead
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-300"
+                        : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    }`}
+                  >
+                    {isRead ? "Read ✓" : "Mark as read"}
+                  </button>
+                  {primaryAuthorKey && !authorFollowed && (
+                    <button
+                      type="button"
+                      onClick={handleFollowAuthor}
+                      className="px-3 py-1.5 text-sm rounded-lg border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+                    >
+                      Follow author
+                    </button>
+                  )}
+                  <a
+                    href={`https://openlibrary.org/works/${workId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                   >
-                    Remove from list
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleAddToReadingList}
-                    className="px-3 py-1.5 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700"
-                  >
-                    Want to read
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={handleToggleRead}
-                  className={`px-3 py-1.5 text-sm rounded-lg border ${
-                    isRead
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-300"
-                      : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                  }`}
-                >
-                  {isRead ? "Read ✓" : "Mark as read"}
-                </button>
-                {primaryAuthorKey && !authorFollowed && (
-                  <button
-                    type="button"
-                    onClick={handleFollowAuthor}
-                    className="px-3 py-1.5 text-sm rounded-lg border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-                  >
-                    Follow author
-                  </button>
-                )}
-                <a
-                  href={`https://openlibrary.org/works/${workId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  Open Library ↗
-                </a>
+                    Open Library ↗
+                  </a>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Description */}
-          {description && visibleDesc && (
-            <div className="px-5 sm:px-6 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                Description
-              </h2>
-              <Markdown source={visibleDesc} className="text-sm text-gray-700 dark:text-gray-300" />
-              {descTooLong && (
-                <button
-                  type="button"
-                  onClick={() => setDescExpanded((s) => !s)}
-                  className="mt-2 text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400"
-                >
-                  {descExpanded ? "Show less" : "Show more"}
-                </button>
-              )}
-            </div>
-          )}
-
-          {!description && detailsLoading && (
-            <div className="px-5 sm:px-6 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4">
-              <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded mb-2 animate-pulse" />
-              <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded mb-2 animate-pulse w-5/6" />
-              <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded animate-pulse w-2/3" />
-            </div>
-          )}
-        </div>
-
-        {/* Library availability */}
-        <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-            At your libraries
-          </h2>
-          {availLoading && !availability && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">Checking Libby…</p>
-          )}
-          {!availLoading && availability && availability.results.length === 0 && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Not found at any of your configured libraries.
-            </p>
-          )}
-          {availability && availability.results.length > 0 && (
-            <div className="-mx-5">
-              <AvailabilityTable
-                bookTitle={availability.bookTitle}
-                results={availability.results}
-                libraries={libraries}
-              />
-            </div>
-          )}
-        </section>
-
-        {/* Genres / Subjects */}
-        {subjects.length > 0 && (
-          <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-              Genres &amp; subjects
-            </h2>
-            <div className="flex flex-wrap gap-1.5">
-              {subjects.slice(0, 25).map((s) => (
-                <span
-                  key={s}
-                  className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
-                >
-                  {s}
-                </span>
-              ))}
-            </div>
-            {(details?.subjectPlaces?.length ||
-              details?.subjectPeople?.length ||
-              details?.subjectTimes?.length) && (
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                {details?.subjectPlaces && details.subjectPlaces.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 dark:text-gray-500 mb-1">Places</p>
-                    <p className="text-gray-700 dark:text-gray-300">
-                      {details.subjectPlaces.join(", ")}
-                    </p>
-                  </div>
-                )}
-                {details?.subjectPeople && details.subjectPeople.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 dark:text-gray-500 mb-1">People</p>
-                    <p className="text-gray-700 dark:text-gray-300">
-                      {details.subjectPeople.join(", ")}
-                    </p>
-                  </div>
-                )}
-                {details?.subjectTimes && details.subjectTimes.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 dark:text-gray-500 mb-1">Time periods</p>
-                    <p className="text-gray-700 dark:text-gray-300">
-                      {details.subjectTimes.join(", ")}
-                    </p>
-                  </div>
+            {/* Description */}
+            {description && visibleDesc && (
+              <div className="px-5 sm:px-6 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4">
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                  Description
+                </h2>
+                <Markdown
+                  source={visibleDesc}
+                  className="text-sm text-gray-700 dark:text-gray-300"
+                />
+                {descTooLong && (
+                  <button
+                    type="button"
+                    onClick={() => setDescExpanded((s) => !s)}
+                    className="mt-2 text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400"
+                  >
+                    {descExpanded ? "Show less" : "Show more"}
+                  </button>
                 )}
               </div>
             )}
-          </section>
-        )}
 
-        {/* Edition / publishing details */}
-        {edSummary && edSummary.totalEditions > 0 && (
-          <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-              Publishing details
-            </h2>
-            <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-              {edSummary.pageCount && (
-                <div>
-                  <dt className="text-xs text-gray-400 dark:text-gray-500">Median length</dt>
-                  <dd className="text-gray-900 dark:text-gray-100">{edSummary.pageCount} pages</dd>
-                </div>
-              )}
-              {edSummary.earliestPublishYear && (
-                <div>
-                  <dt className="text-xs text-gray-400 dark:text-gray-500">First published</dt>
-                  <dd className="text-gray-900 dark:text-gray-100">
-                    {edSummary.earliestPublishYear}
-                  </dd>
-                </div>
-              )}
-              <div>
-                <dt className="text-xs text-gray-400 dark:text-gray-500">Editions</dt>
-                <dd className="text-gray-900 dark:text-gray-100">{edSummary.totalEditions}</dd>
+            {!description && detailsLoading && (
+              <div className="px-5 sm:px-6 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4">
+                <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded mb-2 animate-pulse" />
+                <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded mb-2 animate-pulse w-5/6" />
+                <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded animate-pulse w-2/3" />
               </div>
-              {edSummary.languages.length > 0 && (
-                <div>
-                  <dt className="text-xs text-gray-400 dark:text-gray-500">Languages</dt>
-                  <dd className="text-gray-900 dark:text-gray-100 uppercase tracking-wide">
-                    {edSummary.languages.slice(0, 3).join(", ")}
-                  </dd>
-                </div>
-              )}
-              {edSummary.publishers.length > 0 && (
-                <div className="col-span-2 sm:col-span-4">
-                  <dt className="text-xs text-gray-400 dark:text-gray-500">Publishers</dt>
-                  <dd className="text-gray-900 dark:text-gray-100">
-                    {edSummary.publishers.join(" · ")}
-                  </dd>
-                </div>
-              )}
-            </dl>
-          </section>
-        )}
+            )}
+          </div>
 
-        {/* Series */}
-        {seriesName && series.length > 0 && (
+          {/* Library availability */}
           <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-              More in <span className="italic">{seriesName}</span>
+              At your libraries
             </h2>
-            <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {series.slice(0, 12).map((b) => (
-                <li key={b.workId}>
-                  <Link
-                    to={`/book/${b.workId}`}
-                    className="block group rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+            {availLoading && !availability && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">Checking Libby…</p>
+            )}
+            {!availLoading && availability && availability.results.length === 0 && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Not found at any of your configured libraries.
+              </p>
+            )}
+            {availability && availability.results.length > 0 && (
+              <div className="-mx-5">
+                <AvailabilityTable
+                  bookTitle={availability.bookTitle}
+                  results={availability.results}
+                  libraries={libraries}
+                />
+              </div>
+            )}
+          </section>
+
+          {/* Genres / Subjects */}
+          {subjects.length > 0 && (
+            <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                Genres &amp; subjects
+              </h2>
+              <div className="flex flex-wrap gap-1.5">
+                {subjects.slice(0, 25).map((s) => (
+                  <span
+                    key={s}
+                    className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
                   >
-                    <div className="flex gap-3 items-start">
-                      {b.coverId ? (
-                        <img
-                          src={`https://covers.openlibrary.org/b/id/${b.coverId}-M.jpg`}
-                          alt=""
-                          className="w-12 aspect-[2/3] object-cover rounded flex-shrink-0"
-                        />
-                      ) : (
-                        <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 group-hover:text-amber-600 dark:group-hover:text-amber-400">
-                          {b.title}
-                        </p>
-                        {b.authorName && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                            {b.authorName}
-                          </p>
-                        )}
-                        {b.firstPublishYear && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500">
-                            {b.firstPublishYear}
-                          </p>
-                        )}
-                      </div>
+                    {s}
+                  </span>
+                ))}
+              </div>
+              {(details?.subjectPlaces?.length ||
+                details?.subjectPeople?.length ||
+                details?.subjectTimes?.length) && (
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  {details?.subjectPlaces && details.subjectPlaces.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 dark:text-gray-500 mb-1">Places</p>
+                      <p className="text-gray-700 dark:text-gray-300">
+                        {details.subjectPlaces.join(", ")}
+                      </p>
                     </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+                  )}
+                  {details?.subjectPeople && details.subjectPeople.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 dark:text-gray-500 mb-1">People</p>
+                      <p className="text-gray-700 dark:text-gray-300">
+                        {details.subjectPeople.join(", ")}
+                      </p>
+                    </div>
+                  )}
+                  {details?.subjectTimes && details.subjectTimes.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 dark:text-gray-500 mb-1">Time periods</p>
+                      <p className="text-gray-700 dark:text-gray-300">
+                        {details.subjectTimes.join(", ")}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
 
-        {/* Other authors */}
-        {details && details.authors.length > 1 && (
-          <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Authors</h2>
-            <ul className="flex flex-wrap gap-2">
-              {details.authors.map((a) => (
-                <li key={a.key}>
-                  <Link
-                    to={`/author/${a.key}`}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 text-sm hover:bg-purple-100 dark:hover:bg-purple-900/40"
-                  >
-                    {authorNames[a.key] ?? a.key}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+          {/* Edition / publishing details */}
+          {edSummary && edSummary.totalEditions > 0 && (
+            <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                Publishing details
+              </h2>
+              <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                {edSummary.pageCount && (
+                  <div>
+                    <dt className="text-xs text-gray-400 dark:text-gray-500">Median length</dt>
+                    <dd className="text-gray-900 dark:text-gray-100">
+                      {edSummary.pageCount} pages
+                    </dd>
+                  </div>
+                )}
+                {edSummary.earliestPublishYear && (
+                  <div>
+                    <dt className="text-xs text-gray-400 dark:text-gray-500">First published</dt>
+                    <dd className="text-gray-900 dark:text-gray-100">
+                      {edSummary.earliestPublishYear}
+                    </dd>
+                  </div>
+                )}
+                <div>
+                  <dt className="text-xs text-gray-400 dark:text-gray-500">Editions</dt>
+                  <dd className="text-gray-900 dark:text-gray-100">{edSummary.totalEditions}</dd>
+                </div>
+                {edSummary.languages.length > 0 && (
+                  <div>
+                    <dt className="text-xs text-gray-400 dark:text-gray-500">Languages</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 uppercase tracking-wide">
+                      {edSummary.languages.slice(0, 3).join(", ")}
+                    </dd>
+                  </div>
+                )}
+                {edSummary.publishers.length > 0 && (
+                  <div className="col-span-2 sm:col-span-4">
+                    <dt className="text-xs text-gray-400 dark:text-gray-500">Publishers</dt>
+                    <dd className="text-gray-900 dark:text-gray-100">
+                      {edSummary.publishers.join(" · ")}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </section>
+          )}
 
-        {/* External links */}
-        {details && details.links.length > 0 && (
-          <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Links</h2>
-            <ul className="flex flex-wrap gap-2">
-              {details.links.map((l) => (
-                <li key={l.url}>
-                  <a
-                    href={l.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
-                  >
-                    {l.title} ↗
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-      </div>
-    </main>
+          {/* Series */}
+          {seriesName && series.length > 0 && (
+            <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                More in <span className="italic">{seriesName}</span>
+              </h2>
+              <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {series.slice(0, 12).map((b) => (
+                  <li key={b.workId}>
+                    <Link
+                      to={`/book/${b.workId}`}
+                      state={outgoingCrumbState}
+                      className="block group rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                    >
+                      <div className="flex gap-3 items-start">
+                        {b.coverId ? (
+                          <img
+                            src={`https://covers.openlibrary.org/b/id/${b.coverId}-M.jpg`}
+                            alt=""
+                            className="w-12 aspect-[2/3] object-cover rounded flex-shrink-0"
+                          />
+                        ) : (
+                          <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                            {b.title}
+                          </p>
+                          {b.authorName && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              {b.authorName}
+                            </p>
+                          )}
+                          {b.firstPublishYear && (
+                            <p className="text-xs text-gray-400 dark:text-gray-500">
+                              {b.firstPublishYear}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Other authors */}
+          {details && details.authors.length > 1 && (
+            <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Authors</h2>
+              <ul className="flex flex-wrap gap-2">
+                {details.authors.map((a) => (
+                  <li key={a.key}>
+                    <Link
+                      to={`/author/${a.key}`}
+                      state={outgoingCrumbState}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 text-sm hover:bg-purple-100 dark:hover:bg-purple-900/40"
+                    >
+                      {authorNames[a.key] ?? a.key}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* External links */}
+          {details && details.links.length > 0 && (
+            <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Links</h2>
+              <ul className="flex flex-wrap gap-2">
+                {details.links.map((l) => (
+                  <li key={l.url}>
+                    <a
+                      href={l.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                    >
+                      {l.title} ↗
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+      </main>
+    </CrumbStateProvider>
   );
 }

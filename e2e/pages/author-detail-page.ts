@@ -44,6 +44,9 @@ export class AuthorDetailPage {
   }
 
   async waitForReady(name: string | RegExp) {
-    await expect(this.heading(name)).toBeVisible();
+    // Mirror BookDetailPage: clientLoader awaits OL author details
+    // (15s internal fetch budget) and CI pays for a cold Vite compile
+    // of this route's chunk on the first navigation.
+    await expect(this.heading(name)).toBeVisible({ timeout: 30_000 });
   }
 }

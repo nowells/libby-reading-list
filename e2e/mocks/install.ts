@@ -52,6 +52,16 @@ export async function installMocks(
       body: JSON.stringify({ actors: [] }),
     }),
   );
+  // BrowserOAuthClient.load fetches authorization-server metadata against
+  // the configured handle resolver (bsky.social). Without a stub the real
+  // fetch hangs on CI sandbox networks, leaving an orphaned in-flight
+  // request after BookhiveSyncStatus unmounts on SPA navigation — which
+  // shows up as detail-page renders that never settle their `load` event.
+  // Fail the request fast so the OAuth client gives up immediately; the
+  // app's caller already wraps it in try/catch.
+  await page.route(/https:\/\/bsky\.social\/.*/, (route: Route) =>
+    route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+  );
   // Cover images: any URL that ends in a .jpg / .png we redirect to a
   // tiny in-memory PNG so layouts don't depend on real cover servers.
   const coverPng = Buffer.from(TINY_PNG_BASE64, "base64");
