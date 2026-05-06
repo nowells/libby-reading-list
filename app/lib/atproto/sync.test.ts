@@ -438,6 +438,88 @@ describe("sync", () => {
       expect(vi.mocked(records.deleteRecord).mock.calls[0][2]).toBe("r1");
     });
 
+    it("dedupes a workId-keyed and a fuzzy-keyed record for the same book", async () => {
+      // Reproduces the multi-source CSV scenario: one importer landed a
+      // record without an olWorkId; a later import (or enrichment pass)
+      // landed the same book with the workId populated. Same title and
+      // author, so the fuzzy-key bridge should collapse them.
+      const records_: ListedRecord<ShelfEntryRecord>[] = [
+        {
+          uri: "at://test/col/r1",
+          rkey: "r1",
+          value: makeShelfPdsRecord({
+            title: "The Great Gatsby",
+            authors: [{ name: "F. Scott Fitzgerald" }],
+            ids: {},
+            createdAt: "2025-01-01T00:00:00.000Z",
+          }),
+        },
+        {
+          uri: "at://test/col/r2",
+          rkey: "r2",
+          value: makeShelfPdsRecord({
+            title: "The Great Gatsby",
+            authors: [{ name: "F. Scott Fitzgerald" }],
+            ids: { olWorkId: "OL5778777W" },
+            createdAt: "2025-01-02T00:00:00.000Z",
+          }),
+        },
+      ];
+
+      vi.mocked(records.listRecords).mockImplementation(async (_session, collection) => {
+        if (collection === NSID.shelfEntry) return records_;
+        return [];
+      });
+      vi.mocked(records.deleteRecord).mockResolvedValue();
+
+      await attachSession(fakeSession);
+
+      // The fuzzy-only r1 is the duplicate — r2 wins on workId richness.
+      expect(records.deleteRecord).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(records.deleteRecord).mock.calls[0][2]).toBe("r1");
+    });
+
+    it("dedupes shelf entries that share title+author but disagree on workId", async () => {
+      // Multi-source imports occasionally pull different OL work IDs for
+      // the same book (different editions resolve to different workIds).
+      // The fuzzy-key bridge should still collapse them so the user's
+      // PDS doesn't keep two records for the same book.
+      const records_: ListedRecord<ShelfEntryRecord>[] = [
+        {
+          uri: "at://test/col/r1",
+          rkey: "r1",
+          value: makeShelfPdsRecord({
+            title: "The Wife Between Us",
+            authors: [{ name: "Greer Hendricks" }],
+            ids: { olWorkId: "OL19735648W" },
+            createdAt: "2025-01-01T00:00:00.000Z",
+          }),
+        },
+        {
+          uri: "at://test/col/r2",
+          rkey: "r2",
+          value: makeShelfPdsRecord({
+            title: "The Wife Between Us",
+            authors: [{ name: "Greer Hendricks" }],
+            ids: { olWorkId: "OL20189911W" },
+            createdAt: "2025-02-01T00:00:00.000Z",
+          }),
+        },
+      ];
+
+      vi.mocked(records.listRecords).mockImplementation(async (_session, collection) => {
+        if (collection === NSID.shelfEntry) return records_;
+        return [];
+      });
+      vi.mocked(records.deleteRecord).mockResolvedValue();
+
+      await attachSession(fakeSession);
+
+      expect(records.deleteRecord).toHaveBeenCalledTimes(1);
+      // Both carry an olWorkId so the recency tiebreaker decides.
+      expect(vi.mocked(records.deleteRecord).mock.calls[0][2]).toBe("r1");
+    });
+
     it("leaves a single shelf entry untouched", async () => {
       vi.mocked(records.listRecords).mockImplementation(async (_session, collection) => {
         if (collection === NSID.shelfEntry) {
@@ -487,6 +569,68 @@ describe("sync", () => {
       expect(vi.mocked(records.deleteRecord).mock.calls[0][2]).toBe("a1");
       const author = storage.getAuthors().find((a) => a.olKey === "OL2700751A");
       expect(author?.pdsRkey).toBe("a2");
+    });
+
+    it("re-dedupes the PDS after a bulk import so import bursts self-heal", async () => {
+      // The initial attach reconcile happens once. After that, an import
+      // (books:bulkSet) goes through the mutation handler, which now ends
+      // with a fresh listRecords + dedupe sweep. The sweep should catch
+      // a duplicate the prev/next bookKey diff can't see — e.g. an older
+      // record with a divergent olWorkId for the same title+author —
+      // instead of leaving the user to wait until the next sign-in.
+      vi.mocked(records.listRecords).mockResolvedValue([]);
+      vi.mocked(records.putRecord).mockResolvedValue({ uri: "at://test/col/k", rkey: "pushed" });
+      vi.mocked(records.deleteRecord).mockResolvedValue();
+
+      await attachSession(fakeSession);
+
+      // After attach, the PDS has two records for "The Wife Between Us"
+      // under different olWorkIds (the multi-source-CSV scenario).
+      vi.mocked(records.listRecords).mockResolvedValue([
+        {
+          uri: "at://test/col/r1",
+          rkey: "r1",
+          value: makeShelfPdsRecord({
+            title: "The Wife Between Us",
+            authors: [{ name: "Greer Hendricks" }],
+            ids: { olWorkId: "OL19735648W" },
+            createdAt: "2025-01-01T00:00:00.000Z",
+          }),
+        },
+        {
+          uri: "at://test/col/r2",
+          rkey: "r2",
+          value: makeShelfPdsRecord({
+            title: "The Wife Between Us",
+            authors: [{ name: "Greer Hendricks" }],
+            ids: { olWorkId: "OL20189911W" },
+            createdAt: "2025-02-01T00:00:00.000Z",
+          }),
+        },
+      ]);
+
+      vi.mocked(records.deleteRecord).mockClear();
+
+      storage.setImportedBooks(
+        [
+          {
+            id: "g-1",
+            title: "The Wife Between Us",
+            author: "Greer Hendricks",
+            workId: "OL20189911W",
+            source: "goodreads",
+          },
+        ],
+        "goodreads",
+      );
+
+      // Give the async mutation handler a tick to run the reconcile +
+      // sweep.
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(records.deleteRecord).toHaveBeenCalled();
+      const deletedRkeys = vi.mocked(records.deleteRecord).mock.calls.map((c) => c[2]);
+      expect(deletedRkeys).toContain("r1");
     });
 
     it("dedupes duplicate dismissed entries by workId", async () => {
