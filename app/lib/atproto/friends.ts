@@ -1,5 +1,6 @@
 import type { OAuthSession } from "@atproto/oauth-client-browser";
 import { NSID, type ShelfEntryRecord, type AuthorFollowRecord } from "./lexicon";
+import { dedupeAuthorRecords, dedupeShelfRecords } from "./record-dedupe";
 
 const PLCDIR = "https://plc.directory";
 const BSKY_FOLLOW_COLLECTION = "app.bsky.graph.follow";
@@ -320,7 +321,13 @@ export async function fetchFriendShelf(
   opts?: { signal?: AbortSignal },
 ): Promise<FriendShelf | null> {
   if (opts?.signal?.aborted) return null;
-  const entries = await listUserShelfEntries(profile.did);
+  const rawEntries = await listUserShelfEntries(profile.did);
+  // Collapse duplicate PDS records before any UI consumes them. The
+  // friend's own client may not have run the latest dedupe code, so a
+  // stale PDS could still hold parallel records for the same book —
+  // surfacing those as separate rows would inflate counts and pollute
+  // the shelf. Same union-find dedupe the owner-side reconcile uses.
+  const entries = dedupeShelfRecords(rawEntries);
   if (entries.length === 0) return null;
   if (opts?.signal?.aborted) return null;
 
@@ -328,10 +335,11 @@ export async function fetchFriendShelf(
   // cache makes this free. Use it to fetch the profile in parallel with
   // the author list so enrichment doesn't add a serial round-trip.
   const actor = await getActor(profile.did);
-  const [authors, enrichment] = await Promise.all([
+  const [rawAuthors, enrichment] = await Promise.all([
     listUserAuthors(profile.did),
     actor ? fetchActorProfile(profile.did, actor) : Promise.resolve(null),
   ]);
+  const authors = dedupeAuthorRecords(rawAuthors);
 
   return {
     profile: enrichment ? { did: profile.did, handle: profile.handle, ...enrichment } : profile,

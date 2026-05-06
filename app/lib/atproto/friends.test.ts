@@ -254,7 +254,14 @@ describe("friends", () => {
           const take = Math.min(pageSize, remaining);
           const records = Array.from({ length: take }, (_, i) => ({
             uri: `at://test/entry/${offset + i}`,
-            value: makeShelfEntry({ title: `Book ${offset + i}` }),
+            // Unique workId per book — otherwise the read-side dedupe
+            // (sibling helper of the PDS-side one) collapses them all
+            // into one record because makeShelfEntry's defaults share an
+            // olWorkId.
+            value: makeShelfEntry({
+              title: `Book ${offset + i}`,
+              ids: { olWorkId: `OL${offset + i}W` },
+            }),
           }));
           const nextOffset = offset + take;
           const body: { records: typeof records; cursor?: string } = { records };
@@ -423,6 +430,90 @@ describe("friends", () => {
       });
 
       await expect(fetchFriendShelf(friend)).rejects.toThrow();
+
+      fetchSpy.mockRestore();
+    });
+
+    it("dedupes the friend's PDS records so a stale upstream doesn't inflate the shelf", async () => {
+      // The friend may not have run our updated PDS-side dedupe yet, so
+      // their repo can still hold parallel records for the same book —
+      // mixed workId/fuzzy or divergent olWorkIds across multi-source
+      // imports. Surfacing those as separate rows would inflate the
+      // friend's book counts and pollute their shelf in our UI; the
+      // read-side dedupe should collapse them down to one entry per work.
+      const friend: FriendProfile = {
+        did: "did:plc:dupes",
+        handle: "dupes.example.com",
+      };
+
+      const dup = (overrides: Partial<ShelfEntryRecord>) =>
+        makeShelfEntry({
+          title: "The Wife Between Us",
+          authors: [{ name: "Greer Hendricks" }],
+          ...overrides,
+        });
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("plc.directory")) {
+          const did = url.split("/").pop()!;
+          return new Response(JSON.stringify(didDoc(did)));
+        }
+        if (url.includes(NSID.shelfEntry)) {
+          return new Response(
+            JSON.stringify({
+              records: [
+                // Two divergent olWorkIds for the same book.
+                { uri: "at://test/entry/1", value: dup({ ids: { olWorkId: "OL19735648W" } }) },
+                { uri: "at://test/entry/2", value: dup({ ids: { olWorkId: "OL20189911W" } }) },
+                // A fuzzy-only sibling — same title+author, no workId.
+                { uri: "at://test/entry/3", value: dup({ ids: {} }) },
+                // An unrelated book that should survive untouched.
+                {
+                  uri: "at://test/entry/4",
+                  value: makeShelfEntry({
+                    title: "Different Book",
+                    authors: [{ name: "Other Author" }],
+                    ids: { olWorkId: "OL999W" },
+                  }),
+                },
+              ],
+            }),
+          );
+        }
+        if (url.includes(NSID.authorFollow)) {
+          // Same author landed twice — once name-only, once with olKey.
+          return new Response(
+            JSON.stringify({
+              records: [
+                {
+                  uri: "at://test/author/a1",
+                  value: makeAuthorFollow({ name: "Greer Hendricks" }),
+                },
+                {
+                  uri: "at://test/author/a2",
+                  value: makeAuthorFollow({
+                    name: "Greer Hendricks",
+                    olAuthorKey: "OL12345A",
+                  }),
+                },
+              ],
+            }),
+          );
+        }
+        return new Response(JSON.stringify({ records: [] }));
+      });
+
+      const result = await fetchFriendShelf(friend);
+      expect(result).not.toBeNull();
+      // Three duplicate "The Wife Between Us" records collapse to one;
+      // "Different Book" stays.
+      expect(result!.entries).toHaveLength(2);
+      const titles = result!.entries.map((e) => e.title).sort();
+      expect(titles).toEqual(["Different Book", "The Wife Between Us"]);
+      // The author follow with the olAuthorKey wins.
+      expect(result!.authors).toHaveLength(1);
+      expect(result!.authors[0].olAuthorKey).toBe("OL12345A");
 
       fetchSpy.mockRestore();
     });
