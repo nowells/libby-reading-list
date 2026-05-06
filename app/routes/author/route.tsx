@@ -67,13 +67,22 @@ export default function AuthorDetailsPage() {
   const [bioExpanded, setBioExpanded] = useState(false);
   const [followed, setFollowed] = useState<AuthorEntry | undefined>();
 
-  // Re-fetch author details if the loader didn't provide them (transient OL
-  // failure during the loader call).
+  // Re-sync `details` state from the loader when the :authorKey param
+  // changes. `useState(initialDetails)` only runs on mount, so a same-
+  // route navigation (e.g. clicking through to a different author from
+  // an earlier author detail page in the back-trail) would otherwise
+  // leave `details` pointing at the previous author's record. The
+  // framework already pre-fetches the new loader data via
+  // `clientLoader`, so this just adopts it.
   useEffect(() => {
-    if (!validKey || details) {
-      setDetailsLoading(false);
-      return;
-    }
+    setDetails(initialDetails);
+    setDetailsLoading(initialDetails === null && validKey);
+  }, [authorKey, initialDetails, validKey]);
+
+  // Fall back to a client-side fetch when the loader couldn't supply
+  // details (transient OL failure during the loader call).
+  useEffect(() => {
+    if (!validKey || details) return;
     let cancelled = false;
     setDetailsLoading(true);
     void getAuthorDetails(authorKey).then((d) => {

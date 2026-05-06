@@ -201,13 +201,22 @@ export default function BookDetails() {
     label: displayTitle,
   });
 
-  // Re-fetch work details if the loader didn't provide them (e.g. invalid id
-  // recovered later, or a transient OL failure during the loader call).
+  // Re-sync `details` state from the loader when the route's :workId
+  // param changes. `useState(initialDetails)` only runs on mount, so
+  // a same-route navigation (e.g. clicking a series sibling on this
+  // very page from /book/A to /book/B) would otherwise leave `details`
+  // pointing at A's record indefinitely — the heading would stay at
+  // A's title on B's URL. The framework already pre-fetches the new
+  // loader data via `clientLoader`, so this just adopts it.
   useEffect(() => {
-    if (!validWorkId || details) {
-      setDetailsLoading(false);
-      return;
-    }
+    setDetails(initialDetails);
+    setDetailsLoading(initialDetails === null && validWorkId);
+  }, [workId, initialDetails, validWorkId]);
+
+  // Fall back to a client-side fetch when the loader couldn't supply
+  // details (transient OL failure during the loader call).
+  useEffect(() => {
+    if (!validWorkId || details) return;
     let cancelled = false;
     setDetailsLoading(true);
     void getWorkDetails(workId).then((d) => {
