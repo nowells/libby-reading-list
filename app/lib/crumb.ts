@@ -16,7 +16,7 @@ export interface Crumb {
  * Shape carried in `react-router` `useLocation().state` for any
  * navigation that we want to chain into a back-trail.
  */
-export interface CrumbLocationState {
+interface CrumbLocationState {
   crumbStack?: Crumb[];
 }
 
@@ -25,7 +25,7 @@ export interface CrumbLocationState {
  * another author → ...) can't grow without bound. Older entries are
  * dropped from the front when the limit is hit.
  */
-export const CRUMB_STACK_MAX = 10;
+const CRUMB_STACK_MAX = 10;
 
 /**
  * Read the crumb stack carried by the current location's router state.
@@ -46,7 +46,7 @@ export function useCrumbStack(): Crumb[] {
  * the stack to `[self]`; detail-page sources push their own crumb
  * onto the stack they themselves received.
  */
-export function buildOutgoingCrumbState(
+function buildOutgoingCrumbState(
   currentStack: Crumb[],
   self: Crumb,
   options: { resetStack?: boolean } = {},
