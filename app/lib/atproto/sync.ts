@@ -39,6 +39,13 @@ import {
   type ShelfStatusToken,
 } from "./lexicon";
 import { deleteRecord, listRecords, putRecord, type ListedRecord } from "./records";
+import {
+  authorRecordKeys,
+  authorRecordScore,
+  dedupeWithUnionFind,
+  shelfRecordKeys,
+  shelfRecordScore,
+} from "./record-dedupe";
 
 let activeSession: OAuthSession | null = null;
 let unsubscribe: (() => void) | null = null;
@@ -113,123 +120,25 @@ function indexShelfRecords(records: ListedRecord<ShelfEntryRecord>[]): IndexedSh
     const author = r.value.authors?.[0]?.name ?? "";
     const contentKey = ids.olWorkId
       ? `work:${ids.olWorkId}`
-      : `fuzzy:${normalize(r.value.title)}\0${normalize(author)}`;
+      : `fuzzy:${normalizeForFuzzy(r.value.title)}\0${normalizeForFuzzy(author)}`;
     out.push({ rkey: r.rkey, status, contentKey, value: r.value });
   }
   return out;
 }
 
-function normalize(s: string): string {
+function normalizeForFuzzy(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-/**
- * Cluster records by every key returned from `keysOf` (union-find): two
- * records collapse into the same group if they share *any* key. The
- * highest scorer per group is the survivor; the rest become duplicates.
- *
- * Used so a record carrying an `olWorkId` and a sibling that only carries
- * a fuzzy title+author key for the same book end up grouped together —
- * the previous contentKey-only grouping treated those as distinct works
- * and let multi-source CSV imports stack them on the PDS forever.
- */
-function dedupeWithUnionFind<T>(
-  records: T[],
-  keysOf: (r: T) => string[],
-  scoreOf: (r: T) => number,
-): { unique: T[]; duplicates: T[] } {
-  const parent: number[] = records.map((_, i) => i);
-  const find = (i: number): number => {
-    while (parent[i] !== i) {
-      parent[i] = parent[parent[i]];
-      i = parent[i];
-    }
-    return i;
-  };
-  const union = (a: number, b: number) => {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra !== rb) parent[ra] = rb;
-  };
-
-  const byKey = new Map<string, number>();
-  for (let i = 0; i < records.length; i++) {
-    for (const k of keysOf(records[i])) {
-      const seen = byKey.get(k);
-      if (seen !== undefined) union(i, seen);
-      else byKey.set(k, i);
-    }
-  }
-
-  const groups = new Map<number, T[]>();
-  for (let i = 0; i < records.length; i++) {
-    const root = find(i);
-    const arr = groups.get(root);
-    if (arr) arr.push(records[i]);
-    else groups.set(root, [records[i]]);
-  }
-
-  const unique: T[] = [];
-  const duplicates: T[] = [];
-  for (const arr of groups.values()) {
-    if (arr.length === 1) {
-      unique.push(arr[0]);
-      continue;
-    }
-    const sorted = [...arr].sort((a, b) => scoreOf(b) - scoreOf(a));
-    unique.push(sorted[0]);
-    for (let i = 1; i < sorted.length; i++) duplicates.push(sorted[i]);
-  }
-  return { unique, duplicates };
-}
-
-/**
- * Group shelf records that point at the same work — by `olWorkId` *or* by
- * a normalized title+author fuzzy key — and pick a canonical winner per
- * group. Losers are returned in `duplicates` so the caller can clean them
- * up from the PDS.
- *
- * Winner selection prioritizes records that carry the most user-facing
- * data — rating, note, started/finished timestamps, rich metadata —
- * because losing those edits is more harmful than losing the rkey itself.
- */
 function dedupeIndexedShelfRecords(indexed: IndexedShelfRecord[]): {
   unique: IndexedShelfRecord[];
   duplicates: IndexedShelfRecord[];
 } {
   return dedupeWithUnionFind(
     indexed,
-    (rec) => {
-      const author = rec.value.authors?.[0]?.name ?? "";
-      const fuzzy = `fuzzy:${normalize(rec.value.title)}\0${normalize(author)}`;
-      const work = rec.value.ids.olWorkId ? `work:${rec.value.ids.olWorkId}` : null;
-      return work ? [work, fuzzy] : [fuzzy];
-    },
-    scoreShelfRecord,
+    (rec) => shelfRecordKeys(rec.value),
+    (rec) => shelfRecordScore(rec.value),
   );
-}
-
-function scoreShelfRecord(r: IndexedShelfRecord): number {
-  const v = r.value;
-  let score = 0;
-  // User-authored data — preserve at all costs.
-  if (typeof v.rating === "number") score += 1000;
-  if (v.note) score += 1000;
-  if (v.startedAt) score += 200;
-  if (v.finishedAt) score += 200;
-  // A non-default status is more informative than the implicit wantToRead.
-  if (r.status !== STATUS.wantToRead) score += 100;
-  // Metadata richness.
-  if (v.ids.olWorkId) score += 50;
-  if (v.coverUrl) score += 10;
-  if (v.subjects && v.subjects.length > 0) score += 10;
-  if (typeof v.pageCount === "number") score += 5;
-  if (typeof v.firstPublishYear === "number") score += 5;
-  if (v.sourceUrl) score += 3;
-  // Recency tiebreaker: more-recent updates win when otherwise equal.
-  const ts = Date.parse(v.updatedAt ?? v.createdAt);
-  if (Number.isFinite(ts)) score += ts / 1e12;
-  return score;
 }
 
 async function deleteDuplicateShelfRecords(
@@ -250,19 +159,8 @@ function dedupeAuthorRecords(records: ListedRecord<AuthorFollowRecord>[]): {
 } {
   return dedupeWithUnionFind(
     records,
-    (r) => {
-      const nameKey = `name:${r.value.name.toLowerCase()}`;
-      const olKey = r.value.olAuthorKey ? `key:${r.value.olAuthorKey}` : null;
-      return olKey ? [olKey, nameKey] : [nameKey];
-    },
-    (r) => {
-      let s = 0;
-      if (r.value.olAuthorKey) s += 50;
-      if (r.value.imageUrl) s += 10;
-      const ts = Date.parse(r.value.createdAt);
-      if (Number.isFinite(ts)) s += ts / 1e12;
-      return s;
-    },
+    (r) => authorRecordKeys(r.value),
+    (r) => authorRecordScore(r.value),
   );
 }
 
@@ -274,7 +172,7 @@ function dedupeDismissedRecords(records: ListedRecord<BookDismissedRecord>[]): {
     records,
     (r) => {
       const author = r.value.authors?.[0]?.name ?? "";
-      const fuzzy = `fuzzy:${normalize(r.value.title ?? "")}\0${normalize(author)}`;
+      const fuzzy = `fuzzy:${normalizeForFuzzy(r.value.title ?? "")}\0${normalizeForFuzzy(author)}`;
       const work = r.value.ids?.olWorkId ? `work:${r.value.ids.olWorkId}` : null;
       return work ? [work, fuzzy] : [fuzzy];
     },
@@ -573,7 +471,7 @@ async function reconcileDismissed(
 
 function contentKeyForDismissed(record: BookDismissedRecord): string {
   if (record.ids?.olWorkId) return `work:${record.ids.olWorkId}`;
-  return `fuzzy:${normalize(record.title ?? "")}\0${normalize(record.authors?.[0]?.name ?? "")}`;
+  return `fuzzy:${normalizeForFuzzy(record.title ?? "")}\0${normalizeForFuzzy(record.authors?.[0]?.name ?? "")}`;
 }
 
 async function safePushDismissed(session: OAuthSession, entry: DismissedWorkEntry): Promise<void> {
