@@ -1137,7 +1137,9 @@ function docMatchesSeries(
     if (!authorMatch) return false;
   }
   if (!doc.series?.length || significantTokens.length === 0) {
-    return authorLower !== undefined; // no series field: trust the author scope
+    // No series field on the doc — OL's `series:X` filter already verified
+    // it at search time, so trust the search and accept.
+    return true;
   }
   const seriesBlob = doc.series.join(" ").toLowerCase();
   const hits = significantTokens.filter((t) => seriesBlob.includes(t.toLowerCase())).length;

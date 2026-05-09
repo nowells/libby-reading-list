@@ -533,7 +533,7 @@ describe("searchSeriesBooks", () => {
         return HttpResponse.json({
           docs: [
             {
-              key: "/works/OL_GAMACHE_1W",
+              key: "/works/OLGAMACHE1W",
               title: "Still Life",
               author_name: ["Louise Penny"],
               first_publish_year: 2005,
@@ -541,7 +541,7 @@ describe("searchSeriesBooks", () => {
               series: ["Chief Inspector Gamache; #1"],
             },
             {
-              key: "/works/OL_GAMACHE_14W",
+              key: "/works/OLGAMACHE14W",
               title: "Kingdom of the Blind",
               author_name: ["Louise Penny"],
               first_publish_year: 2018,
@@ -569,7 +569,7 @@ describe("searchSeriesBooks", () => {
         HttpResponse.json({
           docs: [
             {
-              key: "/works/OL_OTHER_W",
+              key: "/works/OLOTHERWRONGW",
               title: "Some Random Mystery",
               author_name: ["Other Writer"],
               first_publish_year: 2010,
