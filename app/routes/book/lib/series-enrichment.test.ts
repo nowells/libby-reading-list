@@ -340,6 +340,50 @@ describe("extractLibbySeriesBooks", () => {
     expect(candidates[0].title).toBe("Still Life");
   });
 
+  it("collapses editions even when only some have readingOrder set", () => {
+    // Real-world bug: Libby returns multiple editions of "Still Life"
+    // where some carry detailedSeries.readingOrder = "1" and others
+    // come back without a readingOrder at all (just seriesName). With
+    // a single-key dedup, the order-keyed edition and the title-keyed
+    // edition land in different buckets and we end up rendering the
+    // book twice. Indexing under both keys collapses them.
+    const candidates = extractLibbySeriesBooks(
+      [
+        {
+          libraryKey: "lib1",
+          items: [
+            libbyItem({
+              id: "a",
+              title: "Still Life",
+              sortTitle: "still life",
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "1" },
+            }),
+            libbyItem({
+              id: "b",
+              title: "Still Life",
+              sortTitle: "still life",
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              // Same book, but readingOrder is empty on this edition.
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "" },
+            }),
+            libbyItem({
+              id: "c",
+              title: "Still Life: A Chief Inspector Gamache Novel",
+              sortTitle: "still life a chief inspector gamache novel",
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              // Different sortTitle, but readingOrder agrees with item a.
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "1" },
+            }),
+          ],
+        },
+      ],
+      "Chief Inspector Armand Gamache",
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].matches).toHaveLength(3);
+  });
+
   it("falls back to title-keyed dedup when readingOrder is missing", () => {
     const candidates = extractLibbySeriesBooks(
       [

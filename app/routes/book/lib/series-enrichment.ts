@@ -188,41 +188,62 @@ export interface LibbySeriesCandidate {
 }
 
 /**
- * Build the dedup key for one Libby item within a single series. Reading
+ * Build the dedup keys for one Libby item within a single series. Reading
  * order is the strongest signal we have — every edition of "Still Life"
  * (#1) shares `detailedSeries.readingOrder = "1"` regardless of whether
  * the format is ebook/audio/large-print or whether the title field
  * happens to include the subtitle ("Still Life" vs "Still Life: A
- * Chief Inspector Gamache Novel"). Items missing a reading order fall
- * back to a normalized-title key.
+ * Chief Inspector Gamache Novel"). But Libby is inconsistent: some
+ * editions of the same book come back with `readingOrder` populated
+ * and others don't. Returning *both* keys (when available) lets the
+ * caller index the candidate under each, so a later edition that
+ * matches on either key collapses into the existing candidate
+ * instead of spawning a duplicate.
  */
-function libbyItemDedupKey(item: LibbyMediaItem): string {
+function libbyItemDedupKeys(item: LibbyMediaItem): string[] {
+  const keys: string[] = [];
   const ro = item.detailedSeries?.readingOrder?.trim();
-  if (ro) return `order:${ro}`;
-  return `title:${normalizeTitle(item.sortTitle || item.title)}`;
+  if (ro) keys.push(`order:${ro}`);
+  const titleKey = normalizeTitle(item.sortTitle || item.title);
+  if (titleKey) keys.push(`title:${titleKey}`);
+  return keys;
 }
 
 /**
  * Pull all unique books for the given series out of Libby search results.
  * Filters to items whose `detailedSeries.seriesName` matches the target,
- * groups by reading-order (or normalized title fallback) so multiple
- * editions / formats / libraries collapse into one candidate.
+ * groups by reading-order *and* normalized-title fallback so multiple
+ * editions / formats / libraries collapse into one candidate even when
+ * Libby returns inconsistent readingOrder coverage across editions.
  */
 export function extractLibbySeriesBooks(
   itemsByLibrary: { libraryKey: string; items: LibbyMediaItem[] }[],
   seriesName: string,
 ): LibbySeriesCandidate[] {
+  // A candidate may be reachable by several keys (its order key plus its
+  // title key); we look it up by any of them and keep the same object
+  // referenced under each so later items match in either direction.
   const byKey = new Map<string, LibbySeriesCandidate>();
+  const all: LibbySeriesCandidate[] = [];
 
   for (const { libraryKey, items } of itemsByLibrary) {
     for (const item of items) {
       const itemSeriesName = item.detailedSeries?.seriesName;
       if (!itemSeriesName || !seriesNameMatches(itemSeriesName, seriesName)) continue;
 
-      const key = libbyItemDedupKey(item);
-      if (!key || key === "title:") continue;
+      const keys = libbyItemDedupKeys(item);
+      if (keys.length === 0) continue;
 
-      const existing = byKey.get(key);
+      // Find an existing candidate via any of this item's keys.
+      let existing: LibbySeriesCandidate | undefined;
+      for (const k of keys) {
+        const hit = byKey.get(k);
+        if (hit) {
+          existing = hit;
+          break;
+        }
+      }
+
       if (existing) {
         existing.matches.push({ libraryKey, item });
         if (!existing.coverUrl && item.covers?.cover150Wide?.href) {
@@ -235,25 +256,32 @@ export function extractLibbySeriesBooks(
           existing.firstPublishYear = parseYear(item.publishDate);
         }
         // Prefer the shortest title across editions (typically the canonical
-        // one without "Unabridged" / subtitle drift).
+        // form without subtitle / "Unabridged" / etc).
         if (item.title && item.title.length < existing.title.length) {
           existing.title = item.title;
         }
+        // Make sure every key this item carries also resolves to the
+        // existing candidate so future items match in either direction.
+        for (const k of keys) {
+          if (!byKey.has(k)) byKey.set(k, existing);
+        }
       } else {
         const author = item.creators?.find((c) => c.role === "Author")?.name;
-        byKey.set(key, {
+        const candidate: LibbySeriesCandidate = {
           title: item.title,
           author,
           readingOrder: item.detailedSeries?.readingOrder,
           coverUrl: item.covers?.cover150Wide?.href,
           firstPublishYear: parseYear(item.publishDate),
           matches: [{ libraryKey, item }],
-        });
+        };
+        for (const k of keys) byKey.set(k, candidate);
+        all.push(candidate);
       }
     }
   }
 
-  return [...byKey.values()];
+  return all;
 }
 
 /**
