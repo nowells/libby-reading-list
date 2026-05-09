@@ -970,10 +970,19 @@ function SeriesCard({ book, isCurrent, status, crumbState, onAdd }: SeriesCardPr
     ? `https://covers.openlibrary.org/b/id/${book.coverId}-M.jpg`
     : book.coverUrl;
 
-  // Libby-only rows (no workId resolved yet) render the row's body as a
-  // plain div instead of a Link so we don't navigate to /book/<empty>.
-  const navigable = !!book.workId;
+  // Every series card is clickable. Resolved OL workIds get a direct
+  // /book/<id> link; rows still pending (or where OL has no record)
+  // fall through to /book/find which resolves on-demand and either
+  // redirects or lands on a fallback page that still lets the user
+  // shelve the book. Falls back to a plain div only when we have
+  // neither workId nor author (very rare — Libby items always come
+  // with a creator).
   const cardClass = `block group rounded-lg p-2 border transition-colors ${ringClass}`;
+  const linkTarget = book.workId
+    ? `/book/${book.workId}`
+    : book.authorName
+      ? `/book/find?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.authorName)}${coverSrc ? `&cover=${encodeURIComponent(coverSrc)}` : ""}`
+      : null;
 
   const cardBody = (
     <div className="flex gap-3 items-start">
@@ -1006,8 +1015,8 @@ function SeriesCard({ book, isCurrent, status, crumbState, onAdd }: SeriesCardPr
 
   return (
     <li className="relative">
-      {navigable ? (
-        <Link to={`/book/${book.workId}`} state={crumbState} className={cardClass}>
+      {linkTarget ? (
+        <Link to={linkTarget} state={crumbState} className={cardClass}>
           {cardBody}
         </Link>
       ) : (
