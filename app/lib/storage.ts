@@ -214,13 +214,14 @@ export function updateBook(id: string, updates: Partial<Book>) {
   emitMutation({ kind: "book:updated", book: updated });
 }
 
-export function addBook(book: Omit<Book, "id" | "manual">) {
+export function addBook(book: Omit<Book, "id" | "manual">): Book {
   const books = getBooks();
   const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const newBook: Book = { ...book, id, manual: true };
   books.push(newBook);
   writeBooks(books);
   emitMutation({ kind: "book:added", book: newBook });
+  return newBook;
 }
 
 export function removeBook(id: string) {

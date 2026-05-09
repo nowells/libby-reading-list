@@ -335,6 +335,15 @@ export default function Books() {
     });
     refreshEntries();
     setShowAddBook(false);
+    // Reset filters/page so the user actually sees the just-added book —
+    // a brand-new book has no availability data yet, so it sorts to the
+    // bottom of the want-to-read view and would otherwise land on a
+    // later page (or be hidden entirely by an active category/search
+    // filter), making the add look like a no-op.
+    setSearchQuery("");
+    setCategoryFilter(null);
+    updateSearchParams({ status: null, page: "1" });
+    showToast(`Added "${item.title}" to your want-to-read list`);
     posthog?.capture("book_added_from_search", { title: item.title });
   };
 
