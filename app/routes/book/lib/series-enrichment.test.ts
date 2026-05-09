@@ -340,6 +340,44 @@ describe("extractLibbySeriesBooks", () => {
     expect(candidates[0].title).toBe("Still Life");
   });
 
+  it("collapses editions when readingOrder is missing AND sortTitle drifts", () => {
+    // The combo that broke The Beautiful Mystery: Libby returns one
+    // edition with `readingOrder: "8"` and a clean sortTitle, plus
+    // another edition with no readingOrder *and* a sortTitle that
+    // baked the subtitle in. Index-under-both-keys alone wasn't
+    // enough — the title key for the longer-sortTitle edition didn't
+    // match either of the cleaner edition's keys. Reducing the title
+    // key to the "core" title (everything before the first ":" /
+    // parens) makes them collide.
+    const candidates = extractLibbySeriesBooks(
+      [
+        {
+          libraryKey: "lib1",
+          items: [
+            libbyItem({
+              id: "a",
+              title: "The Beautiful Mystery",
+              sortTitle: "beautiful mystery",
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "8" },
+            }),
+            libbyItem({
+              id: "b",
+              title: "The Beautiful Mystery: A Chief Inspector Gamache Novel",
+              sortTitle: "beautiful mystery a chief inspector gamache novel",
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "" },
+            }),
+          ],
+        },
+      ],
+      "Chief Inspector Armand Gamache",
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].matches).toHaveLength(2);
+    expect(candidates[0].readingOrder).toBe("8");
+  });
+
   it("collapses editions even when only some have readingOrder set", () => {
     // Real-world bug: Libby returns multiple editions of "Still Life"
     // where some carry detailedSeries.readingOrder = "1" and others

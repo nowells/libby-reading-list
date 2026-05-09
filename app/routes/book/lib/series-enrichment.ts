@@ -32,6 +32,21 @@ function normalizeTitle(title: string): string {
     .trim();
 }
 
+/**
+ * "Core" form of a title: lowercased, with parenthetical content and any
+ * subtitle (text after the first ":") stripped, then normalized. This is
+ * what we key dedup against when readingOrder isn't available, so all of
+ * "Still Life", "Still Life: A Chief Inspector Gamache Novel", and
+ * "Still Life (Chief Inspector Gamache Series #1)" collapse to
+ * "still life" instead of fanning out into three candidates.
+ */
+function coreTitle(title: string): string {
+  let t = title.replace(/\([^)]*\)/g, " ");
+  const colon = t.indexOf(":");
+  if (colon > 0) t = t.slice(0, colon);
+  return normalizeTitle(t);
+}
+
 /** Extract a 4-digit year from a Libby publishDate like "2018-11-27". */
 function parseYear(date?: string): number | undefined {
   if (!date) return undefined;
@@ -204,7 +219,10 @@ function libbyItemDedupKeys(item: LibbyMediaItem): string[] {
   const keys: string[] = [];
   const ro = item.detailedSeries?.readingOrder?.trim();
   if (ro) keys.push(`order:${ro}`);
-  const titleKey = normalizeTitle(item.sortTitle || item.title);
+  // Use the "core" title (subtitle + parens stripped) so editions whose
+  // sortTitle baked the subtitle in still collapse with the bare title.
+  // The display form lives on the candidate; this is just the dedup key.
+  const titleKey = coreTitle(item.title) || normalizeTitle(item.sortTitle || item.title);
   if (titleKey) keys.push(`title:${titleKey}`);
   return keys;
 }
