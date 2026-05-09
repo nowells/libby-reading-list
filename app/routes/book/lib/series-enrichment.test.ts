@@ -340,6 +340,70 @@ describe("extractLibbySeriesBooks", () => {
     expect(candidates[0].title).toBe("Still Life");
   });
 
+  it("collapses editions whose titles only differ by separator, edition marker, or article placement", () => {
+    // Real-world variants Libby returns for the same book — collected from
+    // staring at the production data for The Beautiful Mystery #8 in
+    // Penny's Gamache series. None of them share a sortTitle or even a
+    // single dedup key on their own, but they all describe the same
+    // book, so the core-title reduction has to flatten them.
+    const variants = [
+      // Plain canonical.
+      { id: "a", title: "The Beautiful Mystery", sortTitle: "beautiful mystery" },
+      // Subtitle baked in via colon.
+      {
+        id: "b",
+        title: "The Beautiful Mystery: A Chief Inspector Gamache Novel",
+        sortTitle: "beautiful mystery a chief inspector gamache novel",
+      },
+      // Subtitle baked in via comma.
+      {
+        id: "c",
+        title: "The Beautiful Mystery, Book 8",
+        sortTitle: "beautiful mystery book 8",
+      },
+      // Edition marker via en-dash.
+      {
+        id: "d",
+        title: "The Beautiful Mystery – Unabridged",
+        sortTitle: "beautiful mystery unabridged",
+      },
+      // Parenthetical edition marker.
+      {
+        id: "e",
+        title: "The Beautiful Mystery (Audiobook)",
+        sortTitle: "beautiful mystery audiobook",
+      },
+      // Title-sorted form (article shuffled to the end).
+      { id: "f", title: "Beautiful Mystery, The", sortTitle: "beautiful mystery the" },
+    ];
+    const candidates = extractLibbySeriesBooks(
+      [
+        {
+          libraryKey: "lib1",
+          items: variants.map((v) =>
+            libbyItem({
+              ...v,
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              detailedSeries: {
+                seriesName: "Chief Inspector Armand Gamache",
+                // Mix coverage on purpose — only the first edition has
+                // a readingOrder, so the cross-edition collapse has to
+                // come entirely from the title-key path.
+                readingOrder: v.id === "a" ? "8" : "",
+              },
+            }),
+          ),
+        },
+      ],
+      "Chief Inspector Armand Gamache",
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].matches).toHaveLength(variants.length);
+    expect(candidates[0].readingOrder).toBe("8");
+    // Display title prefers the shortest, which is the canonical form.
+    expect(candidates[0].title).toBe("The Beautiful Mystery");
+  });
+
   it("collapses editions when readingOrder is missing AND sortTitle drifts", () => {
     // The combo that broke The Beautiful Mystery: Libby returns one
     // edition with `readingOrder: "8"` and a clean sortTitle, plus

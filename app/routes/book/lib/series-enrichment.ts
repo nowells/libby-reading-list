@@ -33,18 +33,36 @@ function normalizeTitle(title: string): string {
 }
 
 /**
- * "Core" form of a title: lowercased, with parenthetical content and any
- * subtitle (text after the first ":") stripped, then normalized. This is
- * what we key dedup against when readingOrder isn't available, so all of
- * "Still Life", "Still Life: A Chief Inspector Gamache Novel", and
- * "Still Life (Chief Inspector Gamache Series #1)" collapse to
- * "still life" instead of fanning out into three candidates.
+ * "Core" form of a title used to match editions of the same book against
+ * each other. Reduce to the bare title by:
+ *   1. Stripping any parenthetical or bracketed segment ("(Audiobook)",
+ *      "[Unabridged]", "(Chief Inspector Gamache Series #1)").
+ *   2. Cutting off everything after the first subtitle separator —
+ *      ":", " — ", " – ", " - ", or ", " — so "Still Life: A Chief
+ *      Inspector Gamache Novel", "The Beautiful Mystery, Book 8", and
+ *      "Still Life - Unabridged" all reduce to the same key as the
+ *      bare title.
+ *   3. Lowercasing + stripping non-alphanumeric.
+ *   4. Stripping leading or trailing articles ("the", "a", "an") so
+ *      "The Beautiful Mystery" and the title-sorted "Beautiful
+ *      Mystery, The" collapse.
+ *
+ * Bias is toward over-collapsing within a single series; the caller
+ * already filters Libby items to the target series, so cross-series
+ * collisions can't happen.
  */
 function coreTitle(title: string): string {
-  let t = title.replace(/\([^)]*\)/g, " ");
-  const colon = t.indexOf(":");
-  if (colon > 0) t = t.slice(0, colon);
-  return normalizeTitle(t);
+  let t = title.replace(/[([][^)\]]*[)\]]/g, " ");
+  // Subtitle / edition-marker separators. Comma-space is included to
+  // catch "Beautiful Mystery, Book 8" and the sortTitle quirk
+  // "Beautiful Mystery, The". Hyphen variants must be flanked by
+  // whitespace so we don't break hyphenated titles like
+  // "Twenty-Twenty".
+  t = t.split(/:|\s[—–-]\s|,\s/)[0];
+  let normalized = normalizeTitle(t);
+  normalized = normalized.replace(/^(the|a|an)\s+/, "");
+  normalized = normalized.replace(/\s+(the|a|an)$/, "");
+  return normalized;
 }
 
 /** Extract a 4-digit year from a Libby publishDate like "2018-11-27". */
