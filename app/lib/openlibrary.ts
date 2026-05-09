@@ -944,6 +944,32 @@ interface SeriesCacheEntry {
 }
 
 /**
+ * OL's `series` field is unstructured and free-form. Per work it's a list of
+ * strings that often carry the position one of a handful of ways:
+ *   "Discworld ; #1", "Discworld 1", "Discworld, Book 1", "Discworld #1"
+ * Try to extract a leading number for the matching series name; return
+ * undefined if nothing usable is found.
+ */
+export function parseSeriesOrder(
+  series: string[] | undefined,
+  seriesNameLower: string,
+): string | undefined {
+  if (!series?.length) return undefined;
+  for (const raw of series) {
+    if (typeof raw !== "string") continue;
+    const lower = raw.toLowerCase();
+    // Only consider strings that mention the series we care about — works can
+    // belong to multiple series and we don't want to grab an unrelated number.
+    if (!lower.includes(seriesNameLower)) continue;
+    // Strip the series name to isolate the position fragment.
+    const rest = lower.replace(seriesNameLower, "");
+    const m = rest.match(/(\d+(?:\.\d+)?)/);
+    if (m) return m[1];
+  }
+  return undefined;
+}
+
+/**
  * Find every work Open Library tags with the given series name. Useful for
  * the "More in this series" section on a book details page. Cached for
  * the positive TTL since series rarely add books day-to-day.
@@ -979,7 +1005,7 @@ export async function searchSeriesBooks(
       const params = new URLSearchParams({
         q: `series:"${trimmed}"`,
         limit: "30",
-        fields: "key,title,author_name,first_publish_year,cover_i",
+        fields: "key,title,author_name,first_publish_year,cover_i,series",
       });
       const res = await fetch(`${BASE}/search.json?${params}`, {
         signal: timeoutSignal(signal),
@@ -993,11 +1019,13 @@ export async function searchSeriesBooks(
           author_name?: string[];
           first_publish_year?: number;
           cover_i?: number;
+          series?: string[];
         }[];
       };
 
       const out: SeriesBook[] = [];
       const seen = new Set<string>();
+      const trimmedLower = trimmed.toLowerCase();
       for (const doc of json.docs ?? []) {
         const m = doc.key?.match(/^\/works\/(OL[A-Z0-9]+W)$/);
         if (!m) continue;
@@ -1010,11 +1038,22 @@ export async function searchSeriesBooks(
           firstPublishYear: doc.first_publish_year,
           coverId: doc.cover_i,
           authorName: doc.author_name?.[0],
+          readingOrder: parseSeriesOrder(doc.series, trimmedLower),
         });
       }
 
-      // Sort by first publish year asc — series typically read chronologically.
-      out.sort((a, b) => (a.firstPublishYear ?? 9999) - (b.firstPublishYear ?? 9999));
+      // Sort by series reading order when we can parse one (most reliable for
+      // series with prequels published out of order); fall back to first
+      // publish year, which approximates reading order for the common case.
+      out.sort((a, b) => {
+        const ao = parseFloat(a.readingOrder ?? "");
+        const bo = parseFloat(b.readingOrder ?? "");
+        const aHas = Number.isFinite(ao);
+        const bHas = Number.isFinite(bo);
+        if (aHas && bHas && ao !== bo) return ao - bo;
+        if (aHas !== bHas) return aHas ? -1 : 1;
+        return (a.firstPublishYear ?? 9999) - (b.firstPublishYear ?? 9999);
+      });
 
       try {
         const entry: SeriesCacheEntry = { v: out, t: Date.now() + POSITIVE_TTL_MS };

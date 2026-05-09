@@ -12,6 +12,7 @@ import {
   getWorkRatings,
   getWorkEditionSummary,
   searchSeriesBooks,
+  parseSeriesOrder,
 } from "./openlibrary";
 import type { Book } from "./storage";
 
@@ -511,5 +512,38 @@ describe("searchSeriesBooks", () => {
     await searchSeriesBooks("Children of Time");
     const cached = localStorage.getItem("shelfcheck:ol-series:children of time");
     expect(cached).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseSeriesOrder
+// ---------------------------------------------------------------------------
+describe("parseSeriesOrder", () => {
+  it("extracts the order suffix from common formats", () => {
+    expect(parseSeriesOrder(["Discworld ; #1"], "discworld")).toBe("1");
+    expect(parseSeriesOrder(["Discworld 5"], "discworld")).toBe("5");
+    expect(parseSeriesOrder(["Discworld, Book 12"], "discworld")).toBe("12");
+    expect(parseSeriesOrder(["Discworld #3"], "discworld")).toBe("3");
+  });
+
+  it("handles half-numbered books (prequels, novellas)", () => {
+    expect(parseSeriesOrder(["Foo Series #2.5"], "foo series")).toBe("2.5");
+  });
+
+  it("ignores unrelated series strings", () => {
+    expect(parseSeriesOrder(["Other Series #4"], "discworld")).toBeUndefined();
+  });
+
+  it("returns undefined when the matching string has no number", () => {
+    expect(parseSeriesOrder(["Discworld"], "discworld")).toBeUndefined();
+  });
+
+  it("returns undefined for missing/empty input", () => {
+    expect(parseSeriesOrder(undefined, "anything")).toBeUndefined();
+    expect(parseSeriesOrder([], "anything")).toBeUndefined();
+  });
+
+  it("picks the first matching series entry", () => {
+    expect(parseSeriesOrder(["Other #99", "Discworld #7"], "discworld")).toBe("7");
   });
 });

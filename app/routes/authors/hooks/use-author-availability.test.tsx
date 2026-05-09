@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useMemo } from "react";
 import { render } from "vitest-browser-react";
-import { useAuthorAvailability } from "./use-author-availability";
+import {
+  useAuthorAvailability,
+  __resetAuthorAvailabilityForTests,
+} from "./use-author-availability";
 import { mockLibraries } from "~/test/msw/data";
 import type { AuthorEntry, LibraryConfig } from "~/lib/storage";
 
@@ -29,6 +32,8 @@ vi.mock("~/lib/libby", () => ({
 
 beforeEach(async () => {
   sessionStorage.clear();
+  localStorage.clear();
+  __resetAuthorAvailabilityForTests();
   // Reset call counts but keep implementations
   const olAuthor = await import("~/lib/openlibrary-author");
   vi.mocked(olAuthor.resolveAuthorKey).mockClear();

@@ -176,6 +176,7 @@ export default function BookDetails() {
   const [ratings, setRatings] = useState<WorkRatings | null>(null);
   const [edSummary, setEdSummary] = useState<EditionSummary | null>(null);
   const [series, setSeries] = useState<SeriesBook[]>([]);
+  const [seriesLoading, setSeriesLoading] = useState(false);
   const [seriesName, setSeriesName] = useState<string | null>(null);
   const [authorNames, setAuthorNames] = useState<Record<string, string>>({});
   const [availability, setAvailability] = useState<BookAvailability | null>(null);
@@ -340,15 +341,24 @@ export default function BookDetails() {
 
   // Once we have a series name (from Libby), pull related books from OL
   useEffect(() => {
-    if (!seriesName) return;
+    if (!seriesName) {
+      setSeries([]);
+      setSeriesLoading(false);
+      return;
+    }
     let cancelled = false;
-    void searchSeriesBooks(seriesName).then((books) => {
-      if (!cancelled) setSeries(books.filter((b) => b.workId !== workId));
-    });
+    setSeriesLoading(true);
+    void searchSeriesBooks(seriesName)
+      .then((books) => {
+        if (!cancelled) setSeries(books);
+      })
+      .finally(() => {
+        if (!cancelled) setSeriesLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [seriesName, workId]);
+  }, [seriesName]);
 
   // Recompute local-state flags when work / display info shifts.
   useEffect(() => {
@@ -544,7 +554,18 @@ export default function BookDetails() {
                 {availability?.seriesInfo && (
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                     Book {availability.seriesInfo.readingOrder} in{" "}
-                    <span className="italic">{availability.seriesInfo.seriesName}</span>
+                    <a
+                      href="#series"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        document
+                          .getElementById("series")
+                          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                      className="italic text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 underline-offset-2 hover:underline"
+                    >
+                      {availability.seriesInfo.seriesName}
+                    </a>
                   </p>
                 )}
 
@@ -751,49 +772,98 @@ export default function BookDetails() {
           )}
 
           {/* Series */}
-          {seriesName && series.length > 0 && (
-            <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
+          {seriesName && (seriesLoading || series.length > 0) && (
+            <section
+              id="series"
+              className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 scroll-mt-4"
+            >
               <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
                 More in <span className="italic">{seriesName}</span>
               </h2>
-              <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {series.slice(0, 12).map((b) => (
-                  <li key={b.workId}>
-                    <Link
-                      to={`/book/${b.workId}`}
-                      state={outgoingCrumbState}
-                      className="block group rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                    >
-                      <div className="flex gap-3 items-start">
-                        {b.coverId ? (
-                          <img
-                            src={`https://covers.openlibrary.org/b/id/${b.coverId}-M.jpg`}
-                            alt=""
-                            className="w-12 aspect-[2/3] object-cover rounded flex-shrink-0"
-                          />
-                        ) : (
-                          <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
-                        )}
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 group-hover:text-amber-600 dark:group-hover:text-amber-400">
-                            {b.title}
-                          </p>
-                          {b.authorName && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                              {b.authorName}
-                            </p>
-                          )}
-                          {b.firstPublishYear && (
-                            <p className="text-xs text-gray-400 dark:text-gray-500">
-                              {b.firstPublishYear}
-                            </p>
-                          )}
-                        </div>
+              {seriesLoading && series.length === 0 ? (
+                <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {[0, 1, 2].map((i) => (
+                    <li key={i} className="flex gap-3 items-start p-2">
+                      <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0 animate-pulse" />
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded animate-pulse w-2/3" />
                       </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {series.slice(0, 12).map((b) => {
+                    const isCurrent = b.workId === workId;
+                    return (
+                      <li key={b.workId}>
+                        {isCurrent ? (
+                          <div className="block rounded-lg p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                            <div className="flex gap-3 items-start">
+                              {b.coverId ? (
+                                <img
+                                  src={`https://covers.openlibrary.org/b/id/${b.coverId}-M.jpg`}
+                                  alt=""
+                                  className="w-12 aspect-[2/3] object-cover rounded flex-shrink-0"
+                                />
+                              ) : (
+                                <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-amber-700 dark:text-amber-300 line-clamp-2">
+                                  {b.title}
+                                </p>
+                                <p className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400 mt-0.5">
+                                  This book
+                                </p>
+                                {b.firstPublishYear && (
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                                    {b.firstPublishYear}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <Link
+                            to={`/book/${b.workId}`}
+                            state={outgoingCrumbState}
+                            className="block group rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                          >
+                            <div className="flex gap-3 items-start">
+                              {b.coverId ? (
+                                <img
+                                  src={`https://covers.openlibrary.org/b/id/${b.coverId}-M.jpg`}
+                                  alt=""
+                                  className="w-12 aspect-[2/3] object-cover rounded flex-shrink-0"
+                                />
+                              ) : (
+                                <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                                  {b.title}
+                                </p>
+                                {b.authorName && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                    {b.authorName}
+                                  </p>
+                                )}
+                                {b.firstPublishYear && (
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                                    {b.firstPublishYear}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </Link>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </section>
           )}
 
