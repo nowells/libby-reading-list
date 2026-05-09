@@ -12,6 +12,7 @@ import {
   getWorkRatings,
   getWorkEditionSummary,
   searchSeriesBooks,
+  buildSeriesQueries,
   parseSeriesOrder,
 } from "./openlibrary";
 import type { Book } from "./storage";
@@ -510,8 +511,100 @@ describe("searchSeriesBooks", () => {
 
   it("caches results", async () => {
     await searchSeriesBooks("Children of Time");
-    const cached = localStorage.getItem("shelfcheck:ol-series:children of time");
+    const cached = localStorage.getItem("shelfcheck:ol-series:children of time|");
     expect(cached).not.toBeNull();
+  });
+
+  it("falls back to looser queries when the exact phrase yields nothing", async () => {
+    // Mimic the Libby-vs-OL spelling drift that breaks Penny's books on
+    // /book/<gamache>: Libby says "Chief Inspector Armand Gamache" but OL
+    // only has the books under "Chief Inspector Gamache". The exact-phrase
+    // query returns nothing, the fallback `series:Gamache author:"Louise
+    // Penny"` query finds them.
+    let queriesSeen: string[] = [];
+    worker.use(
+      http.get("https://openlibrary.org/search.json", ({ request }) => {
+        const url = new URL(request.url);
+        const q = url.searchParams.get("q") ?? "";
+        queriesSeen.push(q);
+        if (q.includes("Armand")) {
+          return HttpResponse.json({ docs: [] });
+        }
+        return HttpResponse.json({
+          docs: [
+            {
+              key: "/works/OL_GAMACHE_1W",
+              title: "Still Life",
+              author_name: ["Louise Penny"],
+              first_publish_year: 2005,
+              cover_i: 1,
+              series: ["Chief Inspector Gamache; #1"],
+            },
+            {
+              key: "/works/OL_GAMACHE_14W",
+              title: "Kingdom of the Blind",
+              author_name: ["Louise Penny"],
+              first_publish_year: 2018,
+              cover_i: 2,
+              series: ["Chief Inspector Gamache; #14"],
+            },
+          ],
+        });
+      }),
+    );
+    const out = await searchSeriesBooks("Chief Inspector Armand Gamache", {
+      author: "Louise Penny",
+    });
+    expect(out).toHaveLength(2);
+    expect(out[0].title).toBe("Still Life");
+    expect(out[0].readingOrder).toBe("1");
+    // The first query was the exact phrase (it had "Armand"); we kept
+    // looking after it returned nothing.
+    expect(queriesSeen.length).toBeGreaterThan(1);
+  });
+
+  it("rejects a fallback hit by a different author", async () => {
+    worker.use(
+      http.get("https://openlibrary.org/search.json", () =>
+        HttpResponse.json({
+          docs: [
+            {
+              key: "/works/OL_OTHER_W",
+              title: "Some Random Mystery",
+              author_name: ["Other Writer"],
+              first_publish_year: 2010,
+              series: ["Other Series"],
+            },
+          ],
+        }),
+      ),
+    );
+    const out = await searchSeriesBooks("Chief Inspector Armand Gamache", {
+      author: "Louise Penny",
+    });
+    expect(out).toEqual([]);
+  });
+});
+
+describe("buildSeriesQueries", () => {
+  it("starts with the exact phrase, then strips noise words, then ANDs tokens, then falls back to author-scoped distinctive token", () => {
+    const qs = buildSeriesQueries("Chief Inspector Armand Gamache", "Louise Penny");
+    expect(qs[0]).toBe('series:"Chief Inspector Armand Gamache"');
+    expect(qs).toContain('series:"Armand Gamache"');
+    expect(qs.some((q) => q.startsWith("series:(") && q.includes("AND"))).toBe(true);
+    // Last variant pairs a distinctive single token with the author.
+    const last = qs[qs.length - 1];
+    expect(last).toMatch(/series:Gamache author:"Louise Penny"/);
+  });
+
+  it("omits the author scope when no author is provided", () => {
+    const qs = buildSeriesQueries("Discworld");
+    expect(qs).toContain('series:"Discworld"');
+    expect(qs.every((q) => !q.includes("author:"))).toBe(true);
+  });
+
+  it("returns empty for empty input", () => {
+    expect(buildSeriesQueries("")).toEqual([]);
   });
 });
 

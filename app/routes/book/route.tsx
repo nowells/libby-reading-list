@@ -358,7 +358,9 @@ export default function BookDetails() {
     }
     let cancelled = false;
     setSeriesLoading(true);
-    void searchSeriesBooks(seriesName)
+    // Pass the author so OL fallback queries (e.g. `series:Gamache`) don't
+    // pick up unrelated series that happen to share a token.
+    void searchSeriesBooks(seriesName, { author: displayAuthor })
       .then((books) => {
         if (!cancelled) setSeries(books);
       })
@@ -368,7 +370,7 @@ export default function BookDetails() {
     return () => {
       cancelled = true;
     };
-  }, [seriesName]);
+  }, [seriesName, displayAuthor]);
 
   const { books: enrichedSeries, enriching: enrichingSeries } = useSeriesEnriched(
     series,

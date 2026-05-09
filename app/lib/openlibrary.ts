@@ -970,22 +970,190 @@ export function parseSeriesOrder(
 }
 
 /**
+ * Words OL search would treat as noise inside a series name. Libby tends
+ * to spell out role/honorific titles ("Chief Inspector Armand Gamache")
+ * while OL stores the series under shorter labels ("Chief Inspector
+ * Gamache" or "Three Pines"); stripping these is the difference between
+ * 0 results and a useful list.
+ */
+const SERIES_NOISE_WORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "of",
+  "novel",
+  "novels",
+  "series",
+  "saga",
+  "trilogy",
+  "chronicles",
+  "mysteries",
+  "mystery",
+  "chief",
+  "inspector",
+  "detective",
+  "officer",
+  "agent",
+  "captain",
+  "sergeant",
+  "lieutenant",
+  "professor",
+  "doctor",
+  "lord",
+  "lady",
+  "sir",
+  "mr",
+  "mrs",
+  "ms",
+  "dr",
+]);
+
+function stripNoiseWords(seriesName: string): string {
+  return seriesName
+    .split(/\s+/)
+    .filter((w) => w && !SERIES_NOISE_WORDS.has(w.toLowerCase().replace(/[^a-z]/g, "")))
+    .join(" ")
+    .trim();
+}
+
+function significantSeriesTokens(seriesName: string): string[] {
+  return seriesName
+    .split(/\s+/)
+    .map((w) => w.replace(/[^A-Za-z0-9]/g, ""))
+    .filter((w) => w.length > 2 && !SERIES_NOISE_WORDS.has(w.toLowerCase()));
+}
+
+/**
+ * Build a sequence of OL search queries from most-precise to most-permissive,
+ * each tried in turn until one returns post-filterable hits. Exported for
+ * testing.
+ */
+export function buildSeriesQueries(seriesName: string, author?: string): string[] {
+  const trimmed = seriesName.trim();
+  if (!trimmed) return [];
+
+  const queries: string[] = [];
+  const seen = new Set<string>();
+  const push = (q: string) => {
+    if (!seen.has(q)) {
+      seen.add(q);
+      queries.push(q);
+    }
+  };
+
+  // 1. Exact phrase — wins when Libby and OL agree on the canonical name.
+  push(`series:"${trimmed}"`);
+
+  // 2. Drop role/honorific noise — handles "Chief Inspector Armand Gamache"
+  //    in Libby vs. "Armand Gamache" / "Chief Inspector Gamache" in OL.
+  const stripped = stripNoiseWords(trimmed);
+  if (stripped && stripped.toLowerCase() !== trimmed.toLowerCase()) {
+    push(`series:"${stripped}"`);
+  }
+
+  // 3. AND of the significant tokens. OL treats unquoted multi-token
+  //    series queries permissively, but ANDing forces every distinctive
+  //    word to appear somewhere in the series field.
+  const tokens = significantSeriesTokens(trimmed);
+  if (tokens.length > 1) {
+    push(`series:(${tokens.join(" AND ")})`);
+  }
+
+  // 4. Last resort: the longest distinctive token, scoped by author when
+  //    we have one. "Gamache" by itself plus author=Penny is plenty
+  //    specific without depending on OL's exact series label.
+  if (tokens.length > 0) {
+    const distinctive = [...tokens].sort((a, b) => b.length - a.length)[0];
+    if (author) {
+      push(`series:${distinctive} author:"${author.replace(/"/g, "")}"`);
+    } else {
+      push(`series:${distinctive}`);
+    }
+  }
+
+  return queries;
+}
+
+interface SeriesSearchDoc {
+  key?: string;
+  title?: string;
+  author_name?: string[];
+  first_publish_year?: number;
+  cover_i?: number;
+  series?: string[];
+}
+
+async function fetchSeriesDocs(query: string, signal?: AbortSignal): Promise<SeriesSearchDoc[]> {
+  const params = new URLSearchParams({
+    q: query,
+    limit: "30",
+    fields: "key,title,author_name,first_publish_year,cover_i,series",
+  });
+  const res = await fetch(`${BASE}/search.json?${params}`, {
+    signal: timeoutSignal(signal),
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) return [];
+  const json = (await res.json()) as { docs?: SeriesSearchDoc[] };
+  return json.docs ?? [];
+}
+
+/**
+ * Decide whether a search hit really belongs to the target series. With
+ * the looser fallback queries OL will happily return tangentially-related
+ * works (a book mentioning "Gamache" but in a different series), so we
+ * post-filter on:
+ *   - author overlap when the caller knows the author, AND
+ *   - significant-token overlap with the doc's `series` field, when set.
+ * If the doc has no `series` field at all we accept it — the looser
+ * queries find spin-offs that OL hasn't tagged.
+ */
+function docMatchesSeries(
+  doc: SeriesSearchDoc,
+  significantTokens: string[],
+  authorLower: string | undefined,
+): boolean {
+  if (authorLower) {
+    const authorLast = authorLower.split(/\s+/).pop() ?? authorLower;
+    const authors = (doc.author_name ?? []).map((a) => a.toLowerCase());
+    const authorMatch = authors.some((a) => a.includes(authorLast) || authorLast.includes(a));
+    if (!authorMatch) return false;
+  }
+  if (!doc.series?.length || significantTokens.length === 0) {
+    return authorLower !== undefined; // no series field: trust the author scope
+  }
+  const seriesBlob = doc.series.join(" ").toLowerCase();
+  const hits = significantTokens.filter((t) => seriesBlob.includes(t.toLowerCase())).length;
+  // Require at least one distinctive token to appear; for multi-token
+  // names, demand a majority so "Wheel of Time" doesn't accept a series
+  // that only mentions "Time".
+  return hits >= Math.max(1, Math.ceil(significantTokens.length / 2));
+}
+
+/**
  * Find every work Open Library tags with the given series name. Useful for
  * the "More in this series" section on a book details page. Cached for
  * the positive TTL since series rarely add books day-to-day.
  *
  * Open Library has no first-class series endpoint, so this leans on the
- * search index with a quoted series filter — best-effort, and may miss
- * spin-offs or omnibus editions.
+ * search index with a quoted series filter. The exact-phrase query alone
+ * misses any series where Libby and OL disagree on the canonical name —
+ * "Chief Inspector Armand Gamache" (Libby) vs. "Chief Inspector Gamache"
+ * (OL) — so we try a small ladder of progressively looser queries and
+ * post-filter the union by author + series-field overlap.
  */
 export async function searchSeriesBooks(
   seriesName: string,
+  options: { author?: string } = {},
   signal?: AbortSignal,
 ): Promise<SeriesBook[]> {
   const trimmed = seriesName.trim();
   if (!trimmed) return [];
 
-  const cacheKey = trimmed.toLowerCase();
+  // Cache key includes the author scope so a series we found via author-
+  // assisted fallback isn't replayed when called without an author later.
+  const cacheKey = `${trimmed.toLowerCase()}|${options.author?.toLowerCase() ?? ""}`;
   try {
     const raw = localStorage.getItem(SERIES_CACHE_PREFIX + cacheKey);
     if (raw) {
@@ -1002,31 +1170,25 @@ export async function searchSeriesBooks(
 
   const promise = (async () => {
     try {
-      const params = new URLSearchParams({
-        q: `series:"${trimmed}"`,
-        limit: "30",
-        fields: "key,title,author_name,first_publish_year,cover_i,series",
-      });
-      const res = await fetch(`${BASE}/search.json?${params}`, {
-        signal: timeoutSignal(signal),
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) return [];
-      const json = (await res.json()) as {
-        docs?: {
-          key?: string;
-          title?: string;
-          author_name?: string[];
-          first_publish_year?: number;
-          cover_i?: number;
-          series?: string[];
-        }[];
-      };
+      const queries = buildSeriesQueries(trimmed, options.author);
+      const tokens = significantSeriesTokens(trimmed);
+      const authorLower = options.author?.toLowerCase();
+
+      let docs: SeriesSearchDoc[] = [];
+      for (const query of queries) {
+        const fetched = await fetchSeriesDocs(query, signal);
+        if (fetched.length === 0) continue;
+        const filtered = fetched.filter((d) => docMatchesSeries(d, tokens, authorLower));
+        if (filtered.length > 0) {
+          docs = filtered;
+          break;
+        }
+      }
 
       const out: SeriesBook[] = [];
       const seen = new Set<string>();
       const trimmedLower = trimmed.toLowerCase();
-      for (const doc of json.docs ?? []) {
+      for (const doc of docs) {
         const m = doc.key?.match(/^\/works\/(OL[A-Z0-9]+W)$/);
         if (!m) continue;
         if (seen.has(m[1])) continue;
