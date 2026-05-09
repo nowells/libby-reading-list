@@ -6,6 +6,10 @@ import {
   summarizeAvailability,
   mergeSeriesWithLibby,
   sortByReadingOrder,
+  extractLibbySeriesBooks,
+  libbyCandidateToSeriesBook,
+  mergeLibbyAndOlSeries,
+  seriesNameMatches,
 } from "./series-enrichment";
 
 function libbyItem(overrides: Partial<LibbyMediaItem>): LibbyMediaItem {
@@ -188,5 +192,189 @@ describe("sortByReadingOrder", () => {
     expect(sorted.slice(0, 3).map((b) => b.workId)).toEqual(["b", "c", "a"]);
     // unnumbered fall to end, ordered by year
     expect(sorted.slice(3).map((b) => b.workId)).toEqual(["f", "e", "d"]);
+  });
+});
+
+describe("seriesNameMatches", () => {
+  it("matches case-insensitively when names are identical", () => {
+    expect(seriesNameMatches("Murderbot Diaries", "MURDERBOT DIARIES")).toBe(true);
+  });
+
+  it("accepts substring drift in either direction", () => {
+    expect(seriesNameMatches("Murderbot Diaries", "Murderbot")).toBe(true);
+    expect(seriesNameMatches("Discworld", "Discworld Series")).toBe(true);
+  });
+
+  it("rejects unrelated names", () => {
+    expect(seriesNameMatches("Discworld", "Foundation")).toBe(false);
+  });
+
+  it("rejects empty input", () => {
+    expect(seriesNameMatches("", "anything")).toBe(false);
+  });
+});
+
+describe("extractLibbySeriesBooks", () => {
+  it("filters to items whose detailedSeries matches and groups by title", () => {
+    const candidates = extractLibbySeriesBooks(
+      [
+        {
+          libraryKey: "lib1",
+          items: [
+            // Two formats of the same Penny book
+            libbyItem({
+              id: "a",
+              title: "Still Life",
+              sortTitle: "still life",
+              type: { id: "ebook", name: "eBook" },
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "1" },
+              isAvailable: true,
+              publishDate: "2005-09-01",
+              covers: { cover150Wide: { href: "https://example/still.jpg" } },
+            }),
+            libbyItem({
+              id: "b",
+              title: "Still Life",
+              sortTitle: "still life",
+              type: { id: "audiobook", name: "Audiobook" },
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "1" },
+              isAvailable: false,
+              estimatedWaitDays: 14,
+            }),
+            // Different Penny book, same series
+            libbyItem({
+              id: "c",
+              title: "Kingdom of the Blind",
+              sortTitle: "kingdom of the blind",
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "14" },
+            }),
+            // A book in a *different* series should be ignored
+            libbyItem({
+              id: "d",
+              title: "Unrelated",
+              sortTitle: "unrelated",
+              detailedSeries: { seriesName: "Some Other Series", readingOrder: "1" },
+            }),
+            // No series at all — ignored
+            libbyItem({ id: "e", title: "Just a Book", sortTitle: "just a book" }),
+          ],
+        },
+      ],
+      "Chief Inspector Armand Gamache",
+    );
+    expect(candidates).toHaveLength(2);
+    const stillLife = candidates.find((c) => c.title === "Still Life");
+    expect(stillLife).toBeDefined();
+    expect(stillLife!.matches).toHaveLength(2);
+    expect(stillLife!.author).toBe("Louise Penny");
+    expect(stillLife!.readingOrder).toBe("1");
+    expect(stillLife!.firstPublishYear).toBe(2005);
+    expect(stillLife!.coverUrl).toBe("https://example/still.jpg");
+    const kotb = candidates.find((c) => c.title === "Kingdom of the Blind");
+    expect(kotb!.readingOrder).toBe("14");
+  });
+
+  it("accepts series-name drift via fuzzy match", () => {
+    const candidates = extractLibbySeriesBooks(
+      [
+        {
+          libraryKey: "lib1",
+          items: [
+            libbyItem({
+              id: "a",
+              title: "Discworld 1",
+              sortTitle: "discworld 1",
+              detailedSeries: { seriesName: "Discworld Series", readingOrder: "1" },
+            }),
+          ],
+        },
+      ],
+      "Discworld",
+    );
+    expect(candidates).toHaveLength(1);
+  });
+});
+
+describe("libbyCandidateToSeriesBook", () => {
+  it("preserves Libby fields and runs the availability summary", () => {
+    const out = libbyCandidateToSeriesBook(
+      {
+        title: "Still Life",
+        author: "Louise Penny",
+        readingOrder: "1",
+        coverUrl: "https://example/cover.jpg",
+        firstPublishYear: 2005,
+        matches: [
+          {
+            libraryKey: "lib1",
+            item: libbyItem({
+              id: "a",
+              type: { id: "ebook", name: "eBook" },
+              isAvailable: true,
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "1" },
+            }),
+          },
+        ],
+      },
+      "Chief Inspector Armand Gamache",
+      "OL_STILL_W",
+    );
+    expect(out.workId).toBe("OL_STILL_W");
+    expect(out.title).toBe("Still Life");
+    expect(out.authorName).toBe("Louise Penny");
+    expect(out.readingOrder).toBe("1");
+    expect(out.coverUrl).toBe("https://example/cover.jpg");
+    expect(out.firstPublishYear).toBe(2005);
+    expect(out.availability?.isAvailable).toBe(true);
+    expect(out.availability?.formats).toEqual(["ebook"]);
+  });
+
+  it("defaults workId to empty when none was resolved", () => {
+    const out = libbyCandidateToSeriesBook({ title: "X", author: "Y", matches: [] }, "S");
+    expect(out.workId).toBe("");
+  });
+});
+
+describe("mergeLibbyAndOlSeries", () => {
+  it("uses Libby as primary, fills missing workIds and coverIds from OL", () => {
+    const libby = [
+      libbyCandidateToSeriesBook(
+        {
+          title: "Still Life",
+          author: "Louise Penny",
+          readingOrder: "1",
+          coverUrl: "https://libby/cover.jpg",
+          matches: [],
+        },
+        "Gamache",
+        "", // workId missing — OL should fill it
+      ),
+    ];
+    const ol: SeriesBook[] = [
+      olBook({
+        workId: "OL_STILL_W",
+        title: "Still Life",
+        firstPublishYear: 2005,
+        coverId: 12345,
+      }),
+    ];
+    const merged = mergeLibbyAndOlSeries(libby, ol);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].workId).toBe("OL_STILL_W");
+    expect(merged[0].coverId).toBe(12345);
+    expect(merged[0].coverUrl).toBe("https://libby/cover.jpg");
+    expect(merged[0].readingOrder).toBe("1");
+  });
+
+  it("appends OL-only books that Libby didn't surface", () => {
+    const libby = [libbyCandidateToSeriesBook({ title: "Still Life", matches: [] }, "Gamache", "")];
+    const ol: SeriesBook[] = [olBook({ workId: "OL_RARE_W", title: "Out of Print Spinoff" })];
+    const merged = mergeLibbyAndOlSeries(libby, ol);
+    expect(merged).toHaveLength(2);
+    expect(merged[1].title).toBe("Out of Print Spinoff");
+    expect(merged[1].availability?.inLibrary).toBe(false);
   });
 });

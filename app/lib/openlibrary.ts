@@ -308,6 +308,22 @@ async function searchByTitleAuthor(
 }
 
 /**
+ * Public title+author → workId resolver. Wraps the internal search and
+ * returns just the workId (or null on miss). Used by the "More in this
+ * series" section to make Libby-derived books navigable into our own
+ * /book/<workId> pages — Libby supplies the catalog, OL supplies the
+ * stable identifier.
+ */
+export async function resolveWorkIdByTitleAuthor(
+  title: string,
+  author: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const result = await searchByTitleAuthor(title, author, signal);
+  return result?.workId ?? null;
+}
+
+/**
  * Enrich a list of books by resolving their ISBNs to Open Library works.
  * Concurrent up to `concurrency` in-flight lookups. Books without an ISBN
  * are searched by title+author. Books that already have a workId are passed

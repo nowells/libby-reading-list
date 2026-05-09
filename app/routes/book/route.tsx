@@ -410,13 +410,18 @@ export default function BookDetails() {
 
   function handleAddSeriesBook(b: SeriesBookEnriched) {
     const author = b.authorName ?? displayAuthor;
+    const imageUrl = b.coverId
+      ? `https://covers.openlibrary.org/b/id/${b.coverId}-M.jpg`
+      : b.coverUrl;
     addBook({
       title: b.title,
       author,
-      workId: b.workId,
+      // Only persist a workId when we actually have one — empty strings
+      // would break /books cards that link via /book/<workId>.
+      ...(b.workId ? { workId: b.workId } : {}),
       source: "unknown",
       firstPublishYear: b.firstPublishYear,
-      imageUrl: b.coverId ? `https://covers.openlibrary.org/b/id/${b.coverId}-M.jpg` : undefined,
+      imageUrl,
       status: "wantToRead",
     });
     setAllUserBooks(getBooks());
@@ -958,40 +963,56 @@ function SeriesCard({ book, isCurrent, status, crumbState, onAdd }: SeriesCardPr
 
   const showAddButton = !isCurrent && status === "none";
 
+  // Prefer the OL coverId when known (stable, predictable size), fall
+  // back to Libby's cover URL — important for Libby-derived rows that
+  // haven't resolved a workId yet.
+  const coverSrc = book.coverId
+    ? `https://covers.openlibrary.org/b/id/${book.coverId}-M.jpg`
+    : book.coverUrl;
+
+  // Libby-only rows (no workId resolved yet) render the row's body as a
+  // plain div instead of a Link so we don't navigate to /book/<empty>.
+  const navigable = !!book.workId;
+  const cardClass = `block group rounded-lg p-2 border transition-colors ${ringClass}`;
+
+  const cardBody = (
+    <div className="flex gap-3 items-start">
+      {coverSrc ? (
+        <img
+          src={coverSrc}
+          alt=""
+          className={`w-12 aspect-[2/3] object-cover rounded flex-shrink-0 ${status === "read" ? "opacity-70" : ""}`}
+        />
+      ) : (
+        <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
+      )}
+      <div className="min-w-0 flex-1">
+        {book.readingOrder && (
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">
+            #{book.readingOrder}
+          </p>
+        )}
+        <p className={`text-sm font-medium line-clamp-2 ${titleClass}`}>{book.title}</p>
+        {book.authorName && !isCurrent && (
+          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{book.authorName}</p>
+        )}
+        {book.firstPublishYear && (
+          <p className="text-xs text-gray-400 dark:text-gray-500">{book.firstPublishYear}</p>
+        )}
+        <SeriesCardStatusRow isCurrent={isCurrent} status={status} availability={av} />
+      </div>
+    </div>
+  );
+
   return (
     <li className="relative">
-      <Link
-        to={`/book/${book.workId}`}
-        state={crumbState}
-        className={`block group rounded-lg p-2 border transition-colors ${ringClass}`}
-      >
-        <div className="flex gap-3 items-start">
-          {book.coverId ? (
-            <img
-              src={`https://covers.openlibrary.org/b/id/${book.coverId}-M.jpg`}
-              alt=""
-              className={`w-12 aspect-[2/3] object-cover rounded flex-shrink-0 ${status === "read" ? "opacity-70" : ""}`}
-            />
-          ) : (
-            <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
-          )}
-          <div className="min-w-0 flex-1">
-            {book.readingOrder && (
-              <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">
-                #{book.readingOrder}
-              </p>
-            )}
-            <p className={`text-sm font-medium line-clamp-2 ${titleClass}`}>{book.title}</p>
-            {book.authorName && !isCurrent && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{book.authorName}</p>
-            )}
-            {book.firstPublishYear && (
-              <p className="text-xs text-gray-400 dark:text-gray-500">{book.firstPublishYear}</p>
-            )}
-            <SeriesCardStatusRow isCurrent={isCurrent} status={status} availability={av} />
-          </div>
-        </div>
-      </Link>
+      {navigable ? (
+        <Link to={`/book/${book.workId}`} state={crumbState} className={cardClass}>
+          {cardBody}
+        </Link>
+      ) : (
+        <div className={cardClass}>{cardBody}</div>
+      )}
       {showAddButton && (
         <button
           type="button"

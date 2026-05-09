@@ -19,6 +19,8 @@ export interface SeriesAvailability {
 
 export interface SeriesBookEnriched extends SeriesBook {
   availability?: SeriesAvailability;
+  /** Libby-supplied cover URL — used when no OL coverId is known. */
+  coverUrl?: string;
 }
 
 /** Normalize a title for fuzzy matching across OL and Libby. */
@@ -28,6 +30,27 @@ function normalizeTitle(title: string): string {
     .replace(/[^a-z0-9\s]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Extract a 4-digit year from a Libby publishDate like "2018-11-27". */
+function parseYear(date?: string): number | undefined {
+  if (!date) return undefined;
+  const m = date.match(/(\d{4})/);
+  return m ? parseInt(m[1], 10) : undefined;
+}
+
+/**
+ * Treat the Libby and target series names as the same when one contains
+ * the other (case-insensitive). Catches drift like "Murderbot" vs
+ * "Murderbot Diaries" or trailing "Series" suffixes that don't show up
+ * consistently across editions.
+ */
+export function seriesNameMatches(itemSeries: string, target: string): boolean {
+  const a = itemSeries.toLowerCase().trim();
+  const b = target.toLowerCase().trim();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return a.includes(b) || b.includes(a);
 }
 
 interface LibbySeriesItem {
@@ -103,7 +126,11 @@ export function summarizeAvailability(
     const formatType = item.type?.id ?? "unknown";
     formatSet.add(formatType);
 
-    if (item.detailedSeries?.seriesName?.toLowerCase() === seriesNameLower && !readingOrder) {
+    if (
+      item.detailedSeries?.seriesName &&
+      seriesNameMatches(item.detailedSeries.seriesName, seriesNameLower) &&
+      !readingOrder
+    ) {
       readingOrder = item.detailedSeries.readingOrder;
     }
 
@@ -138,9 +165,156 @@ export function summarizeAvailability(
 }
 
 /**
- * Merge OL series books with Libby search results. A single Libby search
- * per library returns the whole series, so this is bounded at ~N libraries
- * regardless of how many books are in the series.
+ * One unique book in a series, derived from Libby search results across
+ * one or more libraries. Libby's `detailedSeries` covers a far more
+ * complete catalog than OL's `series:` index — for many series, Libby
+ * sees every entry while OL sees a fraction — so we treat Libby as the
+ * primary source of "what books are in this series" and fall back to
+ * OL only as a supplement for books not in any of the user's libraries.
+ */
+export interface LibbySeriesCandidate {
+  /** Best title from Libby. */
+  title: string;
+  /** Author name extracted from Libby creators (role: "Author"). */
+  author?: string;
+  /** Reading order from detailedSeries.readingOrder (e.g. "1", "5.5"). */
+  readingOrder?: string;
+  /** Cover URL from the best matched edition. */
+  coverUrl?: string;
+  /** Year parsed from publishDate, when available. */
+  firstPublishYear?: number;
+  /** All matches across libraries — drives the availability summary. */
+  matches: LibbySeriesItem[];
+}
+
+/**
+ * Pull all unique books for the given series out of Libby search results.
+ * Filters to items whose `detailedSeries.seriesName` matches the target,
+ * groups by normalized title so multiple editions / formats / libraries
+ * collapse into one candidate.
+ */
+export function extractLibbySeriesBooks(
+  itemsByLibrary: { libraryKey: string; items: LibbyMediaItem[] }[],
+  seriesName: string,
+): LibbySeriesCandidate[] {
+  const byTitle = new Map<string, LibbySeriesCandidate>();
+
+  for (const { libraryKey, items } of itemsByLibrary) {
+    for (const item of items) {
+      const itemSeriesName = item.detailedSeries?.seriesName;
+      if (!itemSeriesName || !seriesNameMatches(itemSeriesName, seriesName)) continue;
+
+      const titleKey = normalizeTitle(item.sortTitle || item.title);
+      if (!titleKey) continue;
+
+      const existing = byTitle.get(titleKey);
+      if (existing) {
+        existing.matches.push({ libraryKey, item });
+        if (!existing.coverUrl && item.covers?.cover150Wide?.href) {
+          existing.coverUrl = item.covers.cover150Wide.href;
+        }
+        if (!existing.readingOrder && item.detailedSeries?.readingOrder) {
+          existing.readingOrder = item.detailedSeries.readingOrder;
+        }
+        if (!existing.firstPublishYear) {
+          existing.firstPublishYear = parseYear(item.publishDate);
+        }
+      } else {
+        const author = item.creators?.find((c) => c.role === "Author")?.name;
+        byTitle.set(titleKey, {
+          title: item.title,
+          author,
+          readingOrder: item.detailedSeries?.readingOrder,
+          coverUrl: item.covers?.cover150Wide?.href,
+          firstPublishYear: parseYear(item.publishDate),
+          matches: [{ libraryKey, item }],
+        });
+      }
+    }
+  }
+
+  return [...byTitle.values()];
+}
+
+/**
+ * Convert one Libby candidate into a SeriesBookEnriched. `workId` defaults
+ * to empty so the hook can show the row immediately and fill the workId
+ * in later (resolved via OL title+author search) for navigability.
+ */
+export function libbyCandidateToSeriesBook(
+  candidate: LibbySeriesCandidate,
+  seriesName: string,
+  workId: string = "",
+): SeriesBookEnriched {
+  return {
+    workId,
+    title: candidate.title,
+    authorName: candidate.author,
+    firstPublishYear: candidate.firstPublishYear,
+    coverUrl: candidate.coverUrl,
+    readingOrder: candidate.readingOrder,
+    availability: summarizeAvailability(candidate.matches, seriesName.toLowerCase()),
+  };
+}
+
+/**
+ * Combine the Libby-derived list with OL series-search results.
+ * - Libby wins when both have the same book (it has availability + cover).
+ * - OL fills in missing workIds, coverIds, publish years on Libby books.
+ * - Pure OL hits append to the end (no availability, but they still
+ *   render so the user sees the full series).
+ */
+export function mergeLibbyAndOlSeries(
+  libbyBooks: SeriesBookEnriched[],
+  olBooks: SeriesBook[],
+): SeriesBookEnriched[] {
+  const out = libbyBooks.map((b) => ({ ...b }));
+  const indexByTitle = new Map<string, number>();
+  for (let i = 0; i < out.length; i++) {
+    indexByTitle.set(normalizeTitle(out[i].title), i);
+  }
+
+  for (const ol of olBooks) {
+    const key = normalizeTitle(ol.title);
+    const existingIdx = indexByTitle.get(key);
+    if (existingIdx !== undefined) {
+      const existing = out[existingIdx];
+      out[existingIdx] = {
+        ...existing,
+        workId: existing.workId || ol.workId,
+        coverId: existing.coverId ?? ol.coverId,
+        firstPublishYear: existing.firstPublishYear ?? ol.firstPublishYear,
+        authorName: existing.authorName ?? ol.authorName,
+        readingOrder: existing.readingOrder ?? ol.readingOrder,
+      };
+      continue;
+    }
+    indexByTitle.set(key, out.length);
+    out.push({
+      ...ol,
+      availability: { isAvailable: false, formats: [], inLibrary: false },
+    });
+  }
+  return out;
+}
+
+/** Sort enriched series books by reading order, with year as a fallback. */
+export function sortByReadingOrder(books: SeriesBookEnriched[]): SeriesBookEnriched[] {
+  return [...books].sort((a, b) => {
+    const ao = parseFloat(a.readingOrder ?? "");
+    const bo = parseFloat(b.readingOrder ?? "");
+    const aHas = Number.isFinite(ao);
+    const bHas = Number.isFinite(bo);
+    if (aHas && bHas && ao !== bo) return ao - bo;
+    if (aHas !== bHas) return aHas ? -1 : 1;
+    return (a.firstPublishYear ?? 9999) - (b.firstPublishYear ?? 9999);
+  });
+}
+
+/**
+ * Legacy: OL-primary merge. Kept for callers that still want OL as the
+ * canonical book list. New "More in this series" UI uses Libby-primary
+ * via `extractLibbySeriesBooks` + `mergeLibbyAndOlSeries`.
  */
 export function mergeSeriesWithLibby(
   books: SeriesBook[],
@@ -154,23 +328,8 @@ export function mergeSeriesWithLibby(
     const availability = summarizeAvailability(matches, seriesNameLower);
     return {
       ...book,
-      // Libby's readingOrder is more authoritative than the one we may have
-      // parsed from OL's `series` field.
       readingOrder: availability.readingOrder ?? book.readingOrder,
       availability,
     };
-  });
-}
-
-/** Sort enriched series books by reading order, with year as a fallback. */
-export function sortByReadingOrder(books: SeriesBookEnriched[]): SeriesBookEnriched[] {
-  return [...books].sort((a, b) => {
-    const ao = parseFloat(a.readingOrder ?? "");
-    const bo = parseFloat(b.readingOrder ?? "");
-    const aHas = Number.isFinite(ao);
-    const bHas = Number.isFinite(bo);
-    if (aHas && bHas && ao !== bo) return ao - bo;
-    if (aHas !== bHas) return aHas ? -1 : 1;
-    return (a.firstPublishYear ?? 9999) - (b.firstPublishYear ?? 9999);
   });
 }
