@@ -196,6 +196,13 @@ export default function BookDetails() {
   // the new state without a page reload.
   const [allUserBooks, setAllUserBooks] = useState<Book[]>(() => getBooks());
   const [allReadBooks, setAllReadBooks] = useState(() => getReadBooks());
+  const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
+
+  const showToast = (message: string) => {
+    const id = Date.now();
+    setToast({ id, message });
+    setTimeout(() => setToast((cur) => (cur?.id === id ? null : cur)), 3000);
+  };
 
   // Local fallback so the page can render before Open Library responds.
   const fallbackTitle = existingBook?.canonicalTitle ?? existingBook?.title;
@@ -425,6 +432,7 @@ export default function BookDetails() {
       status: "wantToRead",
     });
     setAllUserBooks(getBooks());
+    showToast(`Added "${b.title}" to your want-to-read list`);
   }
 
   // Recompute local-state flags when work / display info shifts.
@@ -541,6 +549,23 @@ export default function BookDetails() {
   return (
     <CrumbStateProvider value={outgoingCrumbState}>
       <main className="min-h-screen py-8 px-4">
+        {toast && (
+          <div
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-sm shadow-lg border border-emerald-200 dark:border-emerald-800 max-w-[90vw]"
+            role="status"
+          >
+            <svg
+              className="w-4 h-4 flex-shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            <span className="truncate">{toast.message}</span>
+          </div>
+        )}
         <div className="max-w-3xl mx-auto">
           <div className="mb-3">
             <DetailBackLink

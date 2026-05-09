@@ -296,6 +296,76 @@ describe("extractLibbySeriesBooks", () => {
     );
     expect(candidates).toHaveLength(1);
   });
+
+  it("collapses editions whose sortTitle drifts but readingOrder agrees", () => {
+    // The actual production bug: Libby returns multiple editions of "Still
+    // Life" with slightly different sortTitles ("still life", "still life
+    // unabridged", "still life a chief inspector gamache novel"). These
+    // would have rendered as three separate cards under the old title-only
+    // dedup; readingOrder collapses them into one.
+    const candidates = extractLibbySeriesBooks(
+      [
+        {
+          libraryKey: "lib1",
+          items: [
+            libbyItem({
+              id: "a",
+              title: "Still Life",
+              sortTitle: "still life",
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "1" },
+            }),
+            libbyItem({
+              id: "b",
+              title: "Still Life: Unabridged",
+              sortTitle: "still life unabridged",
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "1" },
+            }),
+            libbyItem({
+              id: "c",
+              title: "Still Life: A Chief Inspector Gamache Novel",
+              sortTitle: "still life a chief inspector gamache novel",
+              creators: [{ name: "Louise Penny", role: "Author" }],
+              detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "1" },
+            }),
+          ],
+        },
+      ],
+      "Chief Inspector Armand Gamache",
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].matches).toHaveLength(3);
+    // Should pick the shortest title across editions for display.
+    expect(candidates[0].title).toBe("Still Life");
+  });
+
+  it("falls back to title-keyed dedup when readingOrder is missing", () => {
+    const candidates = extractLibbySeriesBooks(
+      [
+        {
+          libraryKey: "lib1",
+          items: [
+            libbyItem({
+              id: "a",
+              title: "Spinoff",
+              sortTitle: "spinoff",
+              detailedSeries: { seriesName: "Discworld", readingOrder: "" },
+            }),
+            libbyItem({
+              id: "b",
+              title: "Spinoff",
+              sortTitle: "spinoff",
+              detailedSeries: { seriesName: "Discworld", readingOrder: "" },
+            }),
+          ],
+        },
+      ],
+      "Discworld",
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].matches).toHaveLength(2);
+  });
 });
 
 describe("libbyCandidateToSeriesBook", () => {
@@ -376,5 +446,34 @@ describe("mergeLibbyAndOlSeries", () => {
     expect(merged).toHaveLength(2);
     expect(merged[1].title).toBe("Out of Print Spinoff");
     expect(merged[1].availability?.inLibrary).toBe(false);
+  });
+
+  it("merges Libby + OL by readingOrder when titles disagree", () => {
+    // OL stores "Still Life" while Libby has the longer title with subtitle.
+    // The reading-order match keeps them as a single row.
+    const libby = [
+      libbyCandidateToSeriesBook(
+        {
+          title: "Still Life: A Chief Inspector Gamache Novel",
+          author: "Louise Penny",
+          readingOrder: "1",
+          matches: [],
+        },
+        "Gamache",
+        "",
+      ),
+    ];
+    const ol: SeriesBook[] = [
+      olBook({
+        workId: "OL_STILL_W",
+        title: "Still Life",
+        readingOrder: "1",
+        firstPublishYear: 2005,
+      }),
+    ];
+    const merged = mergeLibbyAndOlSeries(libby, ol);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].workId).toBe("OL_STILL_W");
+    expect(merged[0].firstPublishYear).toBe(2005);
   });
 });

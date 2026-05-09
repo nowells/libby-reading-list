@@ -188,26 +188,41 @@ export interface LibbySeriesCandidate {
 }
 
 /**
+ * Build the dedup key for one Libby item within a single series. Reading
+ * order is the strongest signal we have — every edition of "Still Life"
+ * (#1) shares `detailedSeries.readingOrder = "1"` regardless of whether
+ * the format is ebook/audio/large-print or whether the title field
+ * happens to include the subtitle ("Still Life" vs "Still Life: A
+ * Chief Inspector Gamache Novel"). Items missing a reading order fall
+ * back to a normalized-title key.
+ */
+function libbyItemDedupKey(item: LibbyMediaItem): string {
+  const ro = item.detailedSeries?.readingOrder?.trim();
+  if (ro) return `order:${ro}`;
+  return `title:${normalizeTitle(item.sortTitle || item.title)}`;
+}
+
+/**
  * Pull all unique books for the given series out of Libby search results.
  * Filters to items whose `detailedSeries.seriesName` matches the target,
- * groups by normalized title so multiple editions / formats / libraries
- * collapse into one candidate.
+ * groups by reading-order (or normalized title fallback) so multiple
+ * editions / formats / libraries collapse into one candidate.
  */
 export function extractLibbySeriesBooks(
   itemsByLibrary: { libraryKey: string; items: LibbyMediaItem[] }[],
   seriesName: string,
 ): LibbySeriesCandidate[] {
-  const byTitle = new Map<string, LibbySeriesCandidate>();
+  const byKey = new Map<string, LibbySeriesCandidate>();
 
   for (const { libraryKey, items } of itemsByLibrary) {
     for (const item of items) {
       const itemSeriesName = item.detailedSeries?.seriesName;
       if (!itemSeriesName || !seriesNameMatches(itemSeriesName, seriesName)) continue;
 
-      const titleKey = normalizeTitle(item.sortTitle || item.title);
-      if (!titleKey) continue;
+      const key = libbyItemDedupKey(item);
+      if (!key || key === "title:") continue;
 
-      const existing = byTitle.get(titleKey);
+      const existing = byKey.get(key);
       if (existing) {
         existing.matches.push({ libraryKey, item });
         if (!existing.coverUrl && item.covers?.cover150Wide?.href) {
@@ -219,9 +234,14 @@ export function extractLibbySeriesBooks(
         if (!existing.firstPublishYear) {
           existing.firstPublishYear = parseYear(item.publishDate);
         }
+        // Prefer the shortest title across editions (typically the canonical
+        // one without "Unabridged" / subtitle drift).
+        if (item.title && item.title.length < existing.title.length) {
+          existing.title = item.title;
+        }
       } else {
         const author = item.creators?.find((c) => c.role === "Author")?.name;
-        byTitle.set(titleKey, {
+        byKey.set(key, {
           title: item.title,
           author,
           readingOrder: item.detailedSeries?.readingOrder,
@@ -233,7 +253,7 @@ export function extractLibbySeriesBooks(
     }
   }
 
-  return [...byTitle.values()];
+  return [...byKey.values()];
 }
 
 /**
@@ -263,20 +283,33 @@ export function libbyCandidateToSeriesBook(
  * - OL fills in missing workIds, coverIds, publish years on Libby books.
  * - Pure OL hits append to the end (no availability, but they still
  *   render so the user sees the full series).
+ *
+ * Dedup tries reading-order first (most reliable when both sides have
+ * one), then falls back to normalized-title equality. Matching on order
+ * keeps the merge sane even when Libby's title and OL's title disagree
+ * on whether to include the subtitle ("Still Life" vs "Still Life: A
+ * Chief Inspector Gamache Novel").
  */
 export function mergeLibbyAndOlSeries(
   libbyBooks: SeriesBookEnriched[],
   olBooks: SeriesBook[],
 ): SeriesBookEnriched[] {
   const out = libbyBooks.map((b) => ({ ...b }));
+  const indexByOrder = new Map<string, number>();
   const indexByTitle = new Map<string, number>();
   for (let i = 0; i < out.length; i++) {
+    const ro = out[i].readingOrder?.trim();
+    if (ro) indexByOrder.set(ro, i);
     indexByTitle.set(normalizeTitle(out[i].title), i);
   }
 
   for (const ol of olBooks) {
-    const key = normalizeTitle(ol.title);
-    const existingIdx = indexByTitle.get(key);
+    const olOrder = ol.readingOrder?.trim();
+    let existingIdx: number | undefined;
+    if (olOrder) existingIdx = indexByOrder.get(olOrder);
+    if (existingIdx === undefined) {
+      existingIdx = indexByTitle.get(normalizeTitle(ol.title));
+    }
     if (existingIdx !== undefined) {
       const existing = out[existingIdx];
       out[existingIdx] = {
@@ -289,7 +322,8 @@ export function mergeLibbyAndOlSeries(
       };
       continue;
     }
-    indexByTitle.set(key, out.length);
+    if (olOrder) indexByOrder.set(olOrder, out.length);
+    indexByTitle.set(normalizeTitle(ol.title), out.length);
     out.push({
       ...ol,
       availability: { isAvailable: false, formats: [], inLibrary: false },
