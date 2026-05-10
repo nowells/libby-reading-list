@@ -898,9 +898,13 @@ export default function BookDetails() {
                 <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {enrichedSeries.slice(0, 12).map((b) => (
                     <SeriesCard
-                      key={b.workId}
+                      // workId can be empty for Libby-only rows that haven't
+                      // resolved one yet; falling back to readingOrder + title
+                      // keeps every key unique so React doesn't collapse two
+                      // distinct cards onto each other.
+                      key={b.workId || `${b.readingOrder ?? "x"}-${b.title}`}
                       book={b}
-                      isCurrent={b.workId === workId}
+                      isCurrent={!!b.workId && b.workId === workId}
                       status={seriesBookStatus(b)}
                       crumbState={outgoingCrumbState}
                       onAdd={() => handleAddSeriesBook(b)}

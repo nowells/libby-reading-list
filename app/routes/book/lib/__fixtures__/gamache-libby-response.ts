@@ -225,3 +225,203 @@ export const gamacheLibbyPage1Items: LibbyMediaItem[] = [
  * extractor must collapse those into one candidate each.
  */
 export const gamacheUniqueBookCount = 19;
+
+/**
+ * Page-2 items from the same query. Includes the books missing from
+ * page 1 (#4 A Rule Against Murder, #5 The Brutal Telling) plus the
+ * second-format edition for most titles, plus two "State of Terror"
+ * entries that aren't in this series at all (Penny + Hillary Clinton
+ * collab, no detailedSeries field) — those must be filtered out.
+ */
+export const gamacheLibbyPage2Items: LibbyMediaItem[] = [
+  // A Rule Against Murder #4 — audiobook
+  libbyItem({
+    id: "2537442",
+    title: "A Rule Against Murder",
+    sortTitle: "Rule Against Murder",
+    type: { id: "audiobook", name: "Audiobook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "4" },
+  }),
+  // Beautiful Mystery #8 — ebook (audiobook was on page 1)
+  libbyItem({
+    id: "1012531",
+    title: "The Beautiful Mystery",
+    sortTitle: "Beautiful Mystery",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "8" },
+  }),
+  // The Brutal Telling #5 — audiobook
+  libbyItem({
+    id: "260937",
+    title: "The Brutal Telling",
+    sortTitle: "Brutal Telling",
+    type: { id: "audiobook", name: "Audiobook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "5" },
+  }),
+  // World of Curiosities #18 — ebook
+  libbyItem({
+    id: "8974181",
+    title: "A World of Curiosities",
+    sortTitle: "World of Curiosities",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "18" },
+  }),
+  // A Rule Against Murder #4 — ebook (a 2nd edition for #4)
+  libbyItem({
+    id: "510585",
+    title: "A Rule Against Murder",
+    sortTitle: "Rule Against Murder",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "4" },
+  }),
+  // How the Light Gets In #9 — ebook
+  libbyItem({
+    id: "1190926",
+    title: "How the Light Gets In",
+    sortTitle: "How the Light Gets In",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "9" },
+  }),
+  // All the Devils Are Here #16 — ebook
+  libbyItem({
+    id: "5232263",
+    title: "All the Devils Are Here",
+    sortTitle: "All the Devils Are Here",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "16" },
+  }),
+  // Bury Your Dead #6 — ebook
+  libbyItem({
+    id: "511118",
+    title: "Bury Your Dead",
+    sortTitle: "Bury Your Dead",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "6" },
+  }),
+  // Madness of Crowds #17 — ebook
+  libbyItem({
+    id: "5982237",
+    title: "The Madness of Crowds",
+    sortTitle: "Madness of Crowds",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "17" },
+  }),
+  // A Better Man #15 — ebook
+  libbyItem({
+    id: "4581997",
+    title: "A Better Man",
+    sortTitle: "Better Man",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "15" },
+  }),
+  // Long Way Home #10 — ebook
+  libbyItem({
+    id: "1542745",
+    title: "The Long Way Home",
+    sortTitle: "Long Way Home",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "10" },
+  }),
+  // Glass Houses #13 — ebook
+  libbyItem({
+    id: "3148940",
+    title: "Glass Houses",
+    sortTitle: "Glass Houses",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "13" },
+  }),
+  // Trick of the Light #7 — ebook
+  libbyItem({
+    id: "624084",
+    title: "A Trick of the Light",
+    sortTitle: "Trick of the Light",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "7" },
+  }),
+  // Brutal Telling #5 — ebook
+  libbyItem({
+    id: "513960",
+    title: "The Brutal Telling",
+    sortTitle: "Brutal Telling",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "5" },
+  }),
+  // Kingdom of the Blind #14 — ebook
+  libbyItem({
+    id: "3779060",
+    title: "Kingdom of the Blind",
+    sortTitle: "Kingdom of the Blind",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "14" },
+  }),
+  // Brutal Telling #5 — second audiobook edition
+  libbyItem({
+    id: "3005662",
+    title: "The Brutal Telling",
+    sortTitle: "Brutal Telling",
+    type: { id: "audiobook", name: "Audiobook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "5" },
+  }),
+  // Great Reckoning #12 — ebook
+  libbyItem({
+    id: "2571379",
+    title: "A Great Reckoning",
+    sortTitle: "Great Reckoning",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "12" },
+  }),
+  // Nature of the Beast #11 — ebook
+  libbyItem({
+    id: "2102944",
+    title: "The Nature of the Beast",
+    sortTitle: "Nature of the Beast",
+    type: { id: "ebook", name: "eBook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "11" },
+  }),
+  // Hangman #6.5 — second edition (audiobook this time)
+  libbyItem({
+    id: "7602016",
+    title: "The Hangman",
+    sortTitle: "Hangman",
+    type: { id: "audiobook", name: "Audiobook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "6.5" },
+  }),
+  // A Rule Against Murder #4 — third edition (audiobook on Blackstone)
+  libbyItem({
+    id: "265524",
+    title: "A Rule Against Murder",
+    sortTitle: "Rule Against Murder",
+    type: { id: "audiobook", name: "Audiobook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "4" },
+  }),
+  // Cruelest Month #3 — third edition (Blackstone audiobook)
+  libbyItem({
+    id: "265647",
+    title: "The Cruelest Month",
+    sortTitle: "Cruelest Month",
+    type: { id: "audiobook", name: "Audiobook" },
+    detailedSeries: { seriesName: "Chief Inspector Armand Gamache", readingOrder: "3" },
+  }),
+  // State of Terror — DIFFERENT SERIES (Penny + Hillary Clinton collab),
+  // no detailedSeries field. Must be filtered out by extractLibbySeriesBooks.
+  libbyItem({
+    id: "6055873",
+    title: "State of Terror",
+    sortTitle: "State of Terror",
+    type: { id: "ebook", name: "eBook" },
+  }),
+  libbyItem({
+    id: "6056182",
+    title: "State of Terror",
+    sortTitle: "State of Terror",
+    type: { id: "audiobook", name: "Audiobook" },
+  }),
+];
+
+/**
+ * Combined unique book count when both pages are processed end-to-end.
+ * The full Gamache series at this library: #1–#5, #6, #6.5, #7–#20 = 21
+ * unique titles, even though Libby returned 47 raw items split across
+ * 24+23 paginated entries with up to three editions per book.
+ */
+export const gamacheCombinedUniqueBookCount = 21;

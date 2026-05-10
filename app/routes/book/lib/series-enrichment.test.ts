@@ -13,7 +13,9 @@ import {
 } from "./series-enrichment";
 import {
   gamacheLibbyPage1Items,
+  gamacheLibbyPage2Items,
   gamacheUniqueBookCount,
+  gamacheCombinedUniqueBookCount,
 } from "./__fixtures__/gamache-libby-response";
 
 function libbyItem(overrides: Partial<LibbyMediaItem>): LibbyMediaItem {
@@ -660,5 +662,113 @@ describe("extractLibbySeriesBooks against real Libby data", () => {
     const stillLife = candidates.find((c) => c.title === "Still Life");
     expect(stillLife?.matches).toHaveLength(2);
     expect(stillLife?.readingOrder).toBe("1");
+  });
+
+  it("collapses both Libby pages end-to-end and ignores cross-series items", () => {
+    // The full 47-item production payload (paginated 24 + 23) for Penny's
+    // Gamache search at gmlc. Across pages we get 21 unique books with
+    // up to three editions each, plus two "State of Terror" items that
+    // belong to a different series (no detailedSeries field) and must
+    // be excluded.
+    const candidates = extractLibbySeriesBooks(
+      [
+        {
+          libraryKey: "gmlc",
+          items: [...gamacheLibbyPage1Items, ...gamacheLibbyPage2Items],
+        },
+      ],
+      "Chief Inspector Armand Gamache",
+    );
+    expect(candidates).toHaveLength(gamacheCombinedUniqueBookCount);
+    // Reading orders cover the canonical Gamache numbering 1..20 + 6.5.
+    const orders = candidates.map((c) => c.readingOrder).sort();
+    expect(orders).toEqual(
+      [
+        "1",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "2",
+        "20",
+        "3",
+        "4",
+        "5",
+        "6",
+        "6.5",
+        "7",
+        "8",
+        "9",
+      ].sort(),
+    );
+    // The thriller co-authored with Hillary Clinton lacks a
+    // detailedSeries field and must not survive the filter.
+    expect(candidates.find((c) => c.title.includes("State of Terror"))).toBeUndefined();
+    // The Brutal Telling has THREE matched editions across the two pages
+    // (one audio + one ebook + a Macmillan audio reissue).
+    const brutal = candidates.find((c) => c.title === "The Brutal Telling");
+    expect(brutal?.matches).toHaveLength(3);
+    // A Rule Against Murder appeared three times too.
+    const rule = candidates.find((c) => c.title === "A Rule Against Murder");
+    expect(rule?.matches).toHaveLength(3);
+  });
+});
+
+describe("mergeLibbyAndOlSeries with OL/Libby title drift", () => {
+  it("collapses an OL hit whose title carries a subtitle the Libby title doesn't", () => {
+    // The exact production scenario that produced two ordered runs of
+    // Gamache cards: Libby returned "Still Life" (readingOrder "1") and
+    // OL returned the same book under "Still Life: A Chief Inspector
+    // Gamache Novel" with no readingOrder parsed from the OL `series`
+    // field. The old merge keyed only on normalizeTitle and the two
+    // titles didn't match, so the OL hit was appended instead of
+    // collapsed. The coreTitle + author fallback fixes that.
+    const libby = [
+      libbyCandidateToSeriesBook(
+        {
+          title: "Still Life",
+          author: "Louise Penny",
+          readingOrder: "1",
+          matches: [],
+        },
+        "Chief Inspector Armand Gamache",
+        "OL_LIBBY_W",
+      ),
+    ];
+    const ol: SeriesBook[] = [
+      olBook({
+        workId: "OL_OL_W",
+        title: "Still Life: A Chief Inspector Gamache Novel",
+        authorName: "Louise Penny",
+      }),
+    ];
+    const merged = mergeLibbyAndOlSeries(libby, ol);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].workId).toBe("OL_LIBBY_W");
+  });
+
+  it("merges by reading order even when OL stores it as '1.0' and Libby as '1'", () => {
+    // parseSeriesOrder returns whatever digits it finds, including "1.0"
+    // when the OL series field looks like "Discworld 1.0". Libby uses
+    // bare "1". Numeric comparison makes these collapse.
+    const libby = [
+      libbyCandidateToSeriesBook(
+        { title: "First Book", readingOrder: "1", matches: [] },
+        "Some Series",
+        "OL_LIBBY_W",
+      ),
+    ];
+    const ol: SeriesBook[] = [
+      olBook({ workId: "OL_OL_W", title: "Different Wording", readingOrder: "1.0" }),
+    ];
+    const merged = mergeLibbyAndOlSeries(libby, ol);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].workId).toBe("OL_LIBBY_W");
   });
 });

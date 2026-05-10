@@ -72,6 +72,13 @@ function parseYear(date?: string): number | undefined {
   return m ? parseInt(m[1], 10) : undefined;
 }
 
+/** Last name from a "Firstname Lastname" string, lowercased. Empty string when missing. */
+function authorLast(name: string | undefined): string {
+  if (!name) return "";
+  const last = name.toLowerCase().trim().split(/\s+/).pop();
+  return last ?? "";
+}
+
 /**
  * Treat the Libby and target series names as the same when one contains
  * the other (case-insensitive). Catches drift like "Murderbot" vs
@@ -349,30 +356,48 @@ export function libbyCandidateToSeriesBook(
  *   render so the user sees the full series).
  *
  * Dedup tries reading-order first (most reliable when both sides have
- * one), then falls back to normalized-title equality. Matching on order
- * keeps the merge sane even when Libby's title and OL's title disagree
- * on whether to include the subtitle ("Still Life" vs "Still Life: A
- * Chief Inspector Gamache Novel").
+ * one), then normalized-title equality, then a coreTitle + author
+ * fallback so "Still Life" (Libby) and "Still Life: A Chief Inspector
+ * Gamache Novel" (OL) collapse instead of stacking up. Reading-order
+ * comparison is numeric so "1" and "1.0" resolve as the same book.
  */
 export function mergeLibbyAndOlSeries(
   libbyBooks: SeriesBookEnriched[],
   olBooks: SeriesBook[],
 ): SeriesBookEnriched[] {
   const out = libbyBooks.map((b) => ({ ...b }));
-  const indexByOrder = new Map<string, number>();
+  // Numeric order index — keyed by parseFloat so "1" / "1.0" / " 1 "
+  // collapse onto the same bucket.
+  const indexByOrder = new Map<number, number>();
   const indexByTitle = new Map<string, number>();
+  const indexByCore = new Map<string, number>();
+
   for (let i = 0; i < out.length; i++) {
-    const ro = out[i].readingOrder?.trim();
-    if (ro) indexByOrder.set(ro, i);
+    const ro = parseFloat(out[i].readingOrder ?? "");
+    if (Number.isFinite(ro)) indexByOrder.set(ro, i);
     indexByTitle.set(normalizeTitle(out[i].title), i);
+    const core = coreTitle(out[i].title);
+    if (core) {
+      const key = `${core}|${authorLast(out[i].authorName)}`;
+      indexByCore.set(key, i);
+    }
   }
 
+  let mergedCount = 0;
+  let appendedCount = 0;
+
   for (const ol of olBooks) {
-    const olOrder = ol.readingOrder?.trim();
+    const olOrder = parseFloat(ol.readingOrder ?? "");
     let existingIdx: number | undefined;
-    if (olOrder) existingIdx = indexByOrder.get(olOrder);
+    if (Number.isFinite(olOrder)) existingIdx = indexByOrder.get(olOrder);
     if (existingIdx === undefined) {
       existingIdx = indexByTitle.get(normalizeTitle(ol.title));
+    }
+    if (existingIdx === undefined) {
+      const core = coreTitle(ol.title);
+      if (core) {
+        existingIdx = indexByCore.get(`${core}|${authorLast(ol.authorName)}`);
+      }
     }
     if (existingIdx !== undefined) {
       const existing = out[existingIdx];
@@ -384,15 +409,26 @@ export function mergeLibbyAndOlSeries(
         authorName: existing.authorName ?? ol.authorName,
         readingOrder: existing.readingOrder ?? ol.readingOrder,
       };
+      mergedCount++;
       continue;
     }
-    if (olOrder) indexByOrder.set(olOrder, out.length);
+    if (Number.isFinite(olOrder)) indexByOrder.set(olOrder, out.length);
     indexByTitle.set(normalizeTitle(ol.title), out.length);
+    const olCore = coreTitle(ol.title);
+    if (olCore) indexByCore.set(`${olCore}|${authorLast(ol.authorName)}`, out.length);
     out.push({
       ...ol,
       availability: { isAvailable: false, formats: [], inLibrary: false },
     });
+    appendedCount++;
   }
+
+  if (typeof console !== "undefined") {
+    console.info(
+      `[series] merge: libby=${libbyBooks.length} ol=${olBooks.length} → out=${out.length} (merged ${mergedCount}, appended ${appendedCount})`,
+    );
+  }
+
   return out;
 }
 
