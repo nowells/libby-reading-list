@@ -1,6 +1,7 @@
 import type { AuthorBookResult } from "../hooks/use-author-availability";
+import { IdbCache } from "~/lib/idb-cache";
 
-const CACHE_KEY = "shelfcheck:author-availability";
+const LEGACY_KEY = "shelfcheck:author-availability";
 const MIN_CACHE_MS = 2 * 60 * 60 * 1000; // 2 hours
 const DEFAULT_CACHE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -11,21 +12,16 @@ interface CachedAuthorEntry {
   fetchedAt: number;
 }
 
-function readCache(): Record<string, CachedAuthorEntry> {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
+const cache = new IdbCache<CachedAuthorEntry>({
+  dbName: "shelfcheck-author-availability",
+  storeName: "entries",
+  legacyLocalStorageKey: LEGACY_KEY,
+  maxEntries: 1000,
+});
 
-function writeCache(cache: Record<string, CachedAuthorEntry>) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // Ignore quota errors
-  }
+/** Resolves once the IDB-backed author cache has finished its initial load. */
+export function whenAuthorAvailabilityCacheReady(): Promise<void> {
+  return cache.whenHydrated();
 }
 
 /** Compute max cache age based on shortest wait across all works. */
@@ -48,8 +44,7 @@ export function authorCacheMaxAge(entry: CachedAuthorEntry): number {
 }
 
 export function getCachedAuthor(authorId: string): CachedAuthorEntry | null {
-  const cache = readCache();
-  const entry = cache[authorId];
+  const entry = cache.get(authorId);
   if (!entry) return null;
   if (Date.now() - entry.fetchedAt > authorCacheMaxAge(entry)) return null;
   return entry;
@@ -61,11 +56,21 @@ export function setCachedAuthor(
   resolvedName: string,
   works: AuthorBookResult[],
 ) {
-  const cache = readCache();
-  cache[authorId] = { olKey, resolvedName, works, fetchedAt: Date.now() };
-  writeCache(cache);
+  cache.set(authorId, { olKey, resolvedName, works, fetchedAt: Date.now() });
 }
 
 export function readAuthorCache(): Record<string, CachedAuthorEntry> {
-  return readCache();
+  const out: Record<string, CachedAuthorEntry> = {};
+  for (const [key, value] of cache.entries()) out[key] = value;
+  return out;
+}
+
+/** Test-only: drop the in-memory and persisted caches between cases. */
+export function __resetAuthorCacheForTest(): Promise<void> {
+  return cache.__resetForTest();
+}
+
+/** Test-only: backdate an entry's fetchedAt without round-tripping IDB. */
+export function __backdateAuthorForTest(authorId: string, fetchedAt: number): void {
+  cache.__backdateForTest(authorId, fetchedAt);
 }

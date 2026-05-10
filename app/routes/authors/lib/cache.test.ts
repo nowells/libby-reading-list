@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { authorCacheMaxAge, getCachedAuthor, setCachedAuthor, readAuthorCache } from "./cache";
+import {
+  authorCacheMaxAge,
+  getCachedAuthor,
+  setCachedAuthor,
+  readAuthorCache,
+  whenAuthorAvailabilityCacheReady,
+  __resetAuthorCacheForTest,
+  __backdateAuthorForTest,
+} from "./cache";
 
 interface MockWork {
   libbyResults: Array<{
@@ -69,11 +77,13 @@ describe("authorCacheMaxAge", () => {
 });
 
 describe("setCachedAuthor / getCachedAuthor", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
+    await __resetAuthorCacheForTest();
   });
 
-  it("stores and retrieves a cached author", () => {
+  it("stores and retrieves a cached author", async () => {
+    await whenAuthorAvailabilityCacheReady();
     setCachedAuthor("a1", "OL123A", "Test Author", []);
     const cached = getCachedAuthor("a1");
     expect(cached).not.toBeNull();
@@ -85,27 +95,23 @@ describe("setCachedAuthor / getCachedAuthor", () => {
     expect(getCachedAuthor("nonexistent")).toBeNull();
   });
 
-  it("returns null when entry is expired", () => {
+  it("returns null when entry is expired", async () => {
+    await whenAuthorAvailabilityCacheReady();
     setCachedAuthor("a1", "OL123A", "Test Author", []);
-    // Backdate fetchedAt beyond 24h default TTL
-    const raw = JSON.parse(localStorage.getItem("shelfcheck:author-availability")!);
-    raw["a1"].fetchedAt = Date.now() - 25 * 60 * 60 * 1000;
-    localStorage.setItem("shelfcheck:author-availability", JSON.stringify(raw));
-
+    // Backdate beyond the 24h default TTL.
+    __backdateAuthorForTest("a1", Date.now() - 25 * 60 * 60 * 1000);
     expect(getCachedAuthor("a1")).toBeNull();
   });
 
-  it("returns entry when within TTL", () => {
+  it("returns entry when within TTL", async () => {
+    await whenAuthorAvailabilityCacheReady();
     setCachedAuthor("a1", "OL123A", "Test Author", []);
-    // 1 hour ago, well within 24h default
-    const raw = JSON.parse(localStorage.getItem("shelfcheck:author-availability")!);
-    raw["a1"].fetchedAt = Date.now() - 60 * 60 * 1000;
-    localStorage.setItem("shelfcheck:author-availability", JSON.stringify(raw));
-
+    __backdateAuthorForTest("a1", Date.now() - 60 * 60 * 1000);
     expect(getCachedAuthor("a1")).not.toBeNull();
   });
 
-  it("overwrites existing entry", () => {
+  it("overwrites existing entry", async () => {
+    await whenAuthorAvailabilityCacheReady();
     setCachedAuthor("a1", "OL123A", "Old Name", []);
     setCachedAuthor("a1", "OL456A", "New Name", []);
     const cached = getCachedAuthor("a1");
@@ -115,25 +121,23 @@ describe("setCachedAuthor / getCachedAuthor", () => {
 });
 
 describe("readAuthorCache", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
+    await __resetAuthorCacheForTest();
   });
 
-  it("returns empty object when no cache exists", () => {
+  it("returns empty object when no cache exists", async () => {
+    await whenAuthorAvailabilityCacheReady();
     expect(readAuthorCache()).toEqual({});
   });
 
-  it("returns all cached entries", () => {
+  it("returns all cached entries", async () => {
+    await whenAuthorAvailabilityCacheReady();
     setCachedAuthor("a1", "OL1A", "Author One", []);
     setCachedAuthor("a2", "OL2A", "Author Two", []);
     const cache = readAuthorCache();
     expect(Object.keys(cache)).toHaveLength(2);
     expect(cache["a1"].resolvedName).toBe("Author One");
     expect(cache["a2"].resolvedName).toBe("Author Two");
-  });
-
-  it("handles corrupted JSON gracefully", () => {
-    localStorage.setItem("shelfcheck:author-availability", "not-json");
-    expect(readAuthorCache()).toEqual({});
   });
 });
