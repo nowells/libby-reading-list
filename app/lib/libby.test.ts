@@ -309,18 +309,28 @@ describe("findBookInLibrary", () => {
     });
 
     it("takes at most 3 items from ISBN search", async () => {
+      // Return 5 items only for the ISBN query; the text-search backfill
+      // phase that runs after ISBN now (see "backfills the audiobook
+      // edition…" test below) needs an empty response or it would push
+      // the count past the cap.
       worker.use(
-        http.get("https://thunder.api.overdrive.com/v2/libraries/:libraryKey/media", () => {
-          return HttpResponse.json({
-            items: [
-              makeMediaItem({ id: "m-1" }),
-              makeMediaItem({ id: "m-2" }),
-              makeMediaItem({ id: "m-3" }),
-              makeMediaItem({ id: "m-4" }),
-              makeMediaItem({ id: "m-5" }),
-            ],
-          });
-        }),
+        http.get(
+          "https://thunder.api.overdrive.com/v2/libraries/:libraryKey/media",
+          ({ request }) => {
+            const url = new URL(request.url);
+            const query = url.searchParams.get("query") ?? "";
+            if (query !== "9780316452502") return HttpResponse.json({ items: [] });
+            return HttpResponse.json({
+              items: [
+                makeMediaItem({ id: "m-1" }),
+                makeMediaItem({ id: "m-2" }),
+                makeMediaItem({ id: "m-3" }),
+                makeMediaItem({ id: "m-4" }),
+                makeMediaItem({ id: "m-5" }),
+              ],
+            });
+          },
+        ),
       );
       const result = await findBookInLibrary("lapl", "Children of Time", "Adrian Tchaikovsky", {
         primaryIsbn: "9780316452502",

@@ -965,20 +965,40 @@ interface SeriesCacheEntry {
  *   "Discworld ; #1", "Discworld 1", "Discworld, Book 1", "Discworld #1"
  * Try to extract a leading number for the matching series name; return
  * undefined if nothing usable is found.
+ *
+ * Series-name matching is fuzzy: when OL's series tag drops words Libby
+ * includes (e.g. Libby says "Chief Inspector Armand Gamache" but OL stores
+ * "Chief Inspector Gamache; #1"), an exact-substring check would fail and
+ * we'd lose the order info. Fall back to significant-token overlap so the
+ * order survives the spelling drift.
  */
 export function parseSeriesOrder(
   series: string[] | undefined,
   seriesNameLower: string,
 ): string | undefined {
   if (!series?.length) return undefined;
+  const tokens = seriesNameLower
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-z0-9]/g, ""))
+    .filter((w) => w.length > 2 && !SERIES_NOISE_WORDS.has(w));
   for (const raw of series) {
     if (typeof raw !== "string") continue;
     const lower = raw.toLowerCase();
-    // Only consider strings that mention the series we care about — works can
-    // belong to multiple series and we don't want to grab an unrelated number.
-    if (!lower.includes(seriesNameLower)) continue;
-    // Strip the series name to isolate the position fragment.
-    const rest = lower.replace(seriesNameLower, "");
+    let related = lower.includes(seriesNameLower);
+    if (!related && tokens.length > 0) {
+      const hits = tokens.filter((t) => lower.includes(t)).length;
+      related = hits >= Math.max(1, Math.ceil(tokens.length / 2));
+    }
+    if (!related) continue;
+    // Strip the seriesName (or its tokens) before extracting the number,
+    // so a digit baked into the name itself ("Foundation 1") doesn't get
+    // returned as the reading order.
+    let rest = lower;
+    if (lower.includes(seriesNameLower)) {
+      rest = rest.replace(seriesNameLower, " ");
+    } else {
+      for (const t of tokens) rest = rest.split(t).join(" ");
+    }
     const m = rest.match(/(\d+(?:\.\d+)?)/);
     if (m) return m[1];
   }
