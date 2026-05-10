@@ -182,6 +182,7 @@ export default function BookDetails() {
   const [series, setSeries] = useState<SeriesBook[]>([]);
   const [seriesLoading, setSeriesLoading] = useState(false);
   const [seriesName, setSeriesName] = useState<string | null>(null);
+  const [seriesShowAll, setSeriesShowAll] = useState(false);
   const [authorNames, setAuthorNames] = useState<Record<string, string>>({});
   const [availability, setAvailability] = useState<BookAvailability | null>(null);
   const [availLoading, setAvailLoading] = useState(false);
@@ -895,22 +896,35 @@ export default function BookDetails() {
                   ))}
                 </ul>
               ) : (
-                <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {enrichedSeries.slice(0, 12).map((b) => (
-                    <SeriesCard
-                      // workId can be empty for Libby-only rows that haven't
-                      // resolved one yet; falling back to readingOrder + title
-                      // keeps every key unique so React doesn't collapse two
-                      // distinct cards onto each other.
-                      key={b.workId || `${b.readingOrder ?? "x"}-${b.title}`}
-                      book={b}
-                      isCurrent={!!b.workId && b.workId === workId}
-                      status={seriesBookStatus(b)}
-                      crumbState={outgoingCrumbState}
-                      onAdd={() => handleAddSeriesBook(b)}
-                    />
-                  ))}
-                </ul>
+                <>
+                  <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {(seriesShowAll ? enrichedSeries : enrichedSeries.slice(0, 12)).map((b) => (
+                      <SeriesCard
+                        // workId can be empty for Libby-only rows that haven't
+                        // resolved one yet; falling back to readingOrder + title
+                        // keeps every key unique so React doesn't collapse two
+                        // distinct cards onto each other.
+                        key={b.workId || `${b.readingOrder ?? "x"}-${b.title}`}
+                        book={b}
+                        isCurrent={!!b.workId && b.workId === workId}
+                        status={seriesBookStatus(b)}
+                        crumbState={outgoingCrumbState}
+                        onAdd={() => handleAddSeriesBook(b)}
+                      />
+                    ))}
+                  </ul>
+                  {enrichedSeries.length > 12 && (
+                    <button
+                      type="button"
+                      onClick={() => setSeriesShowAll((s) => !s)}
+                      className="mt-3 text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                    >
+                      {seriesShowAll
+                        ? "Show fewer"
+                        : `Show all ${enrichedSeries.length} books in series`}
+                    </button>
+                  )}
+                </>
               )}
             </section>
           )}
