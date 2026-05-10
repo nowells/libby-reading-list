@@ -11,6 +11,10 @@ import {
   mergeLibbyAndOlSeries,
   seriesNameMatches,
 } from "./series-enrichment";
+import {
+  gamacheLibbyPage1Items,
+  gamacheUniqueBookCount,
+} from "./__fixtures__/gamache-libby-response";
 
 function libbyItem(overrides: Partial<LibbyMediaItem>): LibbyMediaItem {
   return {
@@ -621,5 +625,40 @@ describe("mergeLibbyAndOlSeries", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].workId).toBe("OL_STILL_W");
     expect(merged[0].firstPublishYear).toBe(2005);
+  });
+});
+
+describe("extractLibbySeriesBooks against real Libby data", () => {
+  it("collapses ebook/audiobook editions on the live Gamache page-1 response", () => {
+    // Captured verbatim from
+    //   thunder.api.overdrive.com/v2/libraries/gmlc/media?query=Chief+Inspector+Armand+Gamache
+    // Each book in the series shows up as two top-level items (ebook + audiobook)
+    // with matching detailedSeries.readingOrder. The extractor has to fold
+    // those onto one candidate or the "More in this series" grid renders
+    // every Penny novel twice.
+    const candidates = extractLibbySeriesBooks(
+      [{ libraryKey: "gmlc", items: gamacheLibbyPage1Items }],
+      "Chief Inspector Armand Gamache",
+    );
+    expect(candidates).toHaveLength(gamacheUniqueBookCount);
+    // Every reading order should be unique across the surviving candidates.
+    const orders = candidates.map((c) => c.readingOrder).filter(Boolean);
+    expect(new Set(orders).size).toBe(orders.length);
+    // The titles that came in twice on page 1 must each show up once.
+    const titles = candidates.map((c) => c.title);
+    for (const t of [
+      "Still Life",
+      "A Fatal Grace",
+      "The Cruelest Month",
+      "The Black Wolf",
+      "The Grey Wolf",
+    ]) {
+      expect(titles.filter((x) => x === t)).toHaveLength(1);
+    }
+    // Each duplicated-edition candidate should hold both matches so
+    // availability rolls up across formats correctly.
+    const stillLife = candidates.find((c) => c.title === "Still Life");
+    expect(stillLife?.matches).toHaveLength(2);
+    expect(stillLife?.readingOrder).toBe("1");
   });
 });

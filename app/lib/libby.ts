@@ -79,22 +79,49 @@ export async function getLibraryPreferredKey(fulfillmentId: string): Promise<str
   return data.preferredKey ?? fulfillmentId;
 }
 
+/**
+ * Maximum pages we'll walk on a paginated `/media` query. The default
+ * page size is ~24 items, so 5 pages covers up to ~120 hits — well past
+ * the largest realistic series (Discworld at ~50, Gamache at ~25 distinct
+ * titles each carrying an ebook + audiobook edition). Cap the walk so a
+ * runaway search query doesn't fan out indefinitely.
+ */
+const SEARCH_MAX_PAGES = 5;
+
 export async function searchLibrary(
   libraryKey: string,
   query: string,
   format?: "ebook" | "audiobook",
 ): Promise<LibbyMediaItem[]> {
-  const params = new URLSearchParams({ query });
+  const baseParams = new URLSearchParams({ query });
   if (format === "ebook") {
-    params.set(
+    baseParams.set(
       "format",
       "ebook-kindle,ebook-overdrive,ebook-epub-adobe,ebook-epub-open,ebook-media-do",
     );
   } else if (format === "audiobook") {
-    params.set("format", "audiobook-overdrive,audiobook-mp3");
+    baseParams.set("format", "audiobook-overdrive,audiobook-mp3");
   }
-  const data = await thunderFetch(`/libraries/${libraryKey}/media?${params.toString()}`);
-  return data.items ?? [];
+
+  // Walk pages until we've seen everything or hit the page cap. Without
+  // this, "More in this series" missed half of Penny's Gamache books
+  // because the page-1 response only carried 24 of 47 hits.
+  const out: LibbyMediaItem[] = [];
+  for (let page = 1; page <= SEARCH_MAX_PAGES; page++) {
+    const params = new URLSearchParams(baseParams);
+    if (page > 1) params.set("page", String(page));
+    const data = (await thunderFetch(`/libraries/${libraryKey}/media?${params.toString()}`)) as {
+      items?: LibbyMediaItem[];
+      totalItems?: number;
+      links?: { next?: { page?: number } };
+    };
+    const items = data.items ?? [];
+    out.push(...items);
+    const hasNext = !!data.links?.next?.page && data.links.next.page > page;
+    const seenAll = typeof data.totalItems === "number" && out.length >= data.totalItems;
+    if (!hasNext || seenAll || items.length === 0) break;
+  }
+  return out;
 }
 
 // Large reference library used for deep search (scope-auto) when local search finds nothing
