@@ -71,8 +71,13 @@ function get<T>(key: string): T | null {
 function set(key: string, value: unknown) {
   try {
     localStorage.setItem(PREFIX + key, JSON.stringify(value));
-  } catch {
-    // Ignore quota errors
+  } catch (err) {
+    // Quota / serialization errors used to be swallowed silently, which
+    // hid a real "PDS sync looked successful but local count never grew"
+    // bug for users with bloated availability caches. Log the failure
+    // so devtools shows what's happening; callers still tolerate the
+    // miss so the rest of the app keeps working.
+    console.error(`[storage] set("${key}") failed; localStorage may be full`, err);
   }
 }
 

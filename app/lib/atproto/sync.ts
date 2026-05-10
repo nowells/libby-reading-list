@@ -225,6 +225,9 @@ async function reconcileShelfEntries(
 
   const localBooks = getBooks();
   const localReads = getReadBooks();
+  console.info(
+    `[sync] shelf: pds=${records.length} (after dedupe ${indexed.length}; deleted ${duplicates.length}); local books=${localBooks.length} reads=${localReads.length}`,
+  );
 
   // Bootstrap mode: PDS empty + local has data -> push local up.
   if (opts.bootstrap && indexed.length === 0 && (localBooks.length || localReads.length)) {
@@ -237,6 +240,9 @@ async function reconcileShelfEntries(
   const localReadKeys = new Set(localReads.map((r) => r.key));
 
   const newBooks: Book[] = [];
+  let mergedToBook = 0;
+  let assignedToRead = 0;
+  const skippedSamples: string[] = [];
 
   for (const rec of indexed) {
     // If a Book in our local cache matches this PDS record (by content
@@ -247,6 +253,7 @@ async function reconcileShelfEntries(
     const localBook = localBooksByKey.get(rec.contentKey);
     if (localBook) {
       mergeRkeyAndMetadata(localBook, rec.rkey, rec.value);
+      mergedToBook++;
       continue;
     }
 
@@ -257,6 +264,7 @@ async function reconcileShelfEntries(
       localReadKeys.has(rec.contentKey)
     ) {
       assignRkeyToLocalRead(rec.contentKey, rec.rkey);
+      assignedToRead++;
       continue;
     }
 
@@ -268,10 +276,25 @@ async function reconcileShelfEntries(
     const book = shelfRecordToBook(rec.value);
     book.pdsRkey = rec.rkey;
     newBooks.push(book);
+    if (skippedSamples.length < 3) {
+      skippedSamples.push(`${rec.value.title} <${rec.contentKey}>`);
+    }
   }
 
+  console.info(
+    `[sync] shelf pull: merged-into-existing=${mergedToBook} assigned-to-read=${assignedToRead} new=${newBooks.length}` +
+      (newBooks.length ? ` first=[${skippedSamples.join(", ")}]` : ""),
+  );
+
   if (newBooks.length) {
+    const before = getBooks().length;
     _replaceBooksFromPds([...getBooks(), ...newBooks]);
+    const after = getBooks().length;
+    if (after - before !== newBooks.length) {
+      console.warn(
+        `[sync] shelf pull: expected to add ${newBooks.length} books but localStorage went ${before}→${after} (dedupeBooks may have collapsed entries, or the write failed)`,
+      );
+    }
   }
 
   // Push-up: local entities that aren't on the PDS yet.
