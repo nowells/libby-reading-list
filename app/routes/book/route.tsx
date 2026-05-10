@@ -1,5 +1,5 @@
 import { Link, redirect, useLoaderData } from "react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CrumbStateProvider,
   firstNonBlank,
@@ -36,6 +36,10 @@ import { Logo } from "~/components/logo";
 import { Markdown, truncateMarkdown } from "~/components/markdown";
 import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
 import { AvailabilityTable } from "~/routes/books/components/availability-table";
+import { EtaBadge } from "~/routes/books/components/eta-badge";
+import { FormatIcon } from "~/components/format-icon";
+import { useSeriesEnriched } from "./hooks/use-series-enriched";
+import type { SeriesBookEnriched } from "./lib/series-enrichment";
 
 type LoaderData = {
   libraries: LibraryConfig[];
@@ -176,7 +180,9 @@ export default function BookDetails() {
   const [ratings, setRatings] = useState<WorkRatings | null>(null);
   const [edSummary, setEdSummary] = useState<EditionSummary | null>(null);
   const [series, setSeries] = useState<SeriesBook[]>([]);
+  const [seriesLoading, setSeriesLoading] = useState(false);
   const [seriesName, setSeriesName] = useState<string | null>(null);
+  const [seriesShowAll, setSeriesShowAll] = useState(false);
   const [authorNames, setAuthorNames] = useState<Record<string, string>>({});
   const [availability, setAvailability] = useState<BookAvailability | null>(null);
   const [availLoading, setAvailLoading] = useState(false);
@@ -185,6 +191,19 @@ export default function BookDetails() {
   const [existingBook, setExistingBook] = useState<Book | undefined>(initialExistingBook);
   const [isRead, setIsRead] = useState(false);
   const [authorFollowed, setAuthorFollowed] = useState(false);
+  // Snapshots of the user's local shelf used to render at-a-glance status
+  // badges on each card in the "More in this series" section. We refresh
+  // these locally after add/mark-read mutations so the section reflects
+  // the new state without a page reload.
+  const [allUserBooks, setAllUserBooks] = useState<Book[]>(() => getBooks());
+  const [allReadBooks, setAllReadBooks] = useState(() => getReadBooks());
+  const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
+
+  const showToast = (message: string) => {
+    const id = Date.now();
+    setToast({ id, message });
+    setTimeout(() => setToast((cur) => (cur?.id === id ? null : cur)), 3000);
+  };
 
   // Local fallback so the page can render before Open Library responds.
   const fallbackTitle = existingBook?.canonicalTitle ?? existingBook?.title;
@@ -340,15 +359,82 @@ export default function BookDetails() {
 
   // Once we have a series name (from Libby), pull related books from OL
   useEffect(() => {
-    if (!seriesName) return;
+    if (!seriesName) {
+      setSeries([]);
+      setSeriesLoading(false);
+      return;
+    }
     let cancelled = false;
-    void searchSeriesBooks(seriesName).then((books) => {
-      if (!cancelled) setSeries(books.filter((b) => b.workId !== workId));
-    });
+    setSeriesLoading(true);
+    // Pass the author so OL fallback queries (e.g. `series:Gamache`) don't
+    // pick up unrelated series that happen to share a token.
+    void searchSeriesBooks(seriesName, { author: displayAuthor })
+      .then((books) => {
+        if (!cancelled) setSeries(books);
+      })
+      .finally(() => {
+        if (!cancelled) setSeriesLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [seriesName, workId]);
+  }, [seriesName, displayAuthor]);
+
+  const { books: enrichedSeries, enriching: enrichingSeries } = useSeriesEnriched(
+    series,
+    seriesName,
+    libraries,
+  );
+
+  // Index the user's shelf once so per-card status lookups don't keep
+  // walking the full books / reads arrays on every render.
+  const userShelfIndex = useMemo(() => {
+    const byWorkId = new Map<string, Book>();
+    const byTitleAuthor = new Map<string, Book>();
+    for (const b of allUserBooks) {
+      if (b.workId) byWorkId.set(b.workId, b);
+      const k = `${b.title.toLowerCase().trim()}\0${b.author.toLowerCase().trim()}`;
+      byTitleAuthor.set(k, b);
+    }
+    const readKeys = new Set(allReadBooks.map((r) => r.key));
+    return { byWorkId, byTitleAuthor, readKeys };
+  }, [allUserBooks, allReadBooks]);
+
+  function seriesBookStatus(b: SeriesBookEnriched): "read" | "on-list" | "none" {
+    const author = b.authorName ?? displayAuthor;
+    const rk = readBookKey({ workId: b.workId, title: b.title, author });
+    if (userShelfIndex.readKeys.has(rk)) return "read";
+    const onShelf =
+      userShelfIndex.byWorkId.get(b.workId) ??
+      userShelfIndex.byTitleAuthor.get(
+        `${b.title.toLowerCase().trim()}\0${author.toLowerCase().trim()}`,
+      );
+    if (onShelf) {
+      if (onShelf.status === "finished") return "read";
+      return "on-list";
+    }
+    return "none";
+  }
+
+  function handleAddSeriesBook(b: SeriesBookEnriched) {
+    const author = b.authorName ?? displayAuthor;
+    const imageUrl = b.coverId
+      ? `https://covers.openlibrary.org/b/id/${b.coverId}-M.jpg`
+      : b.coverUrl;
+    addBook({
+      title: b.title,
+      author,
+      // Only persist a workId when we actually have one — empty strings
+      // would break /books cards that link via /book/<workId>.
+      ...(b.workId ? { workId: b.workId } : {}),
+      source: "unknown",
+      firstPublishYear: b.firstPublishYear,
+      imageUrl,
+      status: "wantToRead",
+    });
+    setAllUserBooks(getBooks());
+    showToast(`Added "${b.title}" to your want-to-read list`);
+  }
 
   // Recompute local-state flags when work / display info shifts.
   useEffect(() => {
@@ -412,12 +498,14 @@ export default function BookDetails() {
       status: "wantToRead",
     });
     setExistingBook(findExistingBook(workId));
+    setAllUserBooks(getBooks());
   };
 
   const handleRemoveFromList = () => {
     if (!existingBook) return;
     removeBook(existingBook.id);
     setExistingBook(undefined);
+    setAllUserBooks(getBooks());
   };
 
   const handleToggleRead = () => {
@@ -441,6 +529,8 @@ export default function BookDetails() {
         });
       }
     }
+    setAllReadBooks(getReadBooks());
+    setAllUserBooks(getBooks());
   };
 
   const handleFollowAuthor = () => {
@@ -460,6 +550,23 @@ export default function BookDetails() {
   return (
     <CrumbStateProvider value={outgoingCrumbState}>
       <main className="min-h-screen py-8 px-4">
+        {toast && (
+          <div
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-sm shadow-lg border border-emerald-200 dark:border-emerald-800 max-w-[90vw]"
+            role="status"
+          >
+            <svg
+              className="w-4 h-4 flex-shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            <span className="truncate">{toast.message}</span>
+          </div>
+        )}
         <div className="max-w-3xl mx-auto">
           <div className="mb-3">
             <DetailBackLink
@@ -544,7 +651,18 @@ export default function BookDetails() {
                 {availability?.seriesInfo && (
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                     Book {availability.seriesInfo.readingOrder} in{" "}
-                    <span className="italic">{availability.seriesInfo.seriesName}</span>
+                    <a
+                      href="#series"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        document
+                          .getElementById("series")
+                          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                      className="italic text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 underline-offset-2 hover:underline"
+                    >
+                      {availability.seriesInfo.seriesName}
+                    </a>
                   </p>
                 )}
 
@@ -751,49 +869,63 @@ export default function BookDetails() {
           )}
 
           {/* Series */}
-          {seriesName && series.length > 0 && (
-            <section className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+          {seriesName && (seriesLoading || enrichedSeries.length > 0) && (
+            <section
+              id="series"
+              className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 scroll-mt-4"
+            >
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
                 More in <span className="italic">{seriesName}</span>
+                {enrichingSeries && enrichedSeries.length > 0 && (
+                  <span
+                    className="inline-block w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin"
+                    title="Checking your libraries"
+                  />
+                )}
               </h2>
-              <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {series.slice(0, 12).map((b) => (
-                  <li key={b.workId}>
-                    <Link
-                      to={`/book/${b.workId}`}
-                      state={outgoingCrumbState}
-                      className="block group rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                    >
-                      <div className="flex gap-3 items-start">
-                        {b.coverId ? (
-                          <img
-                            src={`https://covers.openlibrary.org/b/id/${b.coverId}-M.jpg`}
-                            alt=""
-                            className="w-12 aspect-[2/3] object-cover rounded flex-shrink-0"
-                          />
-                        ) : (
-                          <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
-                        )}
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 group-hover:text-amber-600 dark:group-hover:text-amber-400">
-                            {b.title}
-                          </p>
-                          {b.authorName && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                              {b.authorName}
-                            </p>
-                          )}
-                          {b.firstPublishYear && (
-                            <p className="text-xs text-gray-400 dark:text-gray-500">
-                              {b.firstPublishYear}
-                            </p>
-                          )}
-                        </div>
+              {seriesLoading && enrichedSeries.length === 0 ? (
+                <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {[0, 1, 2].map((i) => (
+                    <li key={i} className="flex gap-3 items-start p-2">
+                      <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0 animate-pulse" />
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded animate-pulse w-2/3" />
                       </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <>
+                  <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {(seriesShowAll ? enrichedSeries : enrichedSeries.slice(0, 12)).map((b) => (
+                      <SeriesCard
+                        // workId can be empty for Libby-only rows that haven't
+                        // resolved one yet; falling back to readingOrder + title
+                        // keeps every key unique so React doesn't collapse two
+                        // distinct cards onto each other.
+                        key={b.workId || `${b.readingOrder ?? "x"}-${b.title}`}
+                        book={b}
+                        isCurrent={!!b.workId && b.workId === workId}
+                        status={seriesBookStatus(b)}
+                        crumbState={outgoingCrumbState}
+                        onAdd={() => handleAddSeriesBook(b)}
+                      />
+                    ))}
+                  </ul>
+                  {enrichedSeries.length > 12 && (
+                    <button
+                      type="button"
+                      onClick={() => setSeriesShowAll((s) => !s)}
+                      className="mt-3 text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                    >
+                      {seriesShowAll
+                        ? "Show fewer"
+                        : `Show all ${enrichedSeries.length} books in series`}
+                    </button>
+                  )}
+                </>
+              )}
             </section>
           )}
 
@@ -840,5 +972,193 @@ export default function BookDetails() {
         </div>
       </main>
     </CrumbStateProvider>
+  );
+}
+
+interface SeriesCardProps {
+  book: SeriesBookEnriched;
+  isCurrent: boolean;
+  status: "read" | "on-list" | "none";
+  crumbState: ReturnType<typeof useOutgoingCrumbState>;
+  onAdd: () => void;
+}
+
+/**
+ * Per-book card in the "More in this series" grid. Renders a Link wrapper
+ * (always navigable to the sibling book), a status badge ("This book" /
+ * "Read" / "On list") and a Libby availability mini-badge. When the book
+ * isn't on the user's shelf, an absolutely-positioned "+ Want to read"
+ * button overlays the top-right corner — kept outside the Link so its
+ * click doesn't navigate.
+ */
+function SeriesCard({ book, isCurrent, status, crumbState, onAdd }: SeriesCardProps) {
+  const av = book.availability;
+  const ringClass = isCurrent
+    ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
+    : status === "read"
+      ? "bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-900/40"
+      : "border-transparent hover:bg-gray-50 dark:hover:bg-gray-700/50";
+  const titleClass = isCurrent
+    ? "text-amber-700 dark:text-amber-300"
+    : status === "read"
+      ? "text-gray-500 dark:text-gray-400 line-through decoration-1"
+      : "text-gray-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400";
+
+  const showAddButton = !isCurrent && status === "none";
+
+  // Prefer the OL coverId when known (stable, predictable size), fall
+  // back to Libby's cover URL — important for Libby-derived rows that
+  // haven't resolved a workId yet.
+  const coverSrc = book.coverId
+    ? `https://covers.openlibrary.org/b/id/${book.coverId}-M.jpg`
+    : book.coverUrl;
+
+  // Every series card is clickable. Resolved OL workIds get a direct
+  // /book/<id> link; rows still pending (or where OL has no record)
+  // fall through to /book/find which resolves on-demand and either
+  // redirects or lands on a fallback page that still lets the user
+  // shelve the book. Falls back to a plain div only when we have
+  // neither workId nor author (very rare — Libby items always come
+  // with a creator).
+  const cardClass = `block group rounded-lg p-2 border transition-colors ${ringClass}`;
+  const linkTarget = book.workId
+    ? `/book/${book.workId}`
+    : book.authorName
+      ? `/book/find?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.authorName)}${coverSrc ? `&cover=${encodeURIComponent(coverSrc)}` : ""}`
+      : null;
+
+  const cardBody = (
+    <div className="flex gap-3 items-start">
+      {coverSrc ? (
+        <img
+          src={coverSrc}
+          alt=""
+          className={`w-12 aspect-[2/3] object-cover rounded flex-shrink-0 ${status === "read" ? "opacity-70" : ""}`}
+        />
+      ) : (
+        <div className="w-12 aspect-[2/3] bg-gray-100 dark:bg-gray-700 rounded flex-shrink-0" />
+      )}
+      <div className="min-w-0 flex-1">
+        {book.readingOrder && (
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">
+            #{book.readingOrder}
+          </p>
+        )}
+        <p className={`text-sm font-medium line-clamp-2 ${titleClass}`}>{book.title}</p>
+        {book.authorName && !isCurrent && (
+          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{book.authorName}</p>
+        )}
+        {book.firstPublishYear && (
+          <p className="text-xs text-gray-400 dark:text-gray-500">{book.firstPublishYear}</p>
+        )}
+        <SeriesCardStatusRow isCurrent={isCurrent} status={status} availability={av} />
+      </div>
+    </div>
+  );
+
+  return (
+    <li className="relative">
+      {linkTarget ? (
+        <Link to={linkTarget} state={crumbState} className={cardClass}>
+          {cardBody}
+        </Link>
+      ) : (
+        <div className={cardClass}>{cardBody}</div>
+      )}
+      {showAddButton && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onAdd();
+          }}
+          aria-label={`Add ${book.title} to want to read`}
+          title="Add to want to read"
+          className="absolute top-1 right-1 w-7 h-7 inline-flex items-center justify-center rounded-full bg-white/90 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 text-amber-600 hover:text-white hover:bg-amber-600 hover:border-amber-600 dark:text-amber-400 dark:hover:text-white shadow-sm transition-colors"
+        >
+          <svg
+            className="w-3.5 h-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+        </button>
+      )}
+    </li>
+  );
+}
+
+function SeriesCardStatusRow({
+  isCurrent,
+  status,
+  availability,
+}: {
+  isCurrent: boolean;
+  status: "read" | "on-list" | "none";
+  availability: SeriesBookEnriched["availability"];
+}) {
+  if (isCurrent) {
+    return (
+      <p className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400 mt-1">
+        This book
+      </p>
+    );
+  }
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      {status === "read" && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+          <svg
+            className="w-3 h-3"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+          </svg>
+          Read
+        </span>
+      )}
+      {status === "on-list" && (
+        <span className="text-[10px] uppercase tracking-wide font-medium text-amber-700 dark:text-amber-400">
+          On list
+        </span>
+      )}
+      {availability && availability.inLibrary && (
+        <>
+          {availability.formats.length > 0 && (
+            <span className="flex gap-0.5 text-gray-400 dark:text-gray-500">
+              {availability.formats.includes("ebook") && (
+                <span className="[&_svg]:w-3 [&_svg]:h-3">
+                  <FormatIcon type="ebook" />
+                </span>
+              )}
+              {availability.formats.includes("audiobook") && (
+                <span className="[&_svg]:w-3 [&_svg]:h-3">
+                  <FormatIcon type="audiobook" />
+                </span>
+              )}
+            </span>
+          )}
+          {availability.isAvailable ? (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">
+              Now
+            </span>
+          ) : availability.estimatedWaitDays != null ? (
+            <EtaBadge days={availability.estimatedWaitDays} />
+          ) : (
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">Wait</span>
+          )}
+        </>
+      )}
+      {availability && !availability.inLibrary && (
+        <span className="text-[10px] text-gray-400 dark:text-gray-500">Not at libraries</span>
+      )}
+    </div>
   );
 }

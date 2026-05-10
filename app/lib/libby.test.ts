@@ -140,6 +140,60 @@ describe("searchLibrary", () => {
     );
     await expect(searchLibrary("lapl", "test")).rejects.toThrow("Libby API error: 500");
   });
+
+  it("walks pages until the response stops advertising a `next` page", async () => {
+    // Real Libby query for a long series (Penny's Gamache) returns
+    // `totalItems: 47` paginated as 24+23. Without walking the cursor
+    // the series page on /book/<id> only saw the first 24 items and
+    // half the books were missing.
+    const pagesSeen: number[] = [];
+    worker.use(
+      http.get(
+        "https://thunder.api.overdrive.com/v2/libraries/:libraryKey/media",
+        ({ request }) => {
+          const url = new URL(request.url);
+          const page = parseInt(url.searchParams.get("page") ?? "1", 10);
+          pagesSeen.push(page);
+          if (page === 1) {
+            return HttpResponse.json({
+              items: [
+                makeMediaItem({ id: "p1-a" }),
+                makeMediaItem({ id: "p1-b" }),
+                makeMediaItem({ id: "p1-c" }),
+              ],
+              totalItems: 5,
+              links: { self: { page: 1 }, last: { page: 2 }, next: { page: 2 } },
+            });
+          }
+          return HttpResponse.json({
+            items: [makeMediaItem({ id: "p2-a" }), makeMediaItem({ id: "p2-b" })],
+            totalItems: 5,
+            links: { self: { page: 2 }, last: { page: 2 } },
+          });
+        },
+      ),
+    );
+    const items = await searchLibrary("lapl", "Long Series");
+    expect(pagesSeen).toEqual([1, 2]);
+    expect(items.map((i) => i.id)).toEqual(["p1-a", "p1-b", "p1-c", "p2-a", "p2-b"]);
+  });
+
+  it("stops walking when the response has no `next` link", async () => {
+    let calls = 0;
+    worker.use(
+      http.get("https://thunder.api.overdrive.com/v2/libraries/:libraryKey/media", () => {
+        calls++;
+        return HttpResponse.json({
+          items: [makeMediaItem({ id: "only" })],
+          totalItems: 1,
+          links: { self: { page: 1 }, last: { page: 1 } },
+        });
+      }),
+    );
+    const items = await searchLibrary("lapl", "Short Series");
+    expect(calls).toBe(1);
+    expect(items).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -255,18 +309,28 @@ describe("findBookInLibrary", () => {
     });
 
     it("takes at most 3 items from ISBN search", async () => {
+      // Return 5 items only for the ISBN query; the text-search backfill
+      // phase that runs after ISBN now (see "backfills the audiobook
+      // edition…" test below) needs an empty response or it would push
+      // the count past the cap.
       worker.use(
-        http.get("https://thunder.api.overdrive.com/v2/libraries/:libraryKey/media", () => {
-          return HttpResponse.json({
-            items: [
-              makeMediaItem({ id: "m-1" }),
-              makeMediaItem({ id: "m-2" }),
-              makeMediaItem({ id: "m-3" }),
-              makeMediaItem({ id: "m-4" }),
-              makeMediaItem({ id: "m-5" }),
-            ],
-          });
-        }),
+        http.get(
+          "https://thunder.api.overdrive.com/v2/libraries/:libraryKey/media",
+          ({ request }) => {
+            const url = new URL(request.url);
+            const query = url.searchParams.get("query") ?? "";
+            if (query !== "9780316452502") return HttpResponse.json({ items: [] });
+            return HttpResponse.json({
+              items: [
+                makeMediaItem({ id: "m-1" }),
+                makeMediaItem({ id: "m-2" }),
+                makeMediaItem({ id: "m-3" }),
+                makeMediaItem({ id: "m-4" }),
+                makeMediaItem({ id: "m-5" }),
+              ],
+            });
+          },
+        ),
       );
       const result = await findBookInLibrary("lapl", "Children of Time", "Adrian Tchaikovsky", {
         primaryIsbn: "9780316452502",
@@ -304,6 +368,55 @@ describe("findBookInLibrary", () => {
       });
       expect(getAlternateIsbns).not.toHaveBeenCalled();
       expect(result.results.length).toBeGreaterThan(0);
+    });
+
+    it("backfills the audiobook edition via text search after the primary ISBN finds only the ebook", async () => {
+      // Real-world bug: OverDrive assigns a separate ISBN to each format,
+      // so a book whose stored isbn13 is its ebook ISBN was rendering on
+      // /books with only the ebook ETA — even though the audiobook was
+      // sitting right there at the same library, and the book details
+      // page (which falls back to text search) showed both formats.
+      // After the ISBN phase, the text-search phase has to run too so
+      // the audiobook gets picked up as a same-title match.
+      worker.use(
+        http.get(
+          "https://thunder.api.overdrive.com/v2/libraries/:libraryKey/media",
+          ({ request }) => {
+            const url = new URL(request.url);
+            const query = url.searchParams.get("query") ?? "";
+            // ISBN query: return only the ebook edition keyed to that ISBN.
+            if (query === "9780316452502") {
+              return HttpResponse.json({
+                items: [
+                  makeMediaItem({
+                    id: "ebook-id",
+                    type: { id: "ebook", name: "eBook" },
+                  }),
+                ],
+              });
+            }
+            // Title-based query: returns both editions.
+            return HttpResponse.json({
+              items: [
+                makeMediaItem({ id: "ebook-id", type: { id: "ebook", name: "eBook" } }),
+                makeMediaItem({
+                  id: "audio-id",
+                  type: { id: "audiobook", name: "Audiobook" },
+                }),
+              ],
+            });
+          },
+        ),
+      );
+      const result = await findBookInLibrary("lapl", "Children of Time", "Adrian Tchaikovsky", {
+        primaryIsbn: "9780316452502",
+      });
+      const formats = new Set(result.results.map((r) => r.formatType));
+      expect(formats.has("ebook")).toBe(true);
+      expect(formats.has("audiobook")).toBe(true);
+      // Both editions should appear exactly once — seenIds dedup must
+      // skip the ebook the ISBN phase already added.
+      expect(result.results.filter((r) => r.mediaItem.id === "ebook-id")).toHaveLength(1);
     });
 
     it("handles alternate ISBN resolver failure gracefully", async () => {

@@ -71,8 +71,13 @@ function get<T>(key: string): T | null {
 function set(key: string, value: unknown) {
   try {
     localStorage.setItem(PREFIX + key, JSON.stringify(value));
-  } catch {
-    // Ignore quota errors
+  } catch (err) {
+    // Quota / serialization errors used to be swallowed silently, which
+    // hid a real "PDS sync looked successful but local count never grew"
+    // bug for users with bloated availability caches. Log the failure
+    // so devtools shows what's happening; callers still tolerate the
+    // miss so the rest of the app keeps working.
+    console.error(`[storage] set("${key}") failed; localStorage may be full`, err);
   }
 }
 
@@ -214,13 +219,14 @@ export function updateBook(id: string, updates: Partial<Book>) {
   emitMutation({ kind: "book:updated", book: updated });
 }
 
-export function addBook(book: Omit<Book, "id" | "manual">) {
+export function addBook(book: Omit<Book, "id" | "manual">): Book {
   const books = getBooks();
   const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const newBook: Book = { ...book, id, manual: true };
   books.push(newBook);
   writeBooks(books);
   emitMutation({ kind: "book:added", book: newBook });
+  return newBook;
 }
 
 export function removeBook(id: string) {
