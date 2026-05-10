@@ -336,10 +336,16 @@ export async function findBookInLibrary(
     }
   }
 
-  // Phase 2: text search fallback. The contentWordsMatch gate now requires
-  // every search content word to be present in the result title, so series
-  // books like "Children of Ruin" no longer match "Children of Time".
-  if (result.results.length === 0) {
+  // Phase 2: text search. Runs even when an ISBN search already found
+  // something, because OverDrive assigns a different ISBN to each format
+  // edition (ebook vs audiobook vs large-print) — looking up by one
+  // ISBN reliably surfaces only one format. The text search backfills
+  // the other format(s) under the same title; seenIds dedups items the
+  // ISBN phase already added. The contentWordsMatch gate prevents
+  // series-mate false positives (e.g. "Children of Ruin" matching a
+  // search for "Children of Time").
+  {
+    const isbnHadResults = result.results.length > 0;
     const queries = [
       `${author} ${title}`,
       title.includes(":") ? `${author} ${title.split(":")[0].trim()}` : null,
@@ -367,6 +373,11 @@ export async function findBookInLibrary(
         // Continue to next query
       }
 
+      // When ISBN already had results, one text-search pass is enough
+      // to backfill the other format — looser queries from here would
+      // just risk false positives. When ISBN found nothing, keep
+      // walking the ladder until any query hits.
+      if (isbnHadResults) break;
       if (result.results.length > 0) break;
     }
   }

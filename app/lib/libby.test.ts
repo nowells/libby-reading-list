@@ -306,6 +306,55 @@ describe("findBookInLibrary", () => {
       expect(result.results.length).toBeGreaterThan(0);
     });
 
+    it("backfills the audiobook edition via text search after the primary ISBN finds only the ebook", async () => {
+      // Real-world bug: OverDrive assigns a separate ISBN to each format,
+      // so a book whose stored isbn13 is its ebook ISBN was rendering on
+      // /books with only the ebook ETA — even though the audiobook was
+      // sitting right there at the same library, and the book details
+      // page (which falls back to text search) showed both formats.
+      // After the ISBN phase, the text-search phase has to run too so
+      // the audiobook gets picked up as a same-title match.
+      worker.use(
+        http.get(
+          "https://thunder.api.overdrive.com/v2/libraries/:libraryKey/media",
+          ({ request }) => {
+            const url = new URL(request.url);
+            const query = url.searchParams.get("query") ?? "";
+            // ISBN query: return only the ebook edition keyed to that ISBN.
+            if (query === "9780316452502") {
+              return HttpResponse.json({
+                items: [
+                  makeMediaItem({
+                    id: "ebook-id",
+                    type: { id: "ebook", name: "eBook" },
+                  }),
+                ],
+              });
+            }
+            // Title-based query: returns both editions.
+            return HttpResponse.json({
+              items: [
+                makeMediaItem({ id: "ebook-id", type: { id: "ebook", name: "eBook" } }),
+                makeMediaItem({
+                  id: "audio-id",
+                  type: { id: "audiobook", name: "Audiobook" },
+                }),
+              ],
+            });
+          },
+        ),
+      );
+      const result = await findBookInLibrary("lapl", "Children of Time", "Adrian Tchaikovsky", {
+        primaryIsbn: "9780316452502",
+      });
+      const formats = new Set(result.results.map((r) => r.formatType));
+      expect(formats.has("ebook")).toBe(true);
+      expect(formats.has("audiobook")).toBe(true);
+      // Both editions should appear exactly once — seenIds dedup must
+      // skip the ebook the ISBN phase already added.
+      expect(result.results.filter((r) => r.mediaItem.id === "ebook-id")).toHaveLength(1);
+    });
+
     it("handles alternate ISBN resolver failure gracefully", async () => {
       worker.use(
         http.get("https://thunder.api.overdrive.com/v2/libraries/:libraryKey/media", () => {
