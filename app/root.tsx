@@ -9,6 +9,7 @@ import {
 } from "react-router";
 
 import { SwUpdateNotification } from "~/components/sw-update-notification";
+import { StorageQuotaWarning } from "~/components/storage-quota-warning";
 import { ThemeSelector } from "~/components/theme-selector";
 import { Logo } from "~/components/logo";
 import type { Route } from "./+types/root";
@@ -69,6 +70,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body className="min-h-screen flex flex-col">
         <SwUpdateNotification />
+        <StorageQuotaWarning />
         <div className="flex-1">{children}</div>
         <footer className="py-4 text-center text-sm text-gray-400 dark:text-gray-500">
           <div className="flex items-center justify-center gap-2 flex-wrap">

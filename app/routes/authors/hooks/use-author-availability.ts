@@ -2,7 +2,13 @@ import { useEffect, useCallback, useRef, useState, useSyncExternalStore } from "
 import type { AuthorEntry, LibraryConfig } from "~/lib/storage";
 import { resolveAuthorKey, getAuthorWorks } from "~/lib/openlibrary-author";
 import { searchLibrary, type LibbyMediaItem, type AvailabilityInfo } from "~/lib/libby";
-import { getCachedAuthor, setCachedAuthor, readAuthorCache, authorCacheMaxAge } from "../lib/cache";
+import {
+  getCachedAuthor,
+  setCachedAuthor,
+  readAuthorCache,
+  authorCacheMaxAge,
+  whenAuthorAvailabilityCacheReady,
+} from "../lib/cache";
 import { extractAvailability, getFormatType, dedupeWorks, dedupeLibbyResults } from "../lib/utils";
 
 export interface AuthorBookResult {
@@ -82,6 +88,10 @@ async function loadAuthor(
   const promise = (async () => {
     // Cache check
     if (!loadOpts.skipCache) {
+      // Cache is IDB-backed and hydrates asynchronously. Await hydration so a
+      // cold load doesn't refire the entire author resolve + Libby fanout
+      // when a fresh cached entry is sitting in IDB.
+      await whenAuthorAvailabilityCacheReady();
       const cached = getCachedAuthor(author.id);
       if (cached) {
         setGlobalState((prev) => ({

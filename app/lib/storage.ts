@@ -69,16 +69,70 @@ function get<T>(key: string): T | null {
 }
 
 function set(key: string, value: unknown) {
+  const serialized = JSON.stringify(value);
   try {
-    localStorage.setItem(PREFIX + key, JSON.stringify(value));
+    localStorage.setItem(PREFIX + key, serialized);
+    return;
   } catch (err) {
-    // Quota / serialization errors used to be swallowed silently, which
-    // hid a real "PDS sync looked successful but local count never grew"
-    // bug for users with bloated availability caches. Log the failure
-    // so devtools shows what's happening; callers still tolerate the
-    // miss so the rest of the app keeps working.
-    console.error(`[storage] set("${key}") failed; localStorage may be full`, err);
+    if (!isQuotaError(err)) {
+      console.error(`[storage] set("${key}") failed`, err);
+      return;
+    }
+    // Try to recover: legacy availability caches used to share this 5 MB
+    // budget and were the most common quota hog. Drop them and retry once.
+    // (The IDB migration usually frees these on hydrate, but on a cold load
+    // a books write can race the migration.)
+    if (recoverQuotaSpace()) {
+      try {
+        localStorage.setItem(PREFIX + key, serialized);
+        return;
+      } catch (retryErr) {
+        if (!isQuotaError(retryErr)) {
+          console.error(`[storage] set("${key}") retry failed`, retryErr);
+          return;
+        }
+      }
+    }
+    console.error(`[storage] set("${key}") failed: localStorage quota exceeded`, err);
+    notifyQuotaExceeded(key);
   }
+}
+
+function isQuotaError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  // QuotaExceededError surfaces under different names across browsers.
+  return (
+    err.name === "QuotaExceededError" ||
+    err.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    // Older WebKit reports code 22; chromium 1014.
+    (err as DOMException).code === 22 ||
+    (err as DOMException).code === 1014
+  );
+}
+
+const LEGACY_CACHE_KEYS = ["shelfcheck:availability", "shelfcheck:author-availability"];
+
+function recoverQuotaSpace(): boolean {
+  let recovered = false;
+  for (const key of LEGACY_CACHE_KEYS) {
+    try {
+      if (localStorage.getItem(key) != null) {
+        localStorage.removeItem(key);
+        recovered = true;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return recovered;
+}
+
+let quotaWarningSurfaced = false;
+function notifyQuotaExceeded(key: string) {
+  if (quotaWarningSurfaced) return;
+  quotaWarningSurfaced = true;
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("shelfcheck:storage-quota-exceeded", { detail: { key } }));
 }
 
 function remove(key: string) {

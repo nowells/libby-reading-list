@@ -1,6 +1,7 @@
 import type { BookAvailability } from "~/lib/libby";
+import { IdbCache } from "~/lib/idb-cache";
 
-const CACHE_KEY = "shelfcheck:availability";
+const LEGACY_KEY = "shelfcheck:availability";
 const AVAILABLE_NOW_CACHE_MS = 1 * 60 * 60 * 1000; // 1 hour — available books can disappear
 const MIN_CACHE_MS = 2 * 60 * 60 * 1000; // 2 hours
 const DEFAULT_CACHE_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -10,21 +11,28 @@ interface CachedEntry {
   fetchedAt: number;
 }
 
-export function readCache(): Record<string, CachedEntry> {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+const cache = new IdbCache<CachedEntry>({
+  // Each IdbCache opens its own IDB database to avoid two caches racing on
+  // a shared schema upgrade. We don't share a database across caches because
+  // there is no coordination layer to declare both stores at the same
+  // version.
+  dbName: "shelfcheck-availability",
+  storeName: "entries",
+  legacyLocalStorageKey: LEGACY_KEY,
+  // 5000 books per user is well past any realistic reading list while still
+  // capping IDB usage at ~50 MB worst-case per book payload.
+  maxEntries: 5000,
+});
+
+/** Resolves once the IDB-backed cache has finished its initial load. */
+export function whenAvailabilityCacheReady(): Promise<void> {
+  return cache.whenHydrated();
 }
 
-function writeCache(cache: Record<string, CachedEntry>) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // Ignore quota errors
-  }
+export function readCache(): Record<string, CachedEntry> {
+  const out: Record<string, CachedEntry> = {};
+  for (const [key, value] of cache.entries()) out[key] = value;
+  return out;
 }
 
 export function cacheMaxAge(entry: CachedEntry): number {
@@ -58,15 +66,22 @@ export function cacheMaxAge(entry: CachedEntry): number {
 }
 
 export function getCached(bookId: string): CachedEntry | null {
-  const cache = readCache();
-  const entry = cache[bookId];
+  const entry = cache.get(bookId);
   if (!entry) return null;
   if (Date.now() - entry.fetchedAt > cacheMaxAge(entry)) return null;
   return entry;
 }
 
 export function setCached(bookId: string, data: BookAvailability) {
-  const cache = readCache();
-  cache[bookId] = { data, fetchedAt: Date.now() };
-  writeCache(cache);
+  cache.set(bookId, { data, fetchedAt: Date.now() });
+}
+
+/** Test-only: drop the in-memory and persisted caches between cases. */
+export function __resetAvailabilityCacheForTest(): Promise<void> {
+  return cache.__resetForTest();
+}
+
+/** Test-only: backdate an entry's fetchedAt without round-tripping IDB. */
+export function __backdateAvailabilityForTest(bookId: string, fetchedAt: number): void {
+  cache.__backdateForTest(bookId, fetchedAt);
 }

@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { getBooks, getLibraries, getAuthors, type Book, type LibraryConfig } from "~/lib/storage";
 import { getWorkMetadata } from "~/lib/openlibrary";
 import { updateBook } from "~/lib/storage";
-import { readCache } from "~/routes/books/lib/cache";
+import { readCache, whenAvailabilityCacheReady } from "~/routes/books/lib/cache";
 import { categorizeBook, type BookCategory } from "~/routes/books/lib/categorize";
 
 export const handle = { navActive: "stats", pageTitle: "Library Stats" };
@@ -339,8 +339,19 @@ export default function Stats() {
     return books;
   }, [books, metaProgress]);
 
-  // Read availability cache
-  const availCache = useMemo(() => readCache(), []);
+  // Read availability cache. The cache lives in IndexedDB and hydrates
+  // asynchronously, so we re-read once hydration completes — otherwise stats
+  // on a cold load would show every book as "unknown availability".
+  const [availCache, setAvailCache] = useState(() => readCache());
+  useEffect(() => {
+    let cancelled = false;
+    void whenAvailabilityCacheReady().then(() => {
+      if (!cancelled) setAvailCache(readCache());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // --- Compute all stats ---
 

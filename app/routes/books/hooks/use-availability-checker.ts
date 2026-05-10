@@ -3,7 +3,13 @@ import type { Book, LibraryConfig } from "~/lib/storage";
 import { updateBook } from "~/lib/storage";
 import { findBookInLibrary, type BookAvailability } from "~/lib/libby";
 import { getWorkEditionIsbns, enrichBooksWithWorkId } from "~/lib/openlibrary";
-import { readCache, cacheMaxAge, getCached, setCached } from "../lib/cache";
+import {
+  readCache,
+  cacheMaxAge,
+  getCached,
+  setCached,
+  whenAvailabilityCacheReady,
+} from "../lib/cache";
 import type { BookAvailState } from "../lib/categorize";
 import { mergeAvailabilityResults } from "../lib/merge-results";
 
@@ -147,97 +153,107 @@ export function useAvailabilityChecker(
 
     const forceRefresh = refreshToken > 0;
 
-    const initial: Record<string, BookAvailState> = {};
-    const toFetch: Book[] = [];
+    void (async () => {
+      // Cache lives in IndexedDB now and hydrates asynchronously. Await
+      // hydration before classifying so cached entries don't masquerade as
+      // misses on a cold page load (which would re-fetch every book).
+      await whenAvailabilityCacheReady();
+      if (cancelledRef.current) return;
 
-    for (const book of books) {
-      if (forceRefresh) {
-        // Keep existing data visible while refreshing
-        const existing = availMapRef.current[book.id];
-        initial[book.id] = existing?.data
-          ? { ...existing, status: "loading" }
-          : { status: "pending" };
-        toFetch.push(book);
-        continue;
-      }
-      const cached = getCached(book.id);
-      if (cached) {
-        initial[book.id] = {
-          status: "cached",
-          data: cached.data,
-          fetchedAt: cached.fetchedAt,
-        };
-      } else {
-        initial[book.id] = { status: "pending" };
-        toFetch.push(book);
-      }
-    }
-    setAvailMap(initial);
+      const initial: Record<string, BookAvailState> = {};
+      const toFetch: Book[] = [];
 
-    if (toFetch.length === 0) {
-      refreshingRef.current = false;
-      return;
-    }
-
-    // Re-enrich books missing workId from OpenLibrary before availability check
-    const needsEnrichment = toFetch.filter((b) => !b.workId && (b.isbn13 || (b.title && b.author)));
-
-    const enrichmentDone =
-      needsEnrichment.length > 0
-        ? enrichBooksWithWorkId(needsEnrichment, {
-            onProgress: (done, total) => setEnrichmentProgress({ done, total }),
-          }).then((enrichedBooks) => {
-            setEnrichmentProgress(null);
-            if (cancelledRef.current) return;
-            const enrichedMap = new Map<string, Book>();
-            for (let i = 0; i < needsEnrichment.length; i++) {
-              const orig = needsEnrichment[i];
-              const result = enrichedBooks[i];
-              if (result.workId && result.workId !== orig.workId) {
-                enrichedMap.set(orig.id, result);
-                const updates: Partial<Book> = {
-                  workId: result.workId,
-                  canonicalTitle: result.canonicalTitle,
-                  canonicalAuthor: result.canonicalAuthor,
-                  isbn13: result.isbn13,
-                };
-                updateBook(orig.id, updates);
-                onBookEnriched?.(orig.id, updates);
-              }
-            }
-            // Update toFetch entries in-place with enriched data
-            for (let i = 0; i < toFetch.length; i++) {
-              const updated = enrichedMap.get(toFetch[i].id);
-              if (updated) toFetch[i] = updated;
-            }
-          })
-        : Promise.resolve();
-
-    const CONCURRENCY = 6;
-    let idx = 0;
-
-    async function processNext(): Promise<void> {
-      await enrichmentDone;
-      while (idx < toFetch.length && !cancelledRef.current) {
-        const current = idx++;
-        const book = toFetch[current];
-        setAvailMap((prev) => ({
-          ...prev,
-          [book.id]: { ...prev[book.id], status: "loading" },
-        }));
-        const result = await fetchAndCache(book);
-        if (!cancelledRef.current) {
-          setAvailMap((prev) => ({ ...prev, [book.id]: result }));
+      for (const book of books) {
+        if (forceRefresh) {
+          // Keep existing data visible while refreshing
+          const existing = availMapRef.current[book.id];
+          initial[book.id] = existing?.data
+            ? { ...existing, status: "loading" }
+            : { status: "pending" };
+          toFetch.push(book);
+          continue;
+        }
+        const cached = getCached(book.id);
+        if (cached) {
+          initial[book.id] = {
+            status: "cached",
+            data: cached.data,
+            fetchedAt: cached.fetchedAt,
+          };
+        } else {
+          initial[book.id] = { status: "pending" };
+          toFetch.push(book);
         }
       }
-    }
+      setAvailMap(initial);
 
-    const workers = Array.from({ length: Math.min(CONCURRENCY, toFetch.length) }, () =>
-      processNext(),
-    );
-    void Promise.all(workers).then(() => {
-      refreshingRef.current = false;
-    });
+      if (toFetch.length === 0) {
+        refreshingRef.current = false;
+        return;
+      }
+
+      // Re-enrich books missing workId from OpenLibrary before availability check
+      const needsEnrichment = toFetch.filter(
+        (b) => !b.workId && (b.isbn13 || (b.title && b.author)),
+      );
+
+      const enrichmentDone =
+        needsEnrichment.length > 0
+          ? enrichBooksWithWorkId(needsEnrichment, {
+              onProgress: (done, total) => setEnrichmentProgress({ done, total }),
+            }).then((enrichedBooks) => {
+              setEnrichmentProgress(null);
+              if (cancelledRef.current) return;
+              const enrichedMap = new Map<string, Book>();
+              for (let i = 0; i < needsEnrichment.length; i++) {
+                const orig = needsEnrichment[i];
+                const result = enrichedBooks[i];
+                if (result.workId && result.workId !== orig.workId) {
+                  enrichedMap.set(orig.id, result);
+                  const updates: Partial<Book> = {
+                    workId: result.workId,
+                    canonicalTitle: result.canonicalTitle,
+                    canonicalAuthor: result.canonicalAuthor,
+                    isbn13: result.isbn13,
+                  };
+                  updateBook(orig.id, updates);
+                  onBookEnriched?.(orig.id, updates);
+                }
+              }
+              // Update toFetch entries in-place with enriched data
+              for (let i = 0; i < toFetch.length; i++) {
+                const updated = enrichedMap.get(toFetch[i].id);
+                if (updated) toFetch[i] = updated;
+              }
+            })
+          : Promise.resolve();
+
+      const CONCURRENCY = 6;
+      let idx = 0;
+
+      async function processNext(): Promise<void> {
+        await enrichmentDone;
+        while (idx < toFetch.length && !cancelledRef.current) {
+          const current = idx++;
+          const book = toFetch[current];
+          setAvailMap((prev) => ({
+            ...prev,
+            [book.id]: { ...prev[book.id], status: "loading" },
+          }));
+          const result = await fetchAndCache(book);
+          if (!cancelledRef.current) {
+            setAvailMap((prev) => ({ ...prev, [book.id]: result }));
+          }
+        }
+      }
+
+      const workers = Array.from({ length: Math.min(CONCURRENCY, toFetch.length) }, () =>
+        processNext(),
+      );
+      void Promise.all(workers).then(() => {
+        refreshingRef.current = false;
+      });
+    })();
 
     return () => {
       cancelledRef.current = true;
